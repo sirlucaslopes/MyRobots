@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Pasta "build" de todos os módulos (core/* e feature/*)
+**/build/

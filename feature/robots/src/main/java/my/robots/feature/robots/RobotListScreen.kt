@@ -1,0 +1,504 @@
+package my.robots.feature.robots
+
+import android.content.Context
+import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
+import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.SortByAlpha
+import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import my.robots.core.model.Manufacturer
+import my.robots.core.model.Robot
+import java.math.BigInteger
+import java.net.InetAddress
+import java.nio.ByteOrder
+
+/**
+ * Tela inicial: a lista dos robôs cadastrados.
+ *
+ * Os robôs são agrupados em FABRICANTE > PROJETO > ROBÔ, e cada grupo pode ser
+ * aberto ou fechado. Na barra do topo há: ordenar A-Z, o ícone do Wifi (nome da
+ * rede e IP do celular) e a engrenagem (abre as configurações de Wifi do Android).
+ * O botão "+" cadastra um robô novo.
+ *
+ * - onRobotClick: tocar no robô (abre o histórico de backups dele).
+ * - onTerminalClick: ícone de terminal do robô.
+ * - onMultiTerminalClick: ícone de terminal do projeto (todos os robôs dele).
+ * Os parâmetros onAddRobot/onUpdateRobot/onDeleteRobot/robotsList só são usados
+ * quando não há ViewModel (por exemplo, em pré-visualização).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RobotListScreen(
+    viewModel: RobotViewModel? = null,
+    robotsList: List<Robot> = emptyList(),
+    onRobotClick: (Robot) -> Unit = {},
+    onTerminalClick: (Robot) -> Unit = {},
+    onMultiTerminalClick: (String) -> Unit = {},
+    onDeleteRobot: (Robot) -> Unit = {},
+    onAddRobot: (name: String, ip: String, port: Int, project: String, manufacturer: Manufacturer, autoLogin: Boolean, loginUser: String, loginPassword: String) -> Unit = { _, _, _, _, _, _, _, _ -> },
+    onUpdateRobot: (Robot) -> Unit = {}
+) {
+    val robots by if (viewModel != null) viewModel.robots.collectAsState() else remember { mutableStateOf(robotsList) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var robotToEdit by remember { mutableStateOf<Robot?>(null) }
+    var robotToDelete by remember { mutableStateOf<Robot?>(null) }
+    var showSettingsMenu by remember { mutableStateOf(false) }
+    var sortAlphabetical by remember { mutableStateOf(false) }
+    
+    val context = LocalContext.current
+    val wifiInfo = rememberWifiInfo(context)
+
+    // Guarda quais grupos (fabricante ou projeto) estão abertos. Se não constar, o grupo está aberto.
+    val expandedSections = remember { mutableStateMapOf<String, Boolean>() }
+
+    // Nomes de projeto que já existem, para sugerir no cadastro de um robô novo.
+    val existingProjects = remember(robots) {
+        robots.map { it.project }.distinct()
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            TopAppBar(
+                title = { Text("My Robots") },
+                actions = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { sortAlphabetical = !sortAlphabetical }) {
+                            Icon(
+                                imageVector = Icons.Rounded.SortByAlpha,
+                                contentDescription = "Ordenar",
+                                tint = if (sortAlphabetical) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clickable { showSettingsMenu = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Wifi,
+                                contentDescription = "Wifi Status",
+                                tint = if (wifiInfo.isConnected) MaterialTheme.colorScheme.primary 
+                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            if (!wifiInfo.isConnected) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Disconnected",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        Box {
+                            IconButton(onClick = { showSettingsMenu = true }) {
+                                Icon(Icons.Default.Settings, contentDescription = "Settings")
+                            }
+                            DropdownMenu(
+                                expanded = showSettingsMenu,
+                                onDismissRequest = { showSettingsMenu = false }
+                            ) {
+                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                                    Text(
+                                        text = if (wifiInfo.isConnected) wifiInfo.ssid else "Desconectado",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "IP: ${wifiInfo.ip}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Configurar Wifi") },
+                                    onClick = {
+                                        showSettingsMenu = false
+                                        val intent = Intent(Settings.ACTION_WIFI_SETTINGS)
+                                        context.startActivity(intent)
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Wifi, null) }
+                                )
+                            }
+                        }
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = { showAddDialog = true },
+                modifier = Modifier.padding(bottom = 16.dp, end = 8.dp) // afasta o botão da borda de baixo
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Add Robot")
+            }
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            if (robots.isEmpty()) {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No robots registered yet.")
+                }
+            } else {
+                // Monta a árvore para mostrar na tela: Fabricante -> Projeto -> lista de robôs.
+                // Com a ordenação A-Z ligada, ordena cada nível por nome.
+                val groupedRobots = remember(robots, sortAlphabetical) {
+                    val baseGroups = robots.groupBy { it.manufacturer }.toMutableMap()
+                    
+                    // nível 1: fabricantes
+                    val sortedManufacturers = if (sortAlphabetical) {
+                        baseGroups.keys.sortedBy { it.displayName }
+                    } else {
+                        baseGroups.keys.toList()
+                    }
+
+                    sortedManufacturers.associateWith { manufacturer ->
+                        val robotsOfManufacturer = baseGroups[manufacturer] ?: emptyList()
+                        val projectGroups = robotsOfManufacturer.groupBy { it.project }
+                        
+                        // nível 2 e 3: projetos e, dentro de cada um, os robôs
+                        val sortedProjects = if (sortAlphabetical) {
+                            projectGroups.keys.sorted()
+                        } else {
+                            projectGroups.keys.toList()
+                        }
+
+                        sortedProjects.associateWith { projectName ->
+                            val robotsInProject = projectGroups[projectName] ?: emptyList()
+                            if (sortAlphabetical) {
+                                robotsInProject.sortedBy { it.name }
+                            } else {
+                                robotsInProject
+                            }
+                        }
+                    }
+                }
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(bottom = 80.dp)
+                ) {
+                    groupedRobots.forEach { (manufacturer, projects) ->
+                        item {
+                            val manufacturerKey = manufacturer.name
+                            val isExpanded = expandedSections[manufacturerKey] ?: true
+                            
+                            ManufacturerHeader(
+                                manufacturer = manufacturer,
+                                isExpanded = isExpanded,
+                                onToggle = { expandedSections[manufacturerKey] = !isExpanded }
+                            )
+                        }
+
+                        if (expandedSections[manufacturer.name] ?: true) {
+                            projects.forEach { (project, robotsInProject) ->
+                                item {
+                                    val projectKey = "${manufacturer.name}_$project"
+                                    val isProjectExpanded = expandedSections[projectKey] ?: true
+                                    
+                                    ProjectHeader(
+                                        projectName = project,
+                                        isExpanded = isProjectExpanded,
+                                        onToggle = { expandedSections[projectKey] = !isProjectExpanded },
+                                        onMultiTerminalClick = { onMultiTerminalClick(project) }
+                                    )
+                                }
+
+                                if (expandedSections["${manufacturer.name}_$project"] ?: true) {
+                                    items(robotsInProject) { robot ->
+                                        RobotItem(
+                                            robot = robot,
+                                            onClick = { onRobotClick(robot) },
+                                            onTerminalClick = { onTerminalClick(robot) },
+                                            onEdit = { robotToEdit = robot },
+                                            onDelete = { robotToDelete = robot }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Janela de cadastro de um robô novo.
+        if (showAddDialog) {
+            RobotDialog(
+                existingProjects = existingProjects,
+                onDismiss = { showAddDialog = false },
+                onConfirm = { name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword ->
+                    if (viewModel != null) viewModel.addRobot(name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword)
+                    else onAddRobot(name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword)
+                    showAddDialog = false
+                }
+            )
+        }
+
+        // Janela de edição do robô escolhido.
+        if (robotToEdit != null) {
+            RobotDialog(
+                robot = robotToEdit,
+                existingProjects = existingProjects,
+                onDismiss = { robotToEdit = null },
+                onConfirm = { name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword ->
+                    val updated = robotToEdit!!.copy(
+                        name = name, 
+                        ip = ip, 
+                        port = port, 
+                        project = project, 
+                        manufacturer = manufacturer,
+                        autoLogin = autoLogin,
+                        loginUser = loginUser,
+                        loginPassword = loginPassword
+                    )
+                    if (viewModel != null) viewModel.updateRobot(updated)
+                    else onUpdateRobot(updated)
+                    robotToEdit = null
+                }
+            )
+        }
+
+        // Pergunta de confirmação antes de excluir o robô.
+        if (robotToDelete != null) {
+            AlertDialog(
+                onDismissRequest = { robotToDelete = null },
+                title = { Text("Excluir Robô") },
+                text = { Text("Tem certeza que deseja excluir o robô \"${robotToDelete?.name}\"? Esta ação não pode ser desfeita.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            robotToDelete?.let {
+                                if (viewModel != null) viewModel.deleteRobot(it)
+                                else onDeleteRobot(it)
+                            }
+                            robotToDelete = null
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Excluir")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { robotToDelete = null }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+    }
+}
+
+/**
+ * Faixa com o nome do fabricante. Tocar nela abre ou fecha o grupo.
+ */
+@Composable
+fun ManufacturerHeader(
+    manufacturer: Manufacturer,
+    isExpanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggle() }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = manufacturer.displayName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+    }
+}
+
+/**
+ * Faixa com o nome do projeto. Tocar nela abre ou fecha o grupo;
+ * o ícone de terminal abre o Terminal Geral, que fala com todos os robôs do projeto.
+ */
+@Composable
+fun ProjectHeader(
+    projectName: String,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    onMultiTerminalClick: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onToggle() }
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 32.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Projeto: $projectName",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onMultiTerminalClick, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    imageVector = Icons.Rounded.Terminal, 
+                    contentDescription = "Terminal Geral", 
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Cartão de um robô: nome, IP:porta e os botões de terminal, editar e excluir.
+ * Tocar no cartão abre o histórico de backups do robô.
+ */
+@Composable
+fun RobotItem(
+    robot: Robot,
+    onClick: () -> Unit,
+    onTerminalClick: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 48.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
+            .clickable(onClick = onClick),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = robot.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                Text(text = "${robot.ip}:${robot.port}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row {
+                IconButton(onClick = onTerminalClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Rounded.Terminal, contentDescription = "Terminal", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp))
+                }
+                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Situação do Wifi do celular: nome da rede (SSID), IP do celular e se está conectado.
+ */
+data class WifiInfoState(
+    val ssid: String = "Desconectado",
+    val ip: String = "0.0.0.0",
+    val isConnected: Boolean = false
+)
+
+/**
+ * Vigia o Wifi do celular e devolve o estado atualizado a cada 3 segundos.
+ * Serve para o usuário conferir se está na mesma rede do robô.
+ */
+@Composable
+fun rememberWifiInfo(context: Context): WifiInfoState {
+    var wifiInfo by remember { mutableStateOf(WifiInfoState()) }
+    
+    LaunchedEffect(Unit) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        
+        // repete para sempre (enquanto a tela existir): lê o Wifi, guarda e espera 3 segundos
+        while(true) {
+            val network = connectivityManager.activeNetwork
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            val isWifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
+            
+            if (isWifi) {
+                val ipAddress = wifiManager.connectionInfo.ipAddress
+                val ipString = if (ipAddress != 0) {
+                    // O Android entrega o IP como um número inteiro (ordem invertida em alguns aparelhos).
+                    // Aqui ele é ajeitado e vira texto, como 192.168.1.10.
+                    val address = if (ByteOrder.nativeOrder() == ByteOrder.LITTLE_ENDIAN) {
+                        Integer.reverseBytes(ipAddress)
+                    } else {
+                        ipAddress
+                    }
+                    InetAddress.getByAddress(BigInteger.valueOf(address.toLong()).toByteArray()).hostAddress ?: "0.0.0.0"
+                } else "0.0.0.0"
+
+                var ssid = wifiManager.connectionInfo.ssid.removeSurrounding("\"")
+                if (ssid == "<unknown ssid>") ssid = "Wifi Conectado"
+                
+                wifiInfo = WifiInfoState(ssid, ipString, true)
+            } else {
+                wifiInfo = WifiInfoState()
+            }
+            kotlinx.coroutines.delay(3000)
+        }
+    }
+    
+    return wifiInfo
+}

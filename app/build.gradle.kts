@@ -1,7 +1,9 @@
+// Módulo :app — é só a "casca" do aplicativo.
+// Aqui ficam a MainActivity, a classe Application e a navegação entre as telas.
+// Toda a lógica de verdade mora nos módulos :core:* e :feature:*.
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.google.devtools.ksp)
 }
 
 android {
@@ -16,8 +18,8 @@ android {
         applicationId = "my.robots"
         minSdk = 28
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -41,26 +43,29 @@ android {
 }
 
 dependencies {
+    // ---- Módulos do projeto ----
+    implementation(project(":core:common"))
+    implementation(project(":core:model"))
+    implementation(project(":core:database"))
+    implementation(project(":core:network"))
+    implementation(project(":core:data"))
+    implementation(project(":core:designsystem"))
+
+    implementation(project(":feature:splash"))
+    implementation(project(":feature:robots"))
+    implementation(project(":feature:backup"))
+    implementation(project(":feature:codeeditor"))
+    implementation(project(":feature:dashboard"))
+    implementation(project(":feature:terminal"))
+    implementation(project(":feature:settings"))
+
+    // ---- Bibliotecas usadas diretamente pelo app ----
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
-    implementation(libs.androidx.lifecycle.runtime.compose)
-    implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.navigation.compose)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons.core)
-    implementation(libs.androidx.compose.material.icons.extended)
-    implementation(libs.coil.compose)
-    implementation(libs.retrofit)
-    implementation(libs.converter.moshi)
     implementation(libs.kotlinx.coroutines.android)
-    implementation(libs.kotlinx.coroutines.core)
+
+    // ---- Ainda não usadas no código (mantidas como estavam antes da modularização) ----
+    implementation(libs.coil.compose)
     implementation(libs.accompanist.permissions)
     implementation(libs.play.services.location)
     implementation(libs.androidx.camera.camera2)
@@ -68,10 +73,10 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.camera.core)
     implementation(libs.logging.interceptor)
-    implementation(libs.okhttp)
-    implementation(libs.moshi.kotlin)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.material)
+
+    // ---- Testes ----
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.core)
@@ -83,6 +88,4 @@ dependencies {
     androidTestImplementation(libs.androidx.runner)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    "ksp"(libs.androidx.room.compiler)
-    "ksp"(libs.moshi.kotlin.codegen)
 }

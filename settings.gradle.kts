@@ -24,4 +24,21 @@ dependencyResolutionManagement {
 
 rootProject.name = "MyRobots"
 include(":app")
+
+// Módulos "core": base compartilhada por todo o app (dados, rede, tema...)
+include(":core:common")
+include(":core:model")
+include(":core:database")
+include(":core:network")
+include(":core:data")
+include(":core:designsystem")
+
+// Módulos "feature": cada um é uma parte do app (tela + regras dela)
+include(":feature:splash")
+include(":feature:robots")
+include(":feature:backup")
+include(":feature:codeeditor")
+include(":feature:dashboard")
+include(":feature:terminal")
+include(":feature:settings")
  

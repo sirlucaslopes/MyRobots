@@ -26,36 +26,74 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
-import my.robots.data.model.Manufacturer
-import my.robots.ui.backup.AsCodeViewer
-import my.robots.ui.backup.BackupHistoryScreen
-import my.robots.ui.backup.BackupViewModel
-import my.robots.ui.backup.BackupViewModelFactory
-import my.robots.ui.robot.*
-import my.robots.ui.theme.MyRobotsTheme
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import my.robots.core.model.Manufacturer
+import my.robots.feature.codeeditor.AsCodeViewer
+import my.robots.feature.backup.BackupHistoryScreen
+import my.robots.feature.backup.BackupViewModel
+import my.robots.feature.backup.BackupViewModelFactory
+import my.robots.feature.splash.SplashScreen
+import my.robots.feature.dashboard.DashboardFeature
+import my.robots.feature.dashboard.RobotDashboardScreen
+import my.robots.feature.dashboard.RobotDashboardViewModel
+import my.robots.feature.dashboard.RobotDashboardViewModelFactory
+import my.robots.feature.robots.RobotListScreen
+import my.robots.feature.robots.RobotViewModelFactory
+import my.robots.feature.terminal.MultiRobotTerminalScreen
+import my.robots.feature.terminal.MultiRobotTerminalViewModel
+import my.robots.feature.terminal.MultiRobotTerminalViewModelFactory
+import my.robots.feature.terminal.QuickCommandScreen
+import my.robots.feature.terminal.QuickCommandViewModelFactory
+import my.robots.core.designsystem.MyRobotsTheme
 import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
+/**
+ * Única tela (Activity) do app. Ela guarda a navegação entre todas as telas.
+ *
+ * Cada tela de verdade mora em um módulo :feature:*; aqui só ligamos uma na outra.
+ *
+ * Mapa das telas (rotas):
+ * - splash ................ abertura animada
+ * - robot_list ............ lista de robôs
+ * - backup_list/{robô} .... histórico de backups do robô
+ * - robot_dashboard/... ... painel do robô (terminal, programas, variáveis, Data Bank)
+ * - code_viewer/{backup} .. editor do código AS completo
+ * - program_viewer/... .... um programa só
+ * - variable_viewer/... ... só as variáveis
+ * - external_viewer/... ... arquivo aberto de fora do app
+ * - multi_terminal/... .... terminal geral de um projeto
+ * - quick_commands/... .... biblioteca de comandos rápidos
+ */
 class MainActivity : ComponentActivity() {
+    /**
+     * Monta a tela: liga o modo tela cheia, pega as peças de MyRobotsApp,
+     * pede permissão de arquivos e desenha o mapa de navegação.
+     */
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
+        // Pega as peças que foram criadas uma única vez em MyRobotsApp.
         val app = application as MyRobotsApp
         val repository = app.robotRepository
         val terminalManager = app.terminalManager
 
+        // Daqui para baixo é a interface (Jetpack Compose).
         setContent {
             MyRobotsTheme {
                 val scope = rememberCoroutineScope()
                 val navController = rememberNavController()
                 val context = LocalContext.current
                 
+                // Controla se o aviso de "Configuração Inicial" (permissão de arquivos) aparece.
                 var showPermissionDialog by remember { mutableStateOf(false) }
                 
+                // Pedido de permissão comum do Android (usado no Android 10 ou mais antigo).
                 val requestPermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission()
                 ) { isGranted ->
@@ -64,6 +102,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Abre a tela do Android de "acesso a todos os arquivos" (Android 11 ou mais novo).
+                // Quando o usuário volta e a permissão foi dada, cria a pasta /MyRobots.
                 val manageFilesLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.StartActivityForResult()
                 ) {
@@ -72,6 +112,8 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Ao abrir o app: confere se já temos a permissão e se a pasta /MyRobots existe.
+                // Se faltar algo, mostra o aviso pedindo a permissão.
                 LaunchedEffect(Unit) {
                     val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         Environment.isExternalStorageManager()
@@ -90,6 +132,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Aviso explicando por que o app precisa da pasta /MyRobots e pedindo a permissão.
                 if (showPermissionDialog) {
                     AlertDialog(
                         onDismissRequest = { showPermissionDialog = false },
@@ -124,6 +167,8 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // Se o app foi aberto por um arquivo .as/.pg (vindo de outro app), importa o arquivo
+                // e abre no visualizador.
                 LaunchedEffect(intent) {
                     handleIntent(intent, repository, navController)
                 }
@@ -132,7 +177,23 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    NavHost(navController = navController, startDestination = "robot_list") {
+                    // Mapa de navegação: cada composable(...) abaixo é uma tela.
+                    NavHost(navController = navController, startDestination = "splash") {
+                        // Tela 1: abertura animada. Ao terminar, vai para a lista de robôs (e some do histórico de voltar).
+                        composable("splash") {
+                            SplashScreen(
+                                onAnimationFinished = {
+                                    navController.navigate("robot_list") {
+                                        popUpTo("splash") { inclusive = true }
+                                    }
+                                }
+                            )
+                        }
+
+                        // Tela 2: lista de robôs.
+                        // - Tocar no robô -> histórico de backups dele.
+                        // - Ícone do terminal -> painel do robô já no terminal.
+                        // - Ícone do terminal do projeto -> terminal geral (todos os robôs do projeto).
                         composable("robot_list") {
                             RobotListScreen(
                                 viewModel = viewModel(factory = RobotViewModelFactory(repository)),
@@ -149,6 +210,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // Terminal geral: manda o mesmo comando para todos os robôs de um projeto.
                         composable(
                             route = "multi_terminal/{projectName}",
                             arguments = listOf(navArgument("projectName") { type = NavType.StringType })
@@ -167,6 +229,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         
+                        // Biblioteca de comandos rápidos da marca do robô.
+                        // Se a marca vier inválida, usa Kawasaki.
                         composable(
                             route = "quick_commands/{manufacturer}/{robotId}",
                             arguments = listOf(
@@ -184,6 +248,10 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // Histórico de backups de um robô.
+                        // - Tocar no backup -> painel do robô analisando aquele backup.
+                        // - Ícone de código -> editor do texto completo.
+                        // - Botão "criar" -> painel do robô no terminal, para baixar um backup do robô.
                         composable(
                             route = "backup_list/{robotId}",
                             arguments = listOf(navArgument("robotId") { type = NavType.IntType })
@@ -209,6 +277,9 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         
+                        // Painel do robô. backupId = -1 significa "usar o backup mais recente".
+                        // O parâmetro "feature" abre direto uma seção (ex.: Logs = terminal).
+                        // Ao enviar algo para OUTRO robô, navega para o painel dele.
                         composable(
                             route = "robot_dashboard/{robotId}/{backupId}?feature={feature}",
                             arguments = listOf(
@@ -267,6 +338,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // Visualizador de UM programa. Pega do backup só o trecho entre ".PROGRAM nome" e ".END".
+                        // Ao salvar, troca esse trecho dentro do backup inteiro e grava de novo.
                         composable(
                             route = "program_viewer/{backupId}/{programName}",
                             arguments = listOf(
@@ -278,7 +351,7 @@ class MainActivity : ComponentActivity() {
                             val encodedName = backStackEntry.arguments?.getString("programName") ?: ""
                             val programName = URLDecoder.decode(encodedName, StandardCharsets.UTF_8.toString())
                             
-                            var backup by remember { mutableStateOf<my.robots.data.model.Backup?>(null) }
+                            var backup by remember { mutableStateOf<my.robots.core.model.Backup?>(null) }
                             var programContent by remember { mutableStateOf("") }
                             
                             LaunchedEffect(backupId) {
@@ -305,7 +378,7 @@ class MainActivity : ComponentActivity() {
                                     fileName = "$programName.as",
                                     content = programContent,
                                     onBack = { 
-                                        // Voltando para o Dashboard com a feature de Programas ativa
+                                        // volta para o painel do robô
                                         backup?.let {
                                             navController.popBackStack()
                                         } ?: navController.popBackStack()
@@ -348,30 +421,35 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        // Visualizador de arquivo aberto de fora do app (somente leitura, sem salvar).
                         composable(
-                            route = "external_viewer/{fileName}/{content}",
-                            arguments = listOf(
-                                navArgument("fileName") { type = NavType.StringType },
-                                navArgument("content") { type = NavType.StringType }
-                            )
+                            route = "external_viewer/{backupId}",
+                            arguments = listOf(navArgument("backupId") { type = NavType.IntType })
                         ) { backStackEntry ->
-                            val fileName = backStackEntry.arguments?.getString("fileName") ?: "file.as"
-                            val encodedContent = backStackEntry.arguments?.getString("content") ?: ""
-                            val content = URLDecoder.decode(encodedContent, StandardCharsets.UTF_8.toString())
+                            val backupId = backStackEntry.arguments?.getInt("backupId") ?: -1
+                            var backup by remember { mutableStateOf<my.robots.core.model.Backup?>(null) }
                             
-                            AsCodeViewer(
-                                fileName = fileName,
-                                content = content,
-                                onBack = { navController.popBackStack() }
-                            )
+                            LaunchedEffect(backupId) {
+                                backup = repository.getBackupById(backupId)
+                            }
+                            
+                            backup?.let {
+                                AsCodeViewer(
+                                    fileName = it.fileName,
+                                    content = it.content,
+                                    onBack = { navController.popBackStack() }
+                                )
+                            }
                         }
 
+                        // Visualizador só das variáveis. Junta do backup as seções .TRANS, .REALS e .STRINGS
+                        // (cada uma vai até o seu ".END").
                         composable(
                             route = "variable_viewer/{backupId}",
                             arguments = listOf(navArgument("backupId") { type = NavType.IntType })
                         ) { backStackEntry ->
                             val backupId = backStackEntry.arguments?.getInt("backupId") ?: return@composable
-                            var backup by remember { mutableStateOf<my.robots.data.model.Backup?>(null) }
+                            var backup by remember { mutableStateOf<my.robots.core.model.Backup?>(null) }
                             var varsContent by remember { mutableStateOf("") }
                             
                             LaunchedEffect(backupId) {
@@ -405,12 +483,13 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
+                        // Editor do código completo do backup. Ao salvar, grava o texto inteiro de novo.
                         composable(
                             route = "code_viewer/{backupId}",
                             arguments = listOf(navArgument("backupId") { type = NavType.IntType })
                         ) { backStackEntry ->
                             val backupId = backStackEntry.arguments?.getInt("backupId") ?: return@composable
-                            var backup by remember { mutableStateOf<my.robots.data.model.Backup?>(null) }
+                            var backup by remember { mutableStateOf<my.robots.core.model.Backup?>(null) }
                             
                             LaunchedEffect(backupId) {
                                 backup = repository.getBackupById(backupId)
@@ -439,6 +518,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Cria a pasta /MyRobots na raiz do armazenamento, se ela ainda não existir.
+     */
     private fun checkAndCreateRootFolder() {
         try {
             val root = Environment.getExternalStorageDirectory()
@@ -451,22 +533,44 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Chamado quando o app já está aberto e recebe um novo arquivo para abrir. Guarda o novo pedido.
+     */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
     }
 
-    private fun handleIntent(intent: Intent?, repository: my.robots.data.repository.RobotRepository, navController: androidx.navigation.NavController) {
+    /**
+     * Trata um arquivo .as/.pg enviado por outro app (ação VER ou EDITAR).
+     *
+     * 1. Lê o nome e o texto do arquivo.
+     * 2. Salva como backup temporário (sem robô: robotId = -1 e sem criar arquivo na pasta).
+     * 3. Abre o visualizador externo desse backup.
+     */
+    private suspend fun handleIntent(intent: Intent?, repository: my.robots.core.data.RobotRepository, navController: androidx.navigation.NavController) {
         if (intent?.action == Intent.ACTION_VIEW || intent?.action == Intent.ACTION_EDIT) {
             val uri: Uri? = intent.data
             uri?.let {
                 try {
                     val contentResolver = applicationContext.contentResolver
-                    val fileName = my.robots.utils.FileUtil.getFileName(applicationContext, it) ?: "file.as"
-                    val content = contentResolver.openInputStream(it)?.bufferedReader()?.use { it.readText() } ?: ""
+                    val fileName = my.robots.core.common.FileUtil.getFileName(applicationContext, it) ?: "file.as"
                     
-                    val encodedContent = URLEncoder.encode(content, StandardCharsets.UTF_8.toString())
-                    navController.navigate("external_viewer/$fileName/$encodedContent")
+                    val content = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        contentResolver.openInputStream(it)?.bufferedReader()?.use { it.readText() }
+                    } ?: ""
+                    
+                    // guarda como backup temporário (sem robô dono)
+                    val tempBackup = my.robots.core.model.Backup(
+                        robotId = -1,
+                        backupName = "Arquivo Externo",
+                        fileName = fileName,
+                        content = content,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    val backupId = repository.insertBackup(tempBackup, saveToFile = false)
+                    
+                    navController.navigate("external_viewer/$backupId")
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
