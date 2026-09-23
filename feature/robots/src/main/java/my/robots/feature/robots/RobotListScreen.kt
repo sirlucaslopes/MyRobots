@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.DeviceHub
 import androidx.compose.material.icons.rounded.SortByAlpha
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.*
@@ -35,13 +36,16 @@ import java.nio.ByteOrder
  * Tela inicial: a lista dos robôs cadastrados.
  *
  * Os robôs são agrupados em FABRICANTE > PROJETO > ROBÔ, e cada grupo pode ser
- * aberto ou fechado. Na barra do topo há: ordenar A-Z, o ícone do Wifi (nome da
+ * aberto ou fechado. Na barra do topo há: robôs conectados (popup para conectar
+ * vários robôs de uma vez, com heartbeat), ordenar A-Z, o ícone do Wifi (nome da
  * rede e IP do celular) e a engrenagem (abre as configurações de Wifi do Android).
  * O botão "+" cadastra um robô novo.
  *
  * - onRobotClick: tocar no robô (abre o histórico de backups dele).
  * - onTerminalClick: ícone de terminal do robô.
  * - onMultiTerminalClick: ícone de terminal do projeto (todos os robôs dele).
+ * - connectedRobotsViewModel: cérebro do popup "Robôs Conectados". Se vier null
+ *   (ex.: pré-visualização), o botão do popup some.
  * Os parâmetros onAddRobot/onUpdateRobot/onDeleteRobot/robotsList só são usados
  * quando não há ViewModel (por exemplo, em pré-visualização).
  */
@@ -49,6 +53,7 @@ import java.nio.ByteOrder
 @Composable
 fun RobotListScreen(
     viewModel: RobotViewModel? = null,
+    connectedRobotsViewModel: ConnectedRobotsViewModel? = null,
     robotsList: List<Robot> = emptyList(),
     onRobotClick: (Robot) -> Unit = {},
     onTerminalClick: (Robot) -> Unit = {},
@@ -62,6 +67,7 @@ fun RobotListScreen(
     var robotToEdit by remember { mutableStateOf<Robot?>(null) }
     var robotToDelete by remember { mutableStateOf<Robot?>(null) }
     var showSettingsMenu by remember { mutableStateOf(false) }
+    var showConnectedRobots by remember { mutableStateOf(false) }
     var sortAlphabetical by remember { mutableStateOf(false) }
     
     val context = LocalContext.current
@@ -82,6 +88,15 @@ fun RobotListScreen(
                 title = { Text("My Robots") },
                 actions = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (connectedRobotsViewModel != null) {
+                            IconButton(onClick = { showConnectedRobots = true }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeviceHub,
+                                    contentDescription = "Robôs Conectados"
+                                )
+                            }
+                        }
+
                         IconButton(onClick = { sortAlphabetical = !sortAlphabetical }) {
                             Icon(
                                 imageVector = Icons.Rounded.SortByAlpha,
@@ -317,6 +332,14 @@ fun RobotListScreen(
                         Text("Cancelar")
                     }
                 }
+            )
+        }
+
+        // Popup "Robôs Conectados": lista por projeto, com heartbeat e conexão ali mesmo.
+        if (showConnectedRobots && connectedRobotsViewModel != null) {
+            ConnectedRobotsSheet(
+                viewModel = connectedRobotsViewModel,
+                onDismiss = { showConnectedRobots = false }
             )
         }
     }

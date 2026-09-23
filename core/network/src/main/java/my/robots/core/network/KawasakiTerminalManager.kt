@@ -15,6 +15,17 @@ import java.io.FileOutputStream
 import java.nio.charset.Charset
 
 /**
+ * Estado do "heartbeat" (pulso) de um robô conectado.
+ *
+ * - ALIVE: chegou alguma coisa do robô há pouco tempo (ele está respondendo de verdade).
+ * - STALE: a conexão continua aberta, mas faz tempo que o robô não manda nada.
+ * - DISCONNECTED: sem conexão.
+ */
+enum class HeartbeatState {
+    ALIVE, STALE, DISCONNECTED
+}
+
+/**
  * Cuida da conversa com os controladores Kawasaki pela rede (telnet/TCP).
  *
  * O que ela faz:
@@ -49,6 +60,13 @@ class KawasakiTerminalManager(private val context: Context) {
      */
     private val pendingTransfers = mutableMapOf<Int, PendingTransfer>()
 
+    companion object {
+        /** De quanto em quanto tempo a sondagem de heartbeat é enviada. */
+        private const val HEARTBEAT_PING_INTERVAL_MS = 3000L
+        /** Se passar esse tempo sem receber nada do robô, o heartbeat vira STALE. */
+        private const val HEARTBEAT_STALE_AFTER_MS = 8000L
+    }
+
     /**
      * Um envio pendente: nome do arquivo e o texto que será gravado/carregado no robô.
      */
@@ -82,6 +100,7 @@ class KawasakiTerminalManager(private val context: Context) {
      *   um arquivo (LOAD) para o robô, aos pedaços.
      * - robotName: nome do robô (define a pasta onde os arquivos são gravados).
      * - autoLogin / loginUser / loginPassword / loginStep: dados do login automático.
+     * - heartbeat / lastActivityAt / heartbeatJob: pulso da conexão (ver HeartbeatState).
      */
     data class ConnectionState(
         var socket: Socket? = null,
@@ -89,6 +108,9 @@ class KawasakiTerminalManager(private val context: Context) {
         var job: Job? = null,
         val history: MutableStateFlow<List<String>> = MutableStateFlow(emptyList()),
         val isConnected: MutableStateFlow<Boolean> = MutableStateFlow(false),
+        val heartbeat: MutableStateFlow<HeartbeatState> = MutableStateFlow(HeartbeatState.DISCONNECTED),
+        var lastActivityAt: Long = 0L,
+        var heartbeatJob: Job? = null,
         var isSaving: Boolean = false,
         var saveFileOutputStream: FileOutputStream? = null,
         var currentFileName: String? = null,
@@ -117,6 +139,11 @@ class KawasakiTerminalManager(private val context: Context) {
      * Devolve se o robô está conectado (true) ou não (false). A tela observa esse valor.
      */
     fun getConnectionStatus(robotId: Int) = getOrCreateState(robotId).isConnected.asStateFlow()
+    /**
+     * Devolve o heartbeat do robô: ALIVE (respondendo), STALE (conectado mas quieto) ou
+     * DISCONNECTED. A tela observa esse valor para mostrar o indicador de pulso.
+     */
+    fun getHeartbeat(robotId: Int) = getOrCreateState(robotId).heartbeat.asStateFlow()
 
     /**
      * Deixa um arquivo na fila para ser enviado ao robô assim que ele conectar.
@@ -170,20 +197,24 @@ class KawasakiTerminalManager(private val context: Context) {
                 val inputStream = s.getInputStream()
 
                 state.isConnected.value = true
-                
+                state.lastActivityAt = System.currentTimeMillis()
+                state.heartbeat.value = HeartbeatState.ALIVE
+                state.heartbeatJob = scope.launch { heartbeatLoop(robot.id) }
+
                 // Negociação do telnet: avisa ao robô que sabemos informar o tipo de terminal
                 // (bytes IAC, WILL, TERMINAL-TYPE).
                 sendRawDirect(robot.id, byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x18.toByte()))
-                
+
                 if (!state.autoLogin) {
                     delay(300)
                     sendCommand(robot.id, "")
                 }
-                
+
                 readLoop(robot.id, inputStream)
             } catch (e: Exception) {
                 appendLog(robot.id, "Erro: ${e.message}")
                 state.isConnected.value = false
+                state.heartbeat.value = HeartbeatState.DISCONNECTED
             }
         }
     }
@@ -205,6 +236,34 @@ class KawasakiTerminalManager(private val context: Context) {
         }
         val state = getOrCreateState(robotId)
         state.isConnected.value = false
+        state.heartbeat.value = HeartbeatState.DISCONNECTED
+        state.heartbeatJob?.cancel()
+    }
+
+    /**
+     * Reavalia o heartbeat de tempos em tempos, olhando só para o que JÁ chegou do robô.
+     *
+     * **Importante:** este loop não escreve nada no socket. O controlador Kawasaki lê o
+     * canal caractere por caractere e só processa a linha ao receber Enter — qualquer byte
+     * extra injetado por fora (mesmo um "NOP" de telnet) aparece misturado no meio do que o
+     * usuário está digitando (foi o que aconteceu: 0xF1 virava um "ñ" solto no comando).
+     * Por isso o heartbeat é só passivo: compara `lastActivityAt` (atualizado em `appendLog`
+     * sempre que chega algo de verdade do robô) com o tempo atual para decidir entre ALIVE
+     * e STALE. Uma queda de conexão de verdade ainda é detectada, só que pelo `readLoop`
+     * (que já marca DISCONNECTED ao ler EOF ou erro), não por uma sondagem ativa.
+     */
+    private suspend fun heartbeatLoop(robotId: Int) {
+        val state = getOrCreateState(robotId)
+        while (currentCoroutineContext().isActive && state.isConnected.value) {
+            delay(HEARTBEAT_PING_INTERVAL_MS)
+
+            val silence = System.currentTimeMillis() - state.lastActivityAt
+            state.heartbeat.value = if (silence < HEARTBEAT_STALE_AFTER_MS) {
+                HeartbeatState.ALIVE
+            } else {
+                HeartbeatState.STALE
+            }
+        }
     }
 
     /**
@@ -478,6 +537,10 @@ class KawasakiTerminalManager(private val context: Context) {
         val cleanText = text.replace(Regex("[\\x00-\\x07\\x0B\\x0E-\\x1F]"), "")
         if (cleanText.isEmpty() && !text.contains("\n") && !text.contains("\r")) return
 
+        // chegou algo de verdade do robô: o heartbeat volta a ficar ALIVE
+        state.lastActivityAt = System.currentTimeMillis()
+        if (state.isConnected.value) state.heartbeat.value = HeartbeatState.ALIVE
+
         val currentHistory = state.history.value.toMutableList()
         val lines = cleanText.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 
@@ -639,10 +702,12 @@ class KawasakiTerminalManager(private val context: Context) {
     fun disconnect(robotId: Int, clearHistory: Boolean = false) {
         val state = connections[robotId] ?: return
         state.job?.cancel()
+        state.heartbeatJob?.cancel()
         try { state.socket?.close(); state.outputStream?.close(); state.saveFileOutputStream?.close() } catch (e: Exception) {}
         state.socket = null
         state.outputStream = null
         state.isConnected.value = false
+        state.heartbeat.value = HeartbeatState.DISCONNECTED
         if (clearHistory) {
             state.history.value = emptyList()
             connections.remove(robotId)

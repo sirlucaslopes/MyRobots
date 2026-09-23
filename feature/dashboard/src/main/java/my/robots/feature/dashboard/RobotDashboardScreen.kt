@@ -1,8 +1,10 @@
 package my.robots.feature.dashboard
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -42,12 +44,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
+import androidx.core.content.FileProvider
+import kotlinx.coroutines.launch
 import my.robots.core.model.Backup
 import my.robots.core.model.Manufacturer
 import my.robots.core.model.QuickCommand
 import my.robots.core.model.Robot
 import my.robots.core.network.RobotStatusResponse
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -60,7 +67,10 @@ enum class DashboardFeature(val label: String, val icon: ImageVector) {
     Programs("Programas", Icons.Rounded.Code),
     Variables("Variáveis", Icons.Rounded.Tune),
     FullCode("Código AS", Icons.Rounded.Description),
-    DataBank("Data Bank", Icons.Rounded.Storage)
+    DataBank("Data Bank", Icons.Rounded.Storage),
+    ErrorLog("Log de Erros", Icons.Rounded.ErrorOutline),
+    OperationLog("Log de Operação", Icons.Rounded.History),
+    ProgramEditLog("Log de Edição", Icons.Default.Edit)
 }
 
 /**
@@ -102,6 +112,9 @@ fun RobotDashboardScreen(
     val allRobotsState = if (viewModel != null) viewModel.allRobots.collectAsState() else remember { mutableStateOf(emptyList<Robot>()) }
     val quickCommandsState = if (viewModel != null) viewModel.quickCommands.collectAsState() else remember { mutableStateOf(emptyList<QuickCommand>()) }
     val lineCountState = if (viewModel != null) viewModel.lineCount.collectAsState() else remember { mutableStateOf(0) }
+    val errorLogState = if (viewModel != null) viewModel.errorLog.collectAsState() else remember { mutableStateOf(emptyList<RobotErrorLogEntry>()) }
+    val operationLogState = if (viewModel != null) viewModel.operationLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
+    val programEditLogState = if (viewModel != null) viewModel.programEditLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
 
     val robot by robotState
     val terminalOutput by terminalOutputState
@@ -113,6 +126,9 @@ fun RobotDashboardScreen(
     val allRobots by allRobotsState
     val quickCommands by quickCommandsState
     val lineCount by lineCountState
+    val errorLog by errorLogState
+    val operationLog by operationLogState
+    val programEditLog by programEditLogState
 
     // Seção aberta agora (null = home). Fica guardada mesmo se a tela for recriada.
     var activeFeature by rememberSaveable { mutableStateOf<DashboardFeature?>(initialFeature) }
@@ -125,17 +141,49 @@ fun RobotDashboardScreen(
     }
 
     val context = LocalContext.current
-    
+    val scope = rememberCoroutineScope()
+
     // Estados para diálogos
     // Itens escolhidos para enviar, duplicar ou excluir (cada um abre uma janela).
-    var programToUpload by remember { mutableStateOf<RobotProgram?>(null) }
+    // Programas: nomes marcados na seção Programas (checkbox de cada linha).
+    var selectedProgramNames by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var programsToUpload by remember { mutableStateOf<List<RobotProgram>?>(null) }
+    var programsToDelete by remember { mutableStateOf<List<RobotProgram>?>(null) }
     var variableToUpload by remember { mutableStateOf<RobotVariable?>(null) }
     var dataBankToUpload by remember { mutableStateOf<List<RobotDataBankEntry>?>(null) }
     var programToDuplicate by remember { mutableStateOf<RobotProgram?>(null) }
-    var programToDelete by remember { mutableStateOf<RobotProgram?>(null) }
     var variableToDelete by remember { mutableStateOf<RobotVariable?>(null) }
     var dataBankToDelete by remember { mutableStateOf<RobotDataBankEntry?>(null) }
-    
+
+    // Busca nos três logs do controlador (Erros, Operação, Edição).
+    var isLogSearchActive by remember { mutableStateOf(false) }
+    var logSearchQuery by remember { mutableStateOf("") }
+    val isLogFeature = activeFeature == DashboardFeature.ErrorLog ||
+        activeFeature == DashboardFeature.OperationLog ||
+        activeFeature == DashboardFeature.ProgramEditLog
+
+    // Sai da seção Programas -> esquece a seleção, para não reaparecer marcada da próxima vez.
+    // Sai de um dos logs -> fecha e limpa a busca.
+    LaunchedEffect(activeFeature) {
+        if (activeFeature != DashboardFeature.Programs) {
+            selectedProgramNames = emptySet()
+        }
+        if (!isLogFeature) {
+            isLogSearchActive = false
+            logSearchQuery = ""
+        }
+    }
+
+    val filteredErrorLog = remember(errorLog, logSearchQuery) {
+        if (logSearchQuery.isBlank()) errorLog else errorLog.filter { it.raw.contains(logSearchQuery, ignoreCase = true) }
+    }
+    val filteredOperationLog = remember(operationLog, logSearchQuery) {
+        if (logSearchQuery.isBlank()) operationLog else operationLog.filter { it.raw.contains(logSearchQuery, ignoreCase = true) }
+    }
+    val filteredProgramEditLog = remember(programEditLog, logSearchQuery) {
+        if (logSearchQuery.isBlank()) programEditLog else programEditLog.filter { it.raw.contains(logSearchQuery, ignoreCase = true) }
+    }
+
     // Botão voltar: se estamos numa seção aberta pelo usuário, volta para a home do painel.
     // Se a seção já era a inicial (ex.: Terminal vindo da lista), o voltar sai da tela.
     val canGoBackToHome = activeFeature != null && activeFeature != initialFeature
@@ -148,23 +196,37 @@ fun RobotDashboardScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { 
-                        Text(
-                            text = when (activeFeature) {
-                                null -> robot?.name ?: "Painel"
-                                DashboardFeature.Logs -> "Terminal: ${robot?.name ?: ""}"
-                                DashboardFeature.Programs -> "Programas: ${robot?.name ?: ""}"
-                                DashboardFeature.Variables -> "Variáveis: ${robot?.name ?: ""}"
-                                DashboardFeature.DataBank -> "Data Bank: ${robot?.name ?: ""}"
-                                else -> activeFeature!!.label
-                            },
-                            style = MaterialTheme.typography.titleLarge
-                        ) 
+                    title = {
+                        if (isLogFeature && isLogSearchActive) {
+                            OutlinedTextField(
+                                value = logSearchQuery,
+                                onValueChange = { logSearchQuery = it },
+                                modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                                placeholder = { Text("Pesquisar...") },
+                                singleLine = true,
+                                textStyle = LocalTextStyle.current.copy(fontSize = 16.sp)
+                            )
+                        } else {
+                            Text(
+                                text = when (activeFeature) {
+                                    null -> robot?.name ?: "Painel"
+                                    DashboardFeature.Logs -> "Terminal: ${robot?.name ?: ""}"
+                                    DashboardFeature.Programs -> "Programas: ${robot?.name ?: ""}"
+                                    DashboardFeature.Variables -> "Variáveis: ${robot?.name ?: ""}"
+                                    DashboardFeature.DataBank -> "Data Bank: ${robot?.name ?: ""}"
+                                    else -> activeFeature!!.label
+                                },
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                        }
                     },
                     navigationIcon = {
                         IconButton(onClick = {
-                            if (canGoBackToHome) {
-                                activeFeature = null 
+                            if (isLogFeature && isLogSearchActive) {
+                                isLogSearchActive = false
+                                logSearchQuery = ""
+                            } else if (canGoBackToHome) {
+                                activeFeature = null
                             } else {
                                 onBack()
                             }
@@ -211,6 +273,66 @@ fun RobotDashboardScreen(
                             ) {
                                 Text(if (isConnected) "Desconectar" else "Conectar", fontSize = 12.sp)
                             }
+                        } else if (activeFeature == DashboardFeature.Programs) {
+                            // Seleciona/desmarca todos os programas de uma vez.
+                            val allSelected = programs.isNotEmpty() && selectedProgramNames.size == programs.size
+                            IconButton(onClick = {
+                                selectedProgramNames = if (allSelected) emptySet() else programs.map { it.name }.toSet()
+                            }) {
+                                Icon(
+                                    imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                    contentDescription = if (allSelected) "Desmarcar Todos" else "Selecionar Todos"
+                                )
+                            }
+
+                            val selectedPrograms = programs.filter { it.name in selectedProgramNames }
+                            val hasSelection = selectedPrograms.isNotEmpty()
+                            val disabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+
+                            // Só os programas marcados são empacotados e enviados.
+                            IconButton(onClick = { programsToUpload = selectedPrograms }, enabled = hasSelection) {
+                                Icon(
+                                    imageVector = Icons.Rounded.CloudUpload,
+                                    contentDescription = "Enviar Selecionados",
+                                    tint = if (hasSelection) MaterialTheme.colorScheme.primary else disabledTint
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    scope.launch {
+                                        val content = viewModel?.packProgramsContent(selectedPrograms) ?: ""
+                                        if (content.isNotBlank()) {
+                                            shareProgramsContent(context, selectedPrograms, content)
+                                        }
+                                    }
+                                },
+                                enabled = hasSelection
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Compartilhar Selecionados",
+                                    tint = if (hasSelection) MaterialTheme.colorScheme.onSurface else disabledTint
+                                )
+                            }
+
+                            IconButton(onClick = { programsToDelete = selectedPrograms }, enabled = hasSelection) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Excluir Selecionados",
+                                    tint = if (hasSelection) MaterialTheme.colorScheme.error else disabledTint
+                                )
+                            }
+                        } else if (isLogFeature) {
+                            if (isLogSearchActive) {
+                                IconButton(onClick = { isLogSearchActive = false; logSearchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Fechar Busca")
+                                }
+                            } else {
+                                IconButton(onClick = { isLogSearchActive = true }) {
+                                    Icon(Icons.Default.Search, contentDescription = "Pesquisar")
+                                }
+                            }
                         }
                     }
                 )
@@ -231,7 +353,11 @@ fun RobotDashboardScreen(
                             robot = robot,
                             backup = latestBackup,
                             lineCount = lineCount,
-                            onFeatureClick = { selected -> 
+                            dataBankCount = dataBankEntries.size,
+                            errorLogCount = errorLog.size,
+                            operationLogCount = operationLog.size,
+                            programEditLogCount = programEditLog.size,
+                            onFeatureClick = { selected ->
                                 if (selected == DashboardFeature.FullCode) {
                                     if (latestBackup != null) onFullCodeClick(latestBackup!!)
                                 } else {
@@ -247,14 +373,19 @@ fun RobotDashboardScreen(
                             onQuickCommandsClick = onQuickCommandsClick
                         )
                         DashboardFeature.Programs -> ProgramsPanel(
-                            programs = programs, 
-                            onProgramClick = { prog -> 
+                            programs = programs,
+                            selectedNames = selectedProgramNames,
+                            onToggleSelect = { name ->
+                                selectedProgramNames = if (name in selectedProgramNames) {
+                                    selectedProgramNames - name
+                                } else {
+                                    selectedProgramNames + name
+                                }
+                            },
+                            onProgramClick = { prog ->
                                 if (latestBackup != null) onProgramClick(latestBackup!!, prog.name)
                             },
-                            onUpload = { prog -> programToUpload = prog },
-                            onDuplicate = { prog -> programToDuplicate = prog },
-                            onShare = { /* ainda não implementado */ },
-                            onDelete = { prog -> programToDelete = prog }
+                            onDuplicate = { prog -> programToDuplicate = prog }
                         )
                         DashboardFeature.Variables -> VariablesPanel(
                             variables = variables, 
@@ -269,6 +400,30 @@ fun RobotDashboardScreen(
                             onDelete = { e -> dataBankToDelete = e }
                         )
                         DashboardFeature.FullCode -> { /* já tratado em onFeatureClick: abre o editor em outra tela */ }
+                        DashboardFeature.ErrorLog -> ErrorLogPanel(
+                            entries = filteredErrorLog,
+                            emptyHint = if (errorLog.isEmpty()) {
+                                "Nenhum erro registrado. Esse log só existe em backups feitos com SAVE/FULL no robô."
+                            } else {
+                                "Nenhum resultado para \"$logSearchQuery\"."
+                            }
+                        )
+                        DashboardFeature.OperationLog -> LogPanel(
+                            entries = filteredOperationLog,
+                            emptyHint = if (operationLog.isEmpty()) {
+                                "Nenhum registro de operação. Esse log só existe em backups feitos com SAVE/FULL no robô."
+                            } else {
+                                "Nenhum resultado para \"$logSearchQuery\"."
+                            }
+                        )
+                        DashboardFeature.ProgramEditLog -> LogPanel(
+                            entries = filteredProgramEditLog,
+                            emptyHint = if (programEditLog.isEmpty()) {
+                                "Nenhum registro de edição. Esse log só existe em backups feitos com SAVE/FULL no robô."
+                            } else {
+                                "Nenhum resultado para \"$logSearchQuery\"."
+                            }
+                        )
                     }
                 }
                 
@@ -293,22 +448,27 @@ fun RobotDashboardScreen(
             )
         }
 
-        if (programToDelete != null) {
+        if (programsToDelete != null) {
+            val toDelete = programsToDelete!!
             AlertDialog(
-                onDismissRequest = { programToDelete = null },
-                title = { Text("Excluir Programa") },
-                text = { Text("Tem certeza que deseja excluir o programa \"${programToDelete?.name}\"? Esta ação removerá o código do backup.") },
+                onDismissRequest = { programsToDelete = null },
+                title = { Text(if (toDelete.size == 1) "Excluir Programa" else "Excluir Programas") },
+                text = {
+                    val names = toDelete.joinToString(", ") { it.name }
+                    Text("Tem certeza que deseja excluir ${if (toDelete.size == 1) "o programa" else "${toDelete.size} programas"} \"$names\"? Esta ação removerá o código do backup.")
+                },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            programToDelete?.let { viewModel?.deleteProgram(it) }
-                            programToDelete = null
+                            viewModel?.deletePrograms(toDelete)
+                            selectedProgramNames = emptySet()
+                            programsToDelete = null
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) { Text("Excluir") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { programToDelete = null }) { Text("Cancelar") }
+                    TextButton(onClick = { programsToDelete = null }) { Text("Cancelar") }
                 }
             )
         }
@@ -355,22 +515,24 @@ fun RobotDashboardScreen(
 
         // janelas para escolher o robô de destino ao enviar um item.
         // Se o destino é este mesmo robô, abre o terminal; se é outro, navega até o painel dele.
-        if (programToUpload != null) {
+        if (programsToUpload != null) {
+            val toUpload = programsToUpload!!
             RobotSelectionDialog(
-                title = "Enviar Programa para qual Robô?",
-                itemName = programToUpload?.name ?: "",
+                title = if (toUpload.size == 1) "Enviar Programa para qual Robô?" else "Enviar Programas para qual Robô?",
+                itemName = if (toUpload.size == 1) toUpload[0].name else "${toUpload.size} programas selecionados",
                 robots = allRobots,
                 onSelect = { r ->
-                    viewModel?.sendProgramToRobot(programToUpload!!, r)
+                    viewModel?.sendProgramsToRobot(toUpload, r)
                     val targetId = r.id
-                    programToUpload = null
+                    programsToUpload = null
+                    selectedProgramNames = emptySet()
                     if (targetId == (robot?.id ?: -1)) {
                         activeFeature = DashboardFeature.Logs
                     } else {
                         onNavigateToRobot(targetId, -1, DashboardFeature.Logs)
                     }
                 },
-                onDismiss = { programToUpload = null }
+                onDismiss = { programsToUpload = null }
             )
         }
 
@@ -1236,14 +1398,20 @@ fun VariableDuplicateDialog(
 }
 
 /**
- * Página inicial do painel: cartão com as informações do backup (nome, robô,
- * data e total de linhas) e quatro atalhos: Programas, Variáveis, Código AS e Data Bank.
+ * Página inicial do painel: cartão com as informações do backup (nome, robô, data e total
+ * de linhas) e os atalhos: Programas, Variáveis, Data Bank, Código AS e os três logs do
+ * controlador (Erros, Operação, Edição) — esses três só têm registros quando o backup foi
+ * feito com SAVE/FULL no robô; sem isso, aparecem zerados.
  */
 @Composable
 fun DashboardHome(
     robot: Robot?,
     backup: my.robots.core.model.BackupSummary?,
     lineCount: Int,
+    dataBankCount: Int,
+    errorLogCount: Int,
+    operationLogCount: Int,
+    programEditLogCount: Int,
     onFeatureClick: (DashboardFeature) -> Unit
 ) {
     Column(
@@ -1294,7 +1462,7 @@ fun DashboardHome(
 
         LazyVerticalGrid(
             columns = GridCells.Fixed(2),
-            modifier = Modifier.heightIn(max = 800.dp),
+            modifier = Modifier.heightIn(max = 1400.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             userScrollEnabled = false
@@ -1316,10 +1484,340 @@ fun DashboardHome(
                 )
             }
             item {
+                StatSquare(
+                    title = "Data Bank",
+                    count = dataBankCount,
+                    icon = Icons.Rounded.Storage,
+                    onClick = { onFeatureClick(DashboardFeature.DataBank) }
+                )
+            }
+            item {
                 FeatureSquare(feature = DashboardFeature.FullCode) { onFeatureClick(DashboardFeature.FullCode) }
             }
             item {
-                FeatureSquare(feature = DashboardFeature.DataBank) { onFeatureClick(DashboardFeature.DataBank) }
+                StatSquare(
+                    title = "Log de Erros",
+                    count = errorLogCount,
+                    icon = Icons.Rounded.ErrorOutline,
+                    onClick = { onFeatureClick(DashboardFeature.ErrorLog) }
+                )
+            }
+            item {
+                StatSquare(
+                    title = "Log de Operação",
+                    count = operationLogCount,
+                    icon = Icons.Rounded.History,
+                    onClick = { onFeatureClick(DashboardFeature.OperationLog) }
+                )
+            }
+            item {
+                StatSquare(
+                    title = "Log de Edição",
+                    count = programEditLogCount,
+                    icon = Icons.Default.Edit,
+                    onClick = { onFeatureClick(DashboardFeature.ProgramEditLog) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Lista genérica de log (usada para Log de Erros, Operação e Edição): cada entrada vira um
+ * cartão com o texto cru daquela linha (ou várias, no caso do ERRLOG). Sem entradas, mostra
+ * o aviso de que esse log só existe em backups SAVE/FULL.
+ */
+@Composable
+fun LogPanel(entries: List<RobotLogEntry>, emptyHint: String) {
+    if (entries.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text = emptyHint,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(entries) { entry -> LogEntryCard(entry) }
+    }
+}
+
+/**
+ * Um registro de log: mostra o texto exatamente como está no backup, em fonte de terminal.
+ * Usado pelo Log de Operação e de Edição (uma linha por entrada) e, dentro do detalhe do
+ * Log de Erros, como "Ver texto original" (várias linhas por entrada).
+ */
+@Composable
+fun LogEntryCard(entry: RobotLogEntry) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Text(
+            text = entry.raw,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 12.sp,
+            modifier = Modifier.padding(12.dp)
+        )
+    }
+}
+
+/**
+ * Lista do Log de Erros: cada linha mostra só código + mensagem + data/hora (o que importa
+ * para escanear rápido). Tocar abre o detalhe completo (`ErrorLogDetailDialog`).
+ */
+@Composable
+fun ErrorLogPanel(entries: List<RobotErrorLogEntry>, emptyHint: String) {
+    var selectedEntry by remember { mutableStateOf<RobotErrorLogEntry?>(null) }
+
+    if (entries.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text = emptyHint,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(entries) { entry ->
+            ErrorLogSummaryCard(entry = entry, onClick = { selectedEntry = entry })
+        }
+    }
+
+    if (selectedEntry != null) {
+        ErrorLogDetailDialog(entry = selectedEntry!!, onDismiss = { selectedEntry = null })
+    }
+}
+
+/**
+ * Cartão resumido de um erro: código + mensagem e a data/hora. Tocar abre o detalhe.
+ */
+@Composable
+fun ErrorLogSummaryCard(entry: RobotErrorLogEntry, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.ErrorOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (entry.errorCode.isNotBlank()) "(${entry.errorCode}) ${entry.errorMessage}" else "Erro sem código",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(entry.timestamp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * Detalhe completo de um erro, em tela cheia e dividido por seções: estado no momento do
+ * erro (sinal/velocidade/modo), programas em execução em cada robô/PC, a sequência de
+ * operações que levou ao erro e as poses (atual/comando/final). "Ver texto original" mostra
+ * o texto cru da entrada, para o caso de algum formato não ter batido com o parser.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ErrorLogDetailDialog(entry: RobotErrorLogEntry, onDismiss: () -> Unit) {
+    var showRaw by remember { mutableStateOf(false) }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                TopAppBar(
+                    title = { Text("Detalhe do Erro") },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Voltar")
+                        }
+                    }
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = if (entry.errorCode.isNotBlank()) "(${entry.errorCode}) ${entry.errorMessage}" else "Erro sem código",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                entry.timestamp,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+
+                    Column {
+                        Text("Estado no Momento do Erro", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        StatusItem("Sinal", entry.signal.ifBlank { "-" })
+                        StatusItem("Velocidade", entry.speed.ifBlank { "-" })
+                        StatusItem("Modo", entry.mode.ifBlank { "-" })
+                    }
+
+                    if (entry.programs.isNotEmpty()) {
+                        Column {
+                            Text("Programas em Execução", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            entry.programs.forEach { p -> ErrorLogProgramRow(p) }
+                        }
+                    }
+
+                    if (entry.operations.isNotEmpty()) {
+                        Column {
+                            Text("Sequência de Operações", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            entry.operations.forEach { op ->
+                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                    Text(
+                                        text = op.timestamp,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.width(140.dp)
+                                    )
+                                    Text(op.description, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                        }
+                    }
+
+                    if (entry.currentPose.isNotEmpty() || entry.commandPose.isNotEmpty() || entry.endPose.isNotEmpty()) {
+                        Column {
+                            Text("Poses (JT1-JT7)", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            PoseRow("Atual", entry.currentPose)
+                            PoseRow("Comando", entry.commandPose)
+                            PoseRow("Final", entry.endPose)
+                        }
+                    }
+
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { showRaw = !showRaw },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Ver Texto Original",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(if (showRaw) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null)
+                        }
+                        if (showRaw) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LogEntryCard(entry = RobotLogEntry(index = entry.index, timestamp = entry.timestamp, raw = entry.raw))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Uma linha de "Programas em Execução" no detalhe do erro: lugar/programa à esquerda,
+ * step e status à direita (vermelho quando parado).
+ */
+@Composable
+fun ErrorLogProgramRow(program: RobotErrorLogProgram) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(program.place, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                Text(program.program, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Step ${program.step}", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    text = program.status,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (program.status.equals("STOP", ignoreCase = true)) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Uma linha de pose (Atual/Comando/Final) com os valores JT1-JT7 lado a lado, rolando
+ * horizontalmente. "Sem dados" quando o backup não trouxe valores para essa pose.
+ */
+@Composable
+fun PoseRow(label: String, values: List<String>) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+        if (values.isEmpty()) {
+            Text("Sem dados", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            val jtLabels = listOf("JT1", "JT2", "JT3", "JT4", "JT5", "JT6", "JT7")
+            Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+                values.forEachIndexed { index, value ->
+                    Column(modifier = Modifier.width(70.dp).padding(end = 4.dp)) {
+                        Text(
+                            text = jtLabels.getOrElse(index) { "V${index + 1}" },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(value, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    }
+                }
             }
         }
     }
@@ -1416,16 +1914,20 @@ fun LogsPanel(logs: List<String>) {
 
 /**
  * Seção Programas: lista agrupada por grupo (cada grupo abre e fecha).
- * Em cada programa: ver, enviar a outro robô, duplicar, compartilhar (ainda não feito) e excluir.
+ *
+ * Cada linha tem uma caixa de seleção; enviar, compartilhar e excluir agora ficam na
+ * barra do topo da tela (ver o `actions` do `RobotDashboardScreen`) e operam só sobre os
+ * programas marcados — selecionar nenhum desabilita esses três botões. Tocar na linha
+ * (fora da caixa) ainda abre o programa no editor; "Duplicar" continua por linha, pois é
+ * uma ação de um programa só.
  */
 @Composable
 fun ProgramsPanel(
-    programs: List<RobotProgram>, 
+    programs: List<RobotProgram>,
+    selectedNames: Set<String>,
+    onToggleSelect: (String) -> Unit,
     onProgramClick: (RobotProgram) -> Unit,
-    onUpload: (RobotProgram) -> Unit,
-    onDuplicate: (RobotProgram) -> Unit,
-    onShare: (RobotProgram) -> Unit,
-    onDelete: (RobotProgram) -> Unit
+    onDuplicate: (RobotProgram) -> Unit
 ) {
     val expandedSections = remember { mutableStateMapOf<String, Boolean>() }
     
@@ -1468,6 +1970,7 @@ fun ProgramsPanel(
 
             if (expandedSections[groupName] ?: true) {
                 items(programsInGroup) { program ->
+                    val isSelected = program.name in selectedNames
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1475,39 +1978,76 @@ fun ProgramsPanel(
                             .clickable { onProgramClick(program) },
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                         shape = MaterialTheme.shapes.small,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                        )
                     ) {
                         Row(
-                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp).fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect(program.name) })
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(program.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                                Text(program.size, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (program.comment.isNotBlank()) {
+                                    Text(
+                                        text = program.comment,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Text(
+                                    text = buildString {
+                                        append(program.size)
+                                        append(" · ${program.lineCount} linhas")
+                                        if (program.modifiedAt.isNotBlank()) append(" · ${program.modifiedAt}")
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                            Row {
-                                IconButton(onClick = { onProgramClick(program) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Rounded.Visibility, "Ver", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                }
-                                IconButton(onClick = { onUpload(program) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Rounded.CloudUpload, "Enviar", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                }
-                                IconButton(onClick = { onDuplicate(program) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.ContentCopy, "Duplicar", modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(onClick = { onShare(program) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Share, "Compartilhar", modifier = Modifier.size(18.dp))
-                                }
-                                IconButton(onClick = { onDelete(program) }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Default.Delete, "Excluir", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
-                                }
+                            IconButton(onClick = { onProgramClick(program) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Rounded.Visibility, "Ver", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = { onDuplicate(program) }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.Default.ContentCopy, "Duplicar", modifier = Modifier.size(18.dp))
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Junta o texto dos programas selecionados num arquivo temporário e abre o menu de
+ * compartilhar do Android (mesmo mecanismo usado no histórico de backups).
+ */
+private fun shareProgramsContent(context: Context, programs: List<RobotProgram>, content: String) {
+    try {
+        val fileName = if (programs.size == 1) {
+            "${programs[0].name}.as"
+        } else {
+            "programas_${System.currentTimeMillis()}.as"
+        }
+        val cacheDir = File(context.cacheDir, "shared_backups")
+        if (!cacheDir.exists()) cacheDir.mkdirs()
+        val file = File(cacheDir, fileName)
+        file.writeText(content)
+
+        val contentUri = FileProvider.getUriForFile(context, "my.robots.fileprovider", file)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/octet-stream"
+            putExtra(Intent.EXTRA_STREAM, contentUri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "Compartilhar Programas"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Erro ao compartilhar: ${e.message}", Toast.LENGTH_LONG).show()
     }
 }
 

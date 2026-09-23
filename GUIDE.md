@@ -99,6 +99,18 @@ do usuário).
     real-time) ou um comando inteiro com Enter.
   - `deleteProgram`/`deleteVariable`: montam o comando `DELETE` certo (com `/P`, `/D`, `/L`,
     `/R`, `/S`, `/INT` conforme o caso).
+  - **Heartbeat (`HeartbeatState`)**: `isConnected` sozinho só diz que o socket TCP está
+    aberto, não que o robô está respondendo. Por isso, a cada robô conectado roda um
+    `heartbeatLoop` que reavalia o estado a cada 3s comparando `lastActivityAt` (atualizado
+    em `appendLog` sempre que chega algo de verdade do robô) com o tempo atual: `ALIVE` se
+    chegou algo nos últimos 8s, `STALE` se está conectado mas quieto. **O heartbeat é
+    puramente passivo — não escreve nada no socket.** Uma primeira versão mandava um NOP de
+    telnet (`0xFF 0xF1`) para sondar a conexão ativamente, mas o controlador Kawasaki lê o
+    canal caractere por caractere (só processa a linha no Enter) e não reconhece esse NOP
+    como protocolo: o byte `0xF1` aparecia literalmente como "ñ" misturado no meio do comando
+    que o usuário estava digitando. Uma queda de conexão de verdade continua sendo detectada
+    pelo `readLoop` (EOF/erro de leitura), só que sem a checagem ativa a cada 3s. Consumido
+    por `getHeartbeat(robotId)`.
 - **`RobotApiService`**: interface Retrofit para uma API HTTP do robô (`downloadConfig`,
   `uploadConfig`). Hoje aponta para `http://localhost/`, um endereço de teste — **não existe
   servidor HTTP de verdade**; por isso `RobotRepository.performBackup` sempre cai no
@@ -156,15 +168,16 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 
 ## 7. `:feature:robots` — Lista e Cadastro de Robôs
 
-**Arquivos:** `RobotListScreen.kt`, `RobotDialog.kt`, `RobotViewModel.kt`
+**Arquivos:** `RobotListScreen.kt`, `RobotDialog.kt`, `RobotViewModel.kt`, `ConnectedRobotsSheet.kt`, `ConnectedRobotsViewModel.kt`
 
 ### Lista de robôs (`RobotListScreen`)
 - Tela inicial de verdade do app (depois da splash). Agrupa os robôs em
   **Fabricante > Projeto > Robô**, com cada nível podendo ser expandido/recolhido.
-- Barra do topo: ordenar A-Z (liga/desliga ordenação alfabética nos três níveis), ícone de
-  Wifi (mostra SSID e IP do celular, atualizado a cada 3 segundos, para conferir se está na
-  mesma rede do robô) e engrenagem (abre um menu com o status do Wifi e atalho para
-  "Configurar Wifi", que leva para as configurações de Wifi **do próprio Android**).
+- Barra do topo: robôs conectados (ícone de hub — ver abaixo), ordenar A-Z (liga/desliga
+  ordenação alfabética nos três níveis), ícone de Wifi (mostra SSID e IP do celular,
+  atualizado a cada 3 segundos, para conferir se está na mesma rede do robô) e engrenagem
+  (abre um menu com o status do Wifi e atalho para "Configurar Wifi", que leva para as
+  configurações de Wifi **do próprio Android**).
 - Botão "+" abre `RobotDialog` para cadastrar um robô novo.
 - Cada robô mostra nome e `ip:porta`, com botões de terminal (abre o dashboard direto na
   seção Terminal), editar e excluir (com confirmação).
@@ -184,6 +197,22 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 - **Sincronização automática ao abrir o app:** para cada robô cadastrado, compara o banco
   com a pasta `/MyRobots/<robô>/` — arquivo `.as` que está na pasta mas não no banco vira um
   backup novo ("Sinc: <arquivo>"); backup do banco cujo arquivo sumiu da pasta é removido do banco.
+
+### Popup "Robôs Conectados" (`ConnectedRobotsSheet` + `ConnectedRobotsViewModel`)
+- Aberto pelo ícone de hub na barra do topo da lista de robôs. Um `ModalBottomSheet` agrupa
+  todos os robôs cadastrados **por Projeto** (sem o nível de Fabricante, para focar em "quem
+  está online agora").
+- Cada linha mostra: bolinha de heartbeat (ver `HeartbeatState` em `:core:network`), nome,
+  `ip:porta`, o texto do status ("Ativo"/"Sem resposta"/"Desconectado") e um botão
+  Conectar/Desconectar — dá para conectar em quantos robôs quiser ao mesmo tempo, cada um
+  com sua própria conexão TCP (mesmo mecanismo do Terminal Geral).
+- Cada cabeçalho de projeto tem um atalho "Conectar Todos"/"Desconectar Todos" que liga ou
+  desliga de uma vez todos os robôs daquele projeto.
+- A bolinha de heartbeat pulsa (anima opacidade) só quando `ALIVE`; fica parada em amarelo
+  (`STALE`) ou cinza (`DISCONNECTED`) — evita animação constante quando não há nada de novo.
+- `ConnectedRobotsViewModel` observa `getConnectionStatus`/`getHeartbeat` do
+  `KawasakiTerminalManager` para cada robô da lista (um coletor por robô, iniciado uma vez só
+  por id para não duplicar assinaturas).
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -241,17 +270,31 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
 `DashboardFeature`:
 
 - **Home:** cartão com informações do backup atual (nome, robô de origem, data, total de
-  linhas) e quatro atalhos em grade: Programas, Variáveis, Código AS (abre o `AsCodeViewer`
-  em tela cheia, fora do dashboard) e Data Bank.
+  linhas) e sete atalhos em grade: Programas, Variáveis, Data Bank, Código AS (abre o
+  `AsCodeViewer` em tela cheia, fora do dashboard) e os três logs do controlador (Erros,
+  Operação, Edição) — cada atalho mostra a contagem de itens, como nos de Programas/Variáveis.
 - **Terminal (`Logs`)**: terminal de verdade — caixa preta com texto verde (o que o usuário
   digitou aparece em azul-claro). Cada tecla digitada é enviada ao robô na hora (como um
   terminal real); apagar manda backspace; setas ⬆⬇ mandam histórico de comando do robô; o
   raio abre a biblioteca de comandos rápidos (`:feature:terminal`); um botão abre o gerenciador
   de arquivos do Android direto na pasta `/MyRobots` (se não conseguir abrir, cai no histórico
   de backups); botão Conectar/Desconectar muda de cor conforme o estado.
-- **Programas**: lista os programas do backup atual; tocar abre o programa isolado no editor
-  (`program_viewer`); ações de enviar para outro robô, duplicar e excluir (compartilhar ainda
-  não foi implementado).
+- **Programas**: lista os programas do backup atual com caixa de seleção em cada linha; cada
+  item mostra, além do nome, o comentário de descrição, o tamanho, a quantidade de linhas
+  (do `.PROGRAM` ao `.END`) e a data/hora de modificação lidos do próprio cabeçalho do
+  programa (formato real:
+  `.PROGRAM nome(params)@dd/mm/aa hh:mm#N;comentário` — `PROGRAM_HEADER_REGEX` no
+  `RobotDashboardViewModel`; qualquer uma dessas partes pode faltar em backups mais antigos).
+  Tocar na linha (fora da caixa) ou no ícone de olho abre o programa isolado no editor
+  (`program_viewer`). Enviar,
+  compartilhar e excluir **não ficam mais na linha — ficam na barra do topo** e operam sobre
+  todos os programas marcados de uma vez (desabilitados sem nenhum marcado); um botão na barra
+  do topo alterna "Selecionar Todos"/"Desmarcar Todos". Enviar empacota os blocos
+  `.PROGRAM...END` de todos os selecionados num arquivo só (`packProgramsContent` no
+  ViewModel); compartilhar usa o mesmo pacote para abrir o menu de compartilhar do Android
+  (`FileProvider`, igual ao histórico de backups); excluir remove todos numa passada só
+  (`deletePrograms`), para não perder uma exclusão por causa de outra sendo salva ao mesmo
+  tempo. "Duplicar" continua por linha, pois é uma ação de um programa só.
 - **Variáveis**: tabela com nome fixo à esquerda e valores `X, Y, Z, O, A, T, JT7, JT8`
   rolando para o lado — variáveis do tipo `FRAME` (posição) mostram um valor por coluna, as
   outras mostram o valor inteiro numa célula só. Nomes que começam com `!` aparecem em
@@ -260,6 +303,32 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
 - **Data Bank**: tabela parecida (linhas da seção `.sprdb`), mas com checkbox por linha para
   selecionar várias de uma vez e enviar em lote (`onUploadSelected`). Colunas fixas: número e
   comentário; roláveis: `FRATE, PATTERN, ATOMIZE, HVOLT, SPEED, JSPEED`.
+- **Logs do controlador (Erros/Operação/Edição)**: três seções que só existem quando o
+  backup foi feito com `SAVE/FULL` no robô — sem isso, aparecem zerados (contagem 0 e uma
+  mensagem explicando o motivo). Lidos direto do backup por `parseLogSection` (função
+  privada em `RobotDashboardViewModel.kt`), que reconhece o formato `N - [...]` de cada
+  entrada e junta linhas de detalhe até a próxima entrada ou até a próxima seção do backup
+  (essas seções não têm `.END` próprio, ao contrário de `.PROGRAM`/`.sprdb`):
+  - **`.ERRLOG`** (Log de Erros): é o único dos três com parser estruturado
+    (`RobotErrorLogEntry`, `parseErrorLog`/`buildErrorLogEntry`), porque cada entrada tem
+    várias linhas com informação bem diferente (código/mensagem do erro, sinal/velocidade/
+    modo, as `OPERATIONx` daquele momento, o status de cada robô/PC do sistema e as poses
+    Current/Command/End). A lista (`ErrorLogPanel`) mostra só código + mensagem + data/hora
+    por linha (`ErrorLogSummaryCard`); tocar abre `ErrorLogDetailDialog` em tela cheia,
+    dividido em seções (Estado no Momento do Erro, Programas em Execução, Sequência de
+    Operações, Poses) com um "Ver Texto Original" reaproveitando o `LogEntryCard` genérico,
+    para o caso de algum formato de erro não bater com o parser.
+  - **`.OPELOG`** (Log de Operação): uma linha por evento (conectar, `SAVE`, `RESET`, troca de
+    step etc.), com a origem entre colchetes (`TP`, `AUX1`...). Continua no `LogPanel`
+    genérico (lista simples com o texto cru de cada linha), pois já é compacto por natureza.
+  - **`.PGM_EDT_LOG`** (Log de Edição): uma linha por edição de programa feita no ensino
+    (`Step addition`, `Step deletion`...), com o nome do programa e o step afetado. Também no
+    `LogPanel` genérico, pelo mesmo motivo do `.OPELOG`.
+  - **Busca:** as três telas de log têm lupa na barra do topo (mesmo padrão do `AsCodeViewer`
+    — troca o título por um campo de texto). Filtra por `entry.raw.contains(query)`, ou seja,
+    casa com qualquer parte do texto da entrada (no `.ERRLOG` isso inclui código, mensagem,
+    operações e poses, já que tudo está junto em `raw`). Sem resultado mostra uma mensagem
+    diferente conforme o motivo: log vazio (sem `SAVE/FULL`) ou busca sem resultado.
 - **Enviar para outro robô:** ao enviar um programa, variável ou linhas de Data Bank,
   `RobotSelectionDialog` pergunta o robô de destino. Se o destino for o próprio robô aberto,
   a tela muda para a seção Terminal; se for outro robô, `onNavigateToRobot` navega para o

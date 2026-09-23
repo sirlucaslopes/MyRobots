@@ -38,6 +38,8 @@ import my.robots.feature.dashboard.DashboardFeature
 import my.robots.feature.dashboard.RobotDashboardScreen
 import my.robots.feature.dashboard.RobotDashboardViewModel
 import my.robots.feature.dashboard.RobotDashboardViewModelFactory
+import my.robots.feature.robots.ConnectedRobotsViewModel
+import my.robots.feature.robots.ConnectedRobotsViewModelFactory
 import my.robots.feature.robots.RobotListScreen
 import my.robots.feature.robots.RobotViewModelFactory
 import my.robots.feature.terminal.MultiRobotTerminalScreen
@@ -195,8 +197,12 @@ class MainActivity : ComponentActivity() {
                         // - Ícone do terminal -> painel do robô já no terminal.
                         // - Ícone do terminal do projeto -> terminal geral (todos os robôs do projeto).
                         composable("robot_list") {
+                            val connectedRobotsViewModel: ConnectedRobotsViewModel = viewModel(
+                                factory = ConnectedRobotsViewModelFactory(repository, terminalManager)
+                            )
                             RobotListScreen(
                                 viewModel = viewModel(factory = RobotViewModelFactory(repository)),
+                                connectedRobotsViewModel = connectedRobotsViewModel,
                                 onRobotClick = { robot ->
                                     navController.navigate("backup_list/${robot.id}")
                                 },

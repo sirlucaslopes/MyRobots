@@ -20,11 +20,30 @@ import my.robots.core.common.FileUtil
  * - name: nome do programa.
  * - size: tamanho aproximado, em KB.
  * - group: grupo a que pertence (vem dos comentários do backup; padrão "Geral").
+ * - modifiedAt: data/hora da última alteração, lida do próprio cabeçalho do programa
+ *   (ex.: "26/09/23 11:42"). Vazio se o cabeçalho não tiver essa informação.
+ * - comment: descrição curta do programa, escrita por quem programou (ex.: "Robot States
+ *   Control Program"). Vazio se o cabeçalho não tiver comentário.
+ * - lineCount: quantidade de linhas do bloco (do .PROGRAM ao .END, incluindo os dois).
  */
 data class RobotProgram(
     val name: String,
     val size: String = "0 KB",
-    val group: String = "Geral"
+    val group: String = "Geral",
+    val modifiedAt: String = "",
+    val comment: String = "",
+    val lineCount: Int = 0
+)
+
+/**
+ * Lê o cabeçalho de uma linha ".PROGRAM nome(params)@dd/mm/aa hh:mm#N;comentário".
+ * Cada parte depois do nome é opcional (backups mais antigos podem não ter data ou comentário).
+ *
+ * Grupos: 1 = data (dd/mm/aa), 2 = hora (hh:mm), 3 = comentário.
+ */
+private val PROGRAM_HEADER_REGEX = Regex(
+    """\.PROGRAM\s+\S+?\([^)]*\)(?:@([^\s#;]+)\s+([^\s#;]+))?(?:#[^;]*)?(?:;(.*))?""",
+    RegexOption.IGNORE_CASE
 )
 
 /**
@@ -54,6 +73,266 @@ data class RobotDataBankEntry(
     val speed: String = "0",
     val jspeed: String = "0"
 )
+
+/**
+ * Uma entrada de um dos logs do controlador (.ERRLOG, .OPELOG ou .PGM_EDT_LOG).
+ * - index: número da entrada, como escrito no log (a numeração pode ter buracos).
+ * - timestamp: o que está entre colchetes na primeira linha (data/hora e, no ERRLOG,
+ *   também sinal/velocidade/modo).
+ * - raw: o texto completo da entrada, como está no backup (pode ter várias linhas —
+ *   é o caso do ERRLOG, que traz o estado do robô e as poses no momento do erro).
+ */
+data class RobotLogEntry(
+    val index: String,
+    val timestamp: String,
+    val raw: String
+)
+
+/** Reconhece o início de uma entrada de log: "N - [qualquer coisa]". */
+private val LOG_ENTRY_HEADER_REGEX = Regex("""^(\d+)\s*-\s*\[([^]]*)]""")
+
+/**
+ * Lê uma seção de log do backup (ERRLOG, OPELOG ou PGM_EDT_LOG).
+ *
+ * Essas seções só existem quando o backup foi feito com SAVE/FULL no robô — se a seção não
+ * estiver no arquivo, devolve uma lista vazia (é o "zerado" esperado nesse caso). Cada
+ * entrada começa com "N - [...]" e pode ter linhas de detalhe embaixo (como no ERRLOG). A
+ * seção termina na próxima linha que começa com "." (uma nova seção do backup) ou no fim
+ * do arquivo — essas seções não têm ".END" próprio.
+ */
+private fun parseLogSection(lines: List<String>, sectionMarker: String): List<RobotLogEntry> {
+    val startIndex = lines.indexOfFirst { it.trim().equals(sectionMarker, ignoreCase = true) }
+    if (startIndex == -1) return emptyList()
+
+    val entries = mutableListOf<RobotLogEntry>()
+    var currentIndex: String? = null
+    var currentTimestamp = ""
+    val currentBlock = StringBuilder()
+
+    fun flush() {
+        val idx = currentIndex ?: return
+        entries.add(RobotLogEntry(index = idx, timestamp = currentTimestamp, raw = currentBlock.toString().trim()))
+    }
+
+    for (i in (startIndex + 1) until lines.size) {
+        val trimmed = lines[i].trim()
+        if (trimmed.startsWith(".")) break
+
+        val header = LOG_ENTRY_HEADER_REGEX.find(trimmed)
+        if (header != null) {
+            flush()
+            currentIndex = header.groupValues[1]
+            currentTimestamp = header.groupValues[2].trim()
+            currentBlock.clear()
+            currentBlock.append(trimmed)
+        } else if (currentIndex != null && trimmed.isNotEmpty()) {
+            currentBlock.append("\n").append(trimmed)
+        }
+    }
+    flush()
+    return entries
+}
+
+/**
+ * Uma operação (mudança de estado) registrada dentro de uma entrada do .ERRLOG, ex.:
+ * "OPERATION1:[26/07/12 08:15:26] ( EMERGENCY STOP )".
+ */
+data class RobotErrorLogOperation(
+    val label: String,
+    val timestamp: String,
+    val description: String
+)
+
+/**
+ * O programa/PC que estava rodando no momento do erro, ex.:
+ * "ROBOT1: PROGRAM:pg9996 Step:0 Cur_Step:30 STATUS:STOP" ou
+ * "PC1 PROGRAM: pc2_main Step No: 16 STATUS: STOP".
+ */
+data class RobotErrorLogProgram(
+    val place: String,
+    val program: String,
+    val step: String,
+    val status: String
+)
+
+/**
+ * Uma entrada do .ERRLOG, já separada em campos (ao contrário do RobotLogEntry genérico,
+ * usado pelo OPELOG/PGM_EDT_LOG, que só guarda o texto cru). `raw` continua disponível como
+ * texto original completo, para o caso de algum formato de erro não bater com o parser.
+ */
+data class RobotErrorLogEntry(
+    val index: String,
+    val timestamp: String,
+    val signal: String,
+    val speed: String,
+    val mode: String,
+    val errorCode: String,
+    val errorMessage: String,
+    val operations: List<RobotErrorLogOperation>,
+    val programs: List<RobotErrorLogProgram>,
+    val currentPose: List<String>,
+    val commandPose: List<String>,
+    val endPose: List<String>,
+    val raw: String
+)
+
+private val ERRLOG_HEADER_REGEX = Regex(
+    """^\d+\s*-\s*\[(\S+)\s+(\S+)\s+SIGNAL:(\S+)\s+MON\.SPEED\s*:\s*(\S+)\s+([^]]*)]""",
+    RegexOption.IGNORE_CASE
+)
+private val ERROR_CODE_REGEX = Regex("""^\(([A-Za-z0-9]+)\)\s*(.*)$""")
+private val OPERATION_LINE_REGEX = Regex("""^OPERATION(\d+):\[([^]]*)]\s*\(\s*(.*?)\s*\)\s*$""", RegexOption.IGNORE_CASE)
+private val PC_PROGRAM_LINE_REGEX = Regex("""^(\S+)\s+PROGRAM:\s*(\S+)\s+Step No:\s*(\S+)\s+STATUS:\s*(\S+)$""", RegexOption.IGNORE_CASE)
+private val ROBOT_PROGRAM_LINE_REGEX = Regex("""^PROGRAM:(\S+)\s+Step:(\S+)\s+Cur_Step:(\S+)\s+STATUS:(\S+)$""", RegexOption.IGNORE_CASE)
+private val PLACE_HEADER_REGEX = Regex("""^(\w+):$""")
+private val POSE_HEADER_REGEX = Regex("""^(Current|Command|End)\s+Pose$""", RegexOption.IGNORE_CASE)
+
+/**
+ * Lê a seção .ERRLOG do backup e devolve cada entrada já separada em campos (código/mensagem
+ * do erro, sinal/velocidade/modo, operações, programas em execução e as poses). Só existe em
+ * backup SAVE/FULL; se a seção não estiver no arquivo, devolve lista vazia.
+ */
+private fun parseErrorLog(lines: List<String>): List<RobotErrorLogEntry> {
+    val startIndex = lines.indexOfFirst { it.trim().equals(".ERRLOG", ignoreCase = true) }
+    if (startIndex == -1) return emptyList()
+
+    val entries = mutableListOf<RobotErrorLogEntry>()
+    var headerLine: String? = null
+    var bodyLines = mutableListOf<String>()
+
+    fun flush() {
+        val header = headerLine ?: return
+        entries.add(buildErrorLogEntry(header, bodyLines))
+    }
+
+    for (i in (startIndex + 1) until lines.size) {
+        val trimmed = lines[i].trim()
+        if (trimmed.startsWith(".")) break
+
+        if (LOG_ENTRY_HEADER_REGEX.find(trimmed) != null) {
+            flush()
+            headerLine = trimmed
+            bodyLines = mutableListOf()
+        } else if (headerLine != null && trimmed.isNotEmpty()) {
+            bodyLines.add(trimmed)
+        }
+    }
+    flush()
+    return entries
+}
+
+/**
+ * Monta uma entrada do .ERRLOG a partir da linha de cabeçalho ("N - [...]") e das linhas de
+ * detalhe embaixo dela. Cada tipo de linha (código do erro, OPERATIONx, programa/PC, pose)
+ * é reconhecido pelo seu próprio formato; o que não bate com nenhum é só ignorado nos campos
+ * estruturados (mas continua disponível em `raw`).
+ */
+private fun buildErrorLogEntry(headerLine: String, bodyLines: List<String>): RobotErrorLogEntry {
+    val index = LOG_ENTRY_HEADER_REGEX.find(headerLine)?.groupValues?.getOrNull(1).orEmpty()
+    val header = ERRLOG_HEADER_REGEX.find(headerLine)
+    val date = header?.groupValues?.getOrNull(1).orEmpty()
+    val time = header?.groupValues?.getOrNull(2).orEmpty()
+    val signal = header?.groupValues?.getOrNull(3).orEmpty()
+    val speed = header?.groupValues?.getOrNull(4).orEmpty()
+    val mode = header?.groupValues?.getOrNull(5)?.trim().orEmpty()
+
+    var errorCode = ""
+    var errorMessage = ""
+    val operations = mutableListOf<RobotErrorLogOperation>()
+    val programs = mutableListOf<RobotErrorLogProgram>()
+    var currentPose: List<String> = emptyList()
+    var commandPose: List<String> = emptyList()
+    var endPose: List<String> = emptyList()
+    var pendingPlace: String? = null
+
+    var i = 0
+    while (i < bodyLines.size) {
+        val line = bodyLines[i]
+        val codeMatch = if (errorCode.isEmpty()) ERROR_CODE_REGEX.find(line) else null
+        val opMatch = OPERATION_LINE_REGEX.find(line)
+        val pcMatch = PC_PROGRAM_LINE_REGEX.find(line)
+        val robotDetailMatch = ROBOT_PROGRAM_LINE_REGEX.find(line)
+        val placeMatch = PLACE_HEADER_REGEX.find(line)
+        val poseMatch = POSE_HEADER_REGEX.find(line)
+
+        when {
+            codeMatch != null -> {
+                errorCode = codeMatch.groupValues[1]
+                errorMessage = codeMatch.groupValues[2].trim()
+            }
+            opMatch != null -> {
+                operations.add(
+                    RobotErrorLogOperation(
+                        label = "OPERATION${opMatch.groupValues[1]}",
+                        timestamp = opMatch.groupValues[2].trim(),
+                        description = opMatch.groupValues[3].trim()
+                    )
+                )
+            }
+            pcMatch != null -> {
+                programs.add(
+                    RobotErrorLogProgram(
+                        place = pcMatch.groupValues[1],
+                        program = pcMatch.groupValues[2],
+                        step = pcMatch.groupValues[3],
+                        status = pcMatch.groupValues[4]
+                    )
+                )
+            }
+            robotDetailMatch != null && pendingPlace != null -> {
+                programs.add(
+                    RobotErrorLogProgram(
+                        place = pendingPlace!!,
+                        program = robotDetailMatch.groupValues[1],
+                        // Cur_Step é o passo de verdade que estava rodando; Step costuma ficar em 0.
+                        step = robotDetailMatch.groupValues[3],
+                        status = robotDetailMatch.groupValues[4]
+                    )
+                )
+                pendingPlace = null
+            }
+            placeMatch != null -> {
+                pendingPlace = placeMatch.groupValues[1]
+            }
+            poseMatch != null -> {
+                val poseType = poseMatch.groupValues[1].lowercase()
+                var cursor = i + 1
+                if (cursor < bodyLines.size && bodyLines[cursor].contains("JT1", ignoreCase = true)) cursor++
+                var values: List<String> = emptyList()
+                if (cursor < bodyLines.size) {
+                    val candidate = bodyLines[cursor]
+                    if (POSE_HEADER_REGEX.find(candidate) == null && candidate.any { it.isDigit() }) {
+                        values = candidate.split(Regex("\\s+")).filter { it.isNotBlank() }
+                        cursor++
+                    }
+                }
+                when (poseType) {
+                    "current" -> currentPose = values
+                    "command" -> commandPose = values
+                    "end" -> endPose = values
+                }
+                i = cursor - 1
+            }
+        }
+        i++
+    }
+
+    return RobotErrorLogEntry(
+        index = index,
+        timestamp = if (date.isNotEmpty() && time.isNotEmpty()) "$date $time" else headerLine,
+        signal = signal,
+        speed = speed,
+        mode = mode,
+        errorCode = errorCode,
+        errorMessage = errorMessage,
+        operations = operations,
+        programs = programs,
+        currentPose = currentPose,
+        commandPose = commandPose,
+        endPose = endPose,
+        raw = (listOf(headerLine) + bodyLines).joinToString("\n")
+    )
+}
 
 /**
  * Cérebro do painel do robô.
@@ -122,6 +401,25 @@ class RobotDashboardViewModel(
      * Texto bruto da seção Data Bank.
      */
     val dataBankContent: StateFlow<String> = _dataBankContent.asStateFlow()
+
+    private val _errorLog = MutableStateFlow<List<RobotErrorLogEntry>>(emptyList())
+    /**
+     * Log de erros do robô (.ERRLOG), já com os campos separados. Vazio se o backup não
+     * foi feito com SAVE/FULL.
+     */
+    val errorLog: StateFlow<List<RobotErrorLogEntry>> = _errorLog.asStateFlow()
+
+    private val _operationLog = MutableStateFlow<List<RobotLogEntry>>(emptyList())
+    /**
+     * Log de operação do robô (.OPELOG). Vazio se o backup não foi feito com SAVE/FULL.
+     */
+    val operationLog: StateFlow<List<RobotLogEntry>> = _operationLog.asStateFlow()
+
+    private val _programEditLog = MutableStateFlow<List<RobotLogEntry>>(emptyList())
+    /**
+     * Log de edição de programas (.PGM_EDT_LOG). Vazio se o backup não foi feito com SAVE/FULL.
+     */
+    val programEditLog: StateFlow<List<RobotLogEntry>> = _programEditLog.asStateFlow()
 
     /**
      * true se o terminal deste robô está conectado.
@@ -247,45 +545,63 @@ class RobotDashboardViewModel(
     }
 
     /**
-     * Envia um programa do backup para um robô.
+     * Extrai do backup atual os blocos .PROGRAM ... .END de vários programas, já juntos
+     * num texto só (na ordem em que aparecem no backup). Usado tanto para enviar a outro
+     * robô quanto para compartilhar por fora do app.
+     */
+    suspend fun packProgramsContent(programs: List<RobotProgram>): String {
+        if (programs.isEmpty()) return ""
+        val summary = _latestBackup.value ?: return ""
+        val fullBackup = repository.getBackupById(summary.id) ?: return ""
+        val nameSet = programs.map { it.name.lowercase() }.toSet()
+
+        return withContext(Dispatchers.Default) {
+            val lines = fullBackup.content.lines()
+            val extracted = StringBuilder()
+            var isReading = false
+            for (line in lines) {
+                val trimmed = line.trim()
+                if (trimmed.startsWith(".PROGRAM", ignoreCase = true)) {
+                    val name = trimmed.substringAfter(".PROGRAM").substringBefore("(").trim()
+                    isReading = name.lowercase() in nameSet
+                }
+                if (isReading) {
+                    extracted.append(line).append("\n")
+                    if (trimmed.equals(".END", ignoreCase = true)) isReading = false
+                }
+            }
+            extracted.toString()
+        }
+    }
+
+    /**
+     * Envia um ou mais programas do backup para um robô, empacotados num único arquivo.
      *
-     * 1. Extrai do backup só o bloco .PROGRAM ... .END do programa.
-     * 2. Cria o arquivo transfer_<nome>.as com esse bloco.
+     * 1. Extrai do backup o bloco .PROGRAM ... .END de cada programa selecionado (`packProgramsContent`).
+     * 2. Cria o arquivo transfer_<nome>.as (um programa só) ou transfer_batch_<hora>.as (vários).
      * 3. Se o destino é ESTE robô: grava o arquivo e manda LOAD na hora.
      *    Se é OUTRO robô: deixa na fila; o painel dele fará o LOAD ao conectar.
      */
-    fun sendProgramToRobot(program: RobotProgram, targetRobot: Robot) {
+    fun sendProgramsToRobot(programs: List<RobotProgram>, targetRobot: Robot) {
+        if (programs.isEmpty()) return
         viewModelScope.launch {
             _isLoading.value = true
-            val summary = _latestBackup.value ?: return@launch
-            val fullBackup = repository.getBackupById(summary.id) ?: return@launch
-            
-            val programContent = withContext(Dispatchers.Default) {
-                val lines = fullBackup.content.lines()
-                val extracted = StringBuilder()
-                var isReading = false
-                for (line in lines) {
-                    if (line.trim().startsWith(".PROGRAM ${program.name}", ignoreCase = true)) {
-                        isReading = true
-                    }
-                    if (isReading) {
-                        extracted.append(line).append("\n")
-                        if (line.trim().equals(".END", ignoreCase = true)) break
-                    }
+            val packedContent = packProgramsContent(programs)
+
+            if (packedContent.isNotBlank()) {
+                val fileName = if (programs.size == 1) {
+                    val sanitizedName = FileUtil.sanitizeFileName(programs[0].name).replace(".as", "")
+                    "transfer_$sanitizedName.as"
+                } else {
+                    "transfer_batch_${System.currentTimeMillis()}.as"
                 }
-                extracted.toString()
-            }
-            
-            if (programContent.isNotBlank()) {
-                val sanitizedName = FileUtil.sanitizeFileName(program.name).replace(".as", "")
-                val fileName = "transfer_$sanitizedName.as"
-                
+
                 if (targetRobot.id == robotId) {
-                    repository.saveFileToRobotFolder(robotId, fileName, programContent)
+                    repository.saveFileToRobotFolder(robotId, fileName, packedContent)
                     delay(500)
                     terminalManager.sendCommand(robotId, "LOAD $fileName")
                 } else {
-                    terminalManager.setPendingTransfer(targetRobot.id, fileName, programContent)
+                    terminalManager.setPendingTransfer(targetRobot.id, fileName, packedContent)
                 }
             }
             _isLoading.value = false
@@ -467,6 +783,9 @@ class RobotDashboardViewModel(
             
             var currentProgramName: String? = null
             var currentProgramContent = StringBuilder()
+            var currentProgramModifiedAt = ""
+            var currentProgramComment = ""
+            var currentProgramLineCount = 0
             var isReadingProgram = false
             var currentSection = ""
             var isReadingDataBank = false
@@ -507,13 +826,31 @@ class RobotDashboardViewModel(
                     currentProgramName = trimmed.substringAfter(".PROGRAM").substringBefore("(").trim()
                     if (currentProgramName.isEmpty()) currentProgramName = "Untitled"
                     currentProgramContent = StringBuilder().append(line).append("\n")
+                    currentProgramLineCount = 1
                     isReadingProgram = true
+
+                    // lê data/hora e comentário do próprio cabeçalho, ex.: "@26/09/23 11:42#0;Descrição"
+                    val header = PROGRAM_HEADER_REGEX.find(trimmed)
+                    val date = header?.groupValues?.getOrNull(1)?.trim().orEmpty()
+                    val time = header?.groupValues?.getOrNull(2)?.trim().orEmpty()
+                    currentProgramModifiedAt = if (date.isNotEmpty() && time.isNotEmpty()) "$date $time" else ""
+                    currentProgramComment = header?.groupValues?.getOrNull(3)?.trim().orEmpty()
                 } else if (isReadingProgram) {
                     currentProgramContent.append(line).append("\n")
+                    currentProgramLineCount++
                     if (trimmed.equals(".END", ignoreCase = true)) {
                         val name = currentProgramName ?: "Untitled"
                         if (!name.contains("comment___", ignoreCase = true) && !name.startsWith(".")) {
-                            programsList.add(RobotProgram(name = name, size = "${(currentProgramContent.length / 1024).coerceAtLeast(1)} KB", group = "Geral"))
+                            programsList.add(
+                                RobotProgram(
+                                    name = name,
+                                    size = "${(currentProgramContent.length / 1024).coerceAtLeast(1)} KB",
+                                    group = "Geral",
+                                    modifiedAt = currentProgramModifiedAt,
+                                    comment = currentProgramComment,
+                                    lineCount = currentProgramLineCount
+                                )
+                            )
                         }
                         isReadingProgram = false
                         currentProgramName = null
@@ -572,6 +909,14 @@ class RobotDashboardViewModel(
             _dataBankContent.value = dbRaw
             _dataBankEntries.value = parseDataBankEntries(dbRaw)
             _lineCount.value = totalLines
+
+            // Logs do controlador (só existem em backup SAVE/FULL) — cada seção é lida
+            // separado, com acesso direto às linhas (não dá para reaproveitar o forEach
+            // de cima porque essas seções não têm ".END").
+            val allLines = content.lines()
+            _errorLog.value = parseErrorLog(allLines)
+            _operationLog.value = parseLogSection(allLines, ".OPELOG")
+            _programEditLog.value = parseLogSection(allLines, ".PGM_EDT_LOG")
         }
     }
 
@@ -802,31 +1147,38 @@ class RobotDashboardViewModel(
     }
 
     /**
-     * Apaga um programa do texto do backup. Se o terminal estiver conectado, também manda
-     * o robô apagar o programa (DELETE).
+     * Apaga um ou mais programas do texto do backup, numa passada só (para não perder uma
+     * exclusão por causa de outra sendo salva ao mesmo tempo). Se o terminal estiver
+     * conectado, também manda o robô apagar cada um deles (DELETE).
      */
-    fun deleteProgram(program: RobotProgram) {
+    fun deletePrograms(programs: List<RobotProgram>) {
+        if (programs.isEmpty()) return
         val summary = _latestBackup.value ?: return
         viewModelScope.launch {
             _isLoading.value = true
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
-            
+            val nameSet = programs.map { it.name.lowercase() }.toSet()
+
             // se o robô está conectado, apaga nele também
             if (isConnected.value) {
-                terminalManager.deleteProgram(robotId, program.name)
+                programs.forEach { terminalManager.deleteProgram(robotId, it.name) }
             }
 
             val newContent = withContext(Dispatchers.Default) {
                 val lines = fullBackup.content.lines()
                 val result = StringBuilder()
-                var isReading = false
+                var isSkipping = false
                 for (line in lines) {
-                    if (line.trim().startsWith(".PROGRAM ${program.name}", ignoreCase = true)) {
-                        isReading = true
-                        continue
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith(".PROGRAM", ignoreCase = true)) {
+                        val name = trimmed.substringAfter(".PROGRAM").substringBefore("(").trim()
+                        if (name.lowercase() in nameSet) {
+                            isSkipping = true
+                            continue
+                        }
                     }
-                    if (isReading) {
-                        if (line.trim().equals(".END", ignoreCase = true)) isReading = false
+                    if (isSkipping) {
+                        if (trimmed.equals(".END", ignoreCase = true)) isSkipping = false
                         continue
                     }
                     result.append(line).append("\n")
