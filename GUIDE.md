@@ -250,11 +250,25 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   em amarelo, comandos de movimento em azul, sinais/esperas em verde-água, outras
   palavras-chave em roxo, números em verde-claro).
 - Barra do topo: lupa (busca com destaque amarelo no texto), lápis (liga/desliga o modo de
-  edição) e disquete (chama `onSave` com o texto atual — o padrão não faz nada, então uma
-  tela somente-leitura simplesmente não grava).
-- **Cuidado com performance:** acima de 100 mil caracteres, só a busca é destacada (sem
-  colorir palavras); acima de 2 MB, nenhuma cor é aplicada, para não travar o celular. Acima
-  de 50 mil linhas, a coluna de números vira um aviso único em vez de listar linha por linha.
+  edição) e disquete (chama `onSave` com as linhas juntas por `\n` — o padrão não faz nada,
+  então uma tela somente-leitura simplesmente não grava).
+- **O texto nunca é editável direto na área de código** (não é mais um campo de texto livre
+  — foi assim numa versão anterior, mas digitar dentro de um arquivo gigante rolando na tela
+  do celular era fácil de errar sem querer). Cada linha é uma linha de uma `LazyColumn`
+  (`CodeLinesList`/`CodeLineRow`), colorida com `highlightAsCode` só para as linhas visíveis
+  na tela — por isso funciona liso mesmo em arquivo com dezenas de milhares de linhas, sem
+  precisar degradar o destaque de sintaxe como a versão antiga fazia.
+- **Modo de edição** (ícone de lápis): cada linha ganha uma caixa de seleção (pode marcar
+  mais de uma, em qualquer ordem) e aparece uma barra de ações embaixo da barra do topo
+  (`LineActionsToolbar`), agindo sobre o que estiver marcado:
+  - **Copiar** (1+ marcadas): manda o texto das linhas para a área de transferência.
+  - **Colar** (exatamente 1 marcada): insere o texto da área de transferência acima da
+    linha marcada — se o que foi copiado tiver várias linhas, todas entram de uma vez.
+  - **Alterar** (exatamente 1 marcada): abre `LineEditDialog` só com o texto daquela linha,
+    para editar isolado, sem risco de mexer em outra parte do arquivo.
+  - **Inserir** (exatamente 1 marcada): abre a mesma janela vazia; o texto digitado vira uma
+    linha nova acima da marcada, empurrando o resto do arquivo para baixo.
+  - **Excluir** (1+ marcadas): remove as linhas marcadas.
 - É usado em quatro rotas diferentes no `:app` (ver seção 14): código completo, um programa
   só, só as variáveis, e arquivo aberto de fora do app (somente leitura).
 

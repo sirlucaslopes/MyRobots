@@ -1,9 +1,13 @@
 package my.robots.feature.codeeditor
 
-import androidx.compose.animation.*
-import androidx.compose.foundation.*
+import android.widget.Toast
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -12,26 +16,50 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.*
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.*
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * Tela completa para ler e editar um arquivo de código AS.
+ * Ação pendente na janela de edição de linha: alterar uma linha existente (guarda o
+ * índice dela) ou inserir uma linha nova antes de um índice (empurra o resto para baixo).
+ */
+private sealed class LineDialogAction {
+    data class Change(val index: Int) : LineDialogAction()
+    data class Insert(val beforeIndex: Int) : LineDialogAction()
+}
+
+/**
+ * Tela completa para ler e editar um arquivo de código AS, linha por linha.
  *
  * - fileName: nome mostrado no topo.
  * - content: o texto do arquivo.
  * - onBack: chamado ao tocar em voltar.
- * - onSave: chamado ao tocar no disquete, com o texto atual. O padrão não faz
- *   nada, então telas somente de leitura simplesmente não salvam.
+ * - onSave: chamado ao tocar no disquete, com o texto atual (linhas juntas por "\n").
+ *   O padrão não faz nada, então uma tela somente-leitura simplesmente não grava.
  *
- * Na barra do topo: lupa (buscar), lápis (liga/desliga a edição) e disquete (salvar).
+ * O texto NUNCA é editável direto na área de código — num arquivo com milhares de
+ * linhas, digitar dentro de um campo rolando na tela do celular é fácil de errar sem
+ * querer. Toda mudança passa pelo modo de edição (ícone de lápis): cada linha ganha uma
+ * caixa de seleção, e uma barra de ações aparece embaixo da barra do topo, agindo sobre
+ * o que estiver marcado:
+ * - Copiar: manda o texto das linhas marcadas (uma ou mais) para a área de transferência.
+ * - Colar: insere o texto que estiver na área de transferência acima da linha marcada
+ *   (pode ter várias linhas; todas entram, empurrando o resto do arquivo para baixo).
+ * - Alterar: abre uma janela só com o texto da linha marcada (exige exatamente uma),
+ *   para editar isolado, sem risco de mexer em outra parte do arquivo.
+ * - Inserir: abre a mesma janela, vazia; o texto digitado vira uma linha nova acima da
+ *   marcada.
+ * - Excluir: remove todas as linhas marcadas.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,102 +69,195 @@ fun AsCodeViewer(
     onBack: () -> Unit,
     onSave: (String) -> Unit = {}
 ) {
-    // Estados da tela: o texto atual, se está no modo de edição,
-    // o texto buscado e se a barra de busca está aberta.
-    var textFieldValue by remember { mutableStateOf(TextFieldValue(content)) }
-    var isEditing by remember { mutableStateOf(false) }
+    var lines by remember { mutableStateOf(content.lines()) }
+    var isEditMode by remember { mutableStateOf(false) }
+    var selectedLines by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var lineDialog by remember { mutableStateOf<LineDialogAction?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
-    
-    val focusManager = LocalFocusManager.current
+
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    val hasSelection = selectedLines.isNotEmpty()
+    val hasSingleSelection = selectedLines.size == 1
+    val disabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { 
-                    if (isSearchActive) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
-                            placeholder = { Text("Pesquisar...") },
-                            trailingIcon = {
-                                IconButton(onClick = { isSearchActive = false; searchQuery = "" }) {
-                                    Icon(Icons.Default.Close, null)
-                                }
-                            },
-                            singleLine = true,
-                            textStyle = LocalTextStyle.current.copy(fontSize = 16.sp)
-                        )
-                    } else {
-                        Text(fileName) 
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = {
+            Column {
+                TopAppBar(
+                    title = {
                         if (isSearchActive) {
-                            isSearchActive = false
-                            searchQuery = ""
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
+                                placeholder = { Text("Pesquisar...") },
+                                trailingIcon = {
+                                    IconButton(onClick = { isSearchActive = false; searchQuery = "" }) {
+                                        Icon(Icons.Default.Close, null)
+                                    }
+                                },
+                                singleLine = true,
+                                textStyle = LocalTextStyle.current.copy(fontSize = 16.sp)
+                            )
                         } else {
-                            onBack()
+                            Text(fileName)
                         }
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    if (!isSearchActive) {
-                        IconButton(onClick = { isSearchActive = true }) {
-                            Icon(Icons.Default.Search, null)
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            if (isSearchActive) {
+                                isSearchActive = false
+                                searchQuery = ""
+                            } else {
+                                onBack()
+                            }
+                        }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = {
+                        if (!isSearchActive) {
+                            IconButton(onClick = { isSearchActive = true }) {
+                                Icon(Icons.Default.Search, null)
+                            }
+                        }
+                        IconButton(onClick = {
+                            isEditMode = !isEditMode
+                            selectedLines = emptySet()
+                        }) {
+                            Icon(
+                                imageVector = if (isEditMode) Icons.Default.EditOff else Icons.Default.Edit,
+                                contentDescription = if (isEditMode) "Sair do Modo de Edição" else "Modo de Edição"
+                            )
+                        }
+                        IconButton(onClick = { onSave(lines.joinToString("\n")) }) {
+                            Icon(Icons.Default.Save, contentDescription = "Save Changes")
                         }
                     }
-                    IconButton(onClick = { isEditing = !isEditing }) {
-                        Icon(
-                            imageVector = if (isEditing) Icons.Default.EditOff else Icons.Default.Edit,
-                            contentDescription = if (isEditing) "Stop Editing" else "Start Editing"
-                        )
-                    }
-                    IconButton(onClick = { 
-                        onSave(textFieldValue.text)
-                        isEditing = false
-                        focusManager.clearFocus()
-                    }) {
-                        Icon(Icons.Default.Save, contentDescription = "Save Changes")
-                    }
+                )
+
+                if (isEditMode) {
+                    LineActionsToolbar(
+                        hasSelection = hasSelection,
+                        hasSingleSelection = hasSingleSelection,
+                        disabledTint = disabledTint,
+                        onCopy = {
+                            val selectedText = selectedLines.sorted().joinToString("\n") { lines[it] }
+                            clipboardManager.setText(AnnotatedString(selectedText))
+                        },
+                        onPaste = {
+                            val index = selectedLines.first()
+                            val clip = clipboardManager.getText()?.text
+                            if (clip.isNullOrEmpty()) {
+                                Toast.makeText(context, "Nada para colar", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val pastedLines = clip.lines()
+                                lines = lines.toMutableList().apply { addAll(index, pastedLines) }
+                                selectedLines = emptySet()
+                            }
+                        },
+                        onChange = { lineDialog = LineDialogAction.Change(selectedLines.first()) },
+                        onInsert = { lineDialog = LineDialogAction.Insert(selectedLines.first()) },
+                        onDelete = {
+                            lines = lines.filterIndexed { index, _ -> index !in selectedLines }
+                            selectedLines = emptySet()
+                        }
+                    )
                 }
-            )
+            }
         }
     ) { padding ->
-        CodeEditorContent(
-            textFieldValue = textFieldValue,
-            onValueChange = { textFieldValue = it },
-            isEditing = isEditing,
+        CodeLinesList(
+            lines = lines,
+            isEditMode = isEditMode,
+            selectedLines = selectedLines,
+            onToggleSelect = { index ->
+                selectedLines = if (index in selectedLines) selectedLines - index else selectedLines + index
+            },
             searchQuery = searchQuery,
             modifier = Modifier.padding(padding)
         )
+
+        lineDialog?.let { action ->
+            val initialText = when (action) {
+                is LineDialogAction.Change -> lines.getOrElse(action.index) { "" }
+                is LineDialogAction.Insert -> ""
+            }
+            LineEditDialog(
+                title = if (action is LineDialogAction.Change) "Alterar Linha" else "Inserir Linha",
+                initialText = initialText,
+                onDismiss = { lineDialog = null },
+                onSave = { newText ->
+                    lines = when (action) {
+                        is LineDialogAction.Change -> lines.toMutableList().apply { this[action.index] = newText }
+                        is LineDialogAction.Insert -> lines.toMutableList().apply { add(action.beforeIndex, newText) }
+                    }
+                    selectedLines = emptySet()
+                    lineDialog = null
+                }
+            )
+        }
     }
 }
 
 /**
- * Área do editor: números das linhas à esquerda e o código (colorido) à direita.
- *
- * - Uma única rolagem horizontal e uma vertical movem números e código juntos.
- * - Se isEditing for false, o texto só pode ser lido.
- * - searchQuery pinta de amarelo tudo o que casar com a busca.
+ * Barra de ações do modo de edição: copiar/colar/alterar/inserir/excluir, agindo sobre
+ * as linhas marcadas. Alterar/Inserir/Colar exigem exatamente uma linha marcada (é o
+ * ponto de referência); Copiar/Excluir aceitam uma ou mais.
  */
 @Composable
-fun CodeEditorContent(
-    textFieldValue: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
-    isEditing: Boolean,
-    modifier: Modifier = Modifier,
-    searchQuery: String = ""
+fun LineActionsToolbar(
+    hasSelection: Boolean,
+    hasSingleSelection: Boolean,
+    disabledTint: Color,
+    onCopy: () -> Unit,
+    onPaste: () -> Unit,
+    onChange: () -> Unit,
+    onInsert: () -> Unit,
+    onDelete: () -> Unit
 ) {
-    // Rolagens compartilhadas: todas as linhas se movem juntas, na horizontal e na vertical.
-    val horizontalScrollState = rememberScrollState()
-    val verticalScrollState = rememberScrollState()
-    
-    // Palavras da linguagem AS que ganham cor de "palavra-chave".
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp).fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            IconButton(onClick = onCopy, enabled = hasSelection) {
+                Icon(Icons.Default.ContentCopy, "Copiar", tint = if (hasSelection) LocalContentColor.current else disabledTint)
+            }
+            IconButton(onClick = onPaste, enabled = hasSingleSelection) {
+                Icon(Icons.Default.ContentPaste, "Colar", tint = if (hasSingleSelection) LocalContentColor.current else disabledTint)
+            }
+            IconButton(onClick = onChange, enabled = hasSingleSelection) {
+                Icon(Icons.Default.EditNote, "Alterar Linha", tint = if (hasSingleSelection) MaterialTheme.colorScheme.primary else disabledTint)
+            }
+            IconButton(onClick = onInsert, enabled = hasSingleSelection) {
+                Icon(Icons.Default.PlaylistAdd, "Inserir Linha", tint = if (hasSingleSelection) MaterialTheme.colorScheme.primary else disabledTint)
+            }
+            IconButton(onClick = onDelete, enabled = hasSelection) {
+                Icon(Icons.Default.Delete, "Excluir", tint = if (hasSelection) MaterialTheme.colorScheme.error else disabledTint)
+            }
+        }
+    }
+}
+
+/**
+ * Lista das linhas do arquivo: número + código (colorido), com caixa de seleção quando
+ * o modo de edição está ligado. Cada linha vira uma linha da lista (LazyColumn) — só as
+ * visíveis na tela são desenhadas/coloridas, então funciona bem mesmo num arquivo com
+ * dezenas de milhares de linhas (diferente da versão anterior, que precisava degradar o
+ * destaque de sintaxe em arquivo grande — aqui não precisa mais).
+ */
+@Composable
+fun CodeLinesList(
+    lines: List<String>,
+    isEditMode: Boolean,
+    selectedLines: Set<Int>,
+    onToggleSelect: (Int) -> Unit,
+    searchQuery: String,
+    modifier: Modifier = Modifier
+) {
     val keywords = remember {
         setOf(
             ".PROGRAM", ".END", "CALL", "IF", "THEN", "ELSE", "ENDIF",
@@ -145,125 +266,129 @@ fun CodeEditorContent(
             ".TRANS", ".REALS", ".STRINGS", ".INTEGER", ".POS", "GOTO", "CASE", "VALUE"
         )
     }
+    val horizontalScrollState = rememberScrollState()
 
-    // arquivos grandes são pesados para colorir, então há dois limites de tamanho:
-    val isTooLargeForFullHighlight = textFieldValue.text.length > 100000
-    val isMassiveFile = textFieldValue.text.length > 2000000 // mais de 2 MB
-
-    // Aplica as cores ao texto SEM mudar o texto em si. Depende do tamanho:
-    // - normal: colore tudo (palavras, números, comentários, busca);
-    // - grande (mais de 100 mil caracteres): só pinta a busca;
-    // - enorme (mais de 2 MB): não pinta nada, para não travar o celular.
-    val visualTransformation = remember(keywords, searchQuery, isTooLargeForFullHighlight, isMassiveFile) {
-        VisualTransformation { text: AnnotatedString ->
-            val highlighted = if (isMassiveFile) {
-                // arquivo enorme: sem cores, para poupar memória e processador
-                AnnotatedString(text.text)
-            } else if (isTooLargeForFullHighlight) {
-                buildAnnotatedString {
-                    append(text.text)
-                    if (searchQuery.isNotEmpty()) {
-                        var start = 0
-                        while (true) {
-                            start = text.text.indexOf(searchQuery, start, ignoreCase = true)
-                            if (start == -1) break
-                            addStyle(
-                                style = SpanStyle(background = Color(0xFFEBC111), color = Color.Black),
-                                start = start,
-                                end = start + searchQuery.length
-                            )
-                            start += searchQuery.length
-                        }
-                    }
-                }
-            } else {
-                highlightAsCode(text.text, keywords, searchQuery)
-            }
-            TransformedText(
-                text = highlighted,
-                offsetMapping = OffsetMapping.Identity
-            )
-        }
-    }
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color(0xFF1E1E1E))
+    LazyColumn(
+        modifier = modifier.fillMaxSize().background(Color(0xFF1E1E1E))
     ) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .horizontalScroll(horizontalScrollState)
-                .verticalScroll(verticalScrollState)
-        ) {
-            Row(modifier = Modifier.fillMaxHeight().width(IntrinsicSize.Max)) {
-                // conta as quebras de linha uma vez só (rápido, mesmo em arquivo grande)
-                val lineCount = remember(textFieldValue.text) {
-                    var count = 0
-                    for (char in textFieldValue.text) {
-                        if (char == '\n') count++
-                    }
-                    count + 1
-                }
-
-                val lineNumbersText = remember(lineCount) {
-                    if (lineCount > 50000) {
-                        "Linhas:\n1 a $lineCount\n(Arquivo Grande)"
-                    } else {
-                        val sb = StringBuilder()
-                        for (i in 1..lineCount) {
-                            sb.append(i).append('\n')
-                        }
-                        sb.toString()
-                    }
-                }
-
-                Text(
-                    text = lineNumbersText,
-                    style = TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        color = Color(0xFF858585),
-                        textAlign = TextAlign.End
-                    ),
-                    modifier = Modifier
-                        .width(IntrinsicSize.Min)
-                        .defaultMinSize(minWidth = 40.dp)
-                        .fillMaxHeight()
-                        .background(Color(0xFF252526))
-                        .padding(top = 16.dp, start = 8.dp, end = 8.dp)
-                )
-
-                // campo de texto com o código
-                BasicTextField(
-                    value = textFieldValue,
-                    onValueChange = onValueChange,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .padding(top = 16.dp, start = 12.dp, end = 16.dp),
-                    readOnly = !isEditing,
-                    textStyle = TextStyle(
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        color = Color(0xFFD4D4D4)
-                    ),
-                    cursorBrush = SolidColor(Color.White),
-                    visualTransformation = visualTransformation,
-                    decorationBox = { innerTextField ->
-                        innerTextField()
-                    }
-                )
-            }
+        itemsIndexed(lines) { index, line ->
+            CodeLineRow(
+                lineNumber = index + 1,
+                text = line,
+                isEditMode = isEditMode,
+                isSelected = index in selectedLines,
+                onToggleSelect = { onToggleSelect(index) },
+                keywords = keywords,
+                searchQuery = searchQuery,
+                horizontalScrollState = horizontalScrollState
+            )
         }
     }
 }
 
 /**
- * Colore o código AS lendo o texto UMA vez, da esquerda para a direita.
+ * Uma linha do editor: caixa de seleção (só no modo de edição), número e o código
+ * colorido, com rolagem horizontal compartilhada entre todas as linhas (para as colunas
+ * ficarem alinhadas ao rolar de lado).
+ */
+@Composable
+fun CodeLineRow(
+    lineNumber: Int,
+    text: String,
+    isEditMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit,
+    keywords: Set<String>,
+    searchQuery: String,
+    horizontalScrollState: ScrollState
+) {
+    val highlighted = remember(text, searchQuery) { highlightAsCode(text, keywords, searchQuery) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (isSelected) Color(0xFF264F78) else Color.Transparent),
+        verticalAlignment = Alignment.Top
+    ) {
+        if (isEditMode) {
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = { onToggleSelect() },
+                modifier = Modifier.padding(top = 2.dp)
+            )
+        }
+        Text(
+            text = lineNumber.toString(),
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = Color(0xFF858585),
+                textAlign = TextAlign.End
+            ),
+            modifier = Modifier
+                .width(48.dp)
+                .background(Color(0xFF252526))
+                .padding(vertical = 2.dp, horizontal = 8.dp)
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(horizontalScrollState)
+        ) {
+            Text(
+                text = highlighted,
+                style = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = Color(0xFFD4D4D4)
+                ),
+                softWrap = false,
+                modifier = Modifier
+                    .width(2000.dp)
+                    .padding(vertical = 2.dp, horizontal = 4.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Janela de edição de UMA linha, usada tanto para "Alterar" (texto atual pré-preenchido)
+ * quanto para "Inserir" (começa vazia). Aceita quebra de linha dentro do texto (vira mais
+ * de uma linha ao salvar, se for o caso).
+ */
+@Composable
+fun LineEditDialog(
+    title: String,
+    initialText: String,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit
+) {
+    var text by remember(initialText) { mutableStateOf(initialText) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.fillMaxWidth(),
+                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace, fontSize = 14.sp)
+            )
+        },
+        confirmButton = {
+            Button(onClick = { onSave(text) }) { Text("Salvar") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+/**
+ * Colore uma linha de código AS lendo o texto UMA vez, da esquerda para a direita.
  *
  * Cores:
  * - verde: comentários (começam com ";" e vão até o fim da linha);
@@ -284,7 +409,7 @@ fun highlightAsCode(text: String, keywords: Set<String>, searchTerm: String): An
     val stringColor = Color(0xFFCE9178)
     val numberColor = Color(0xFFB5CEA8)
     val defaultColor = Color(0xFFD4D4D4)
-    val searchMatchBg = Color(0xFFEBC111) 
+    val searchMatchBg = Color(0xFFEBC111)
     val searchMatchFg = Color.Black
 
     // Grupos de palavras: cada grupo tem a sua cor na tela.
@@ -296,7 +421,7 @@ fun highlightAsCode(text: String, keywords: Set<String>, searchTerm: String): An
         var i = 0
         while (i < text.length) {
             val char = text[i]
-            
+
             when {
                 // comentário: do ";" até o fim da linha
                 char == ';' -> {
@@ -322,7 +447,7 @@ fun highlightAsCode(text: String, keywords: Set<String>, searchTerm: String): An
                     while (i < text.length && (text[i].isLetterOrDigit() || text[i] == '_' || text[i] == '.')) i++
                     val word = text.substring(start, i)
                     val upperWord = word.uppercase()
-                    
+
                     val color = when {
                         upperWord in sectionCommands -> sectionColor
                         upperWord in moveCommands -> moveColor
@@ -330,7 +455,7 @@ fun highlightAsCode(text: String, keywords: Set<String>, searchTerm: String): An
                         upperWord in keywords -> keywordColor
                         else -> defaultColor
                     }
-                    
+
                     if (color != defaultColor) {
                         withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) {
                             append(word)
@@ -340,7 +465,7 @@ fun highlightAsCode(text: String, keywords: Set<String>, searchTerm: String): An
                     }
                 }
                 // número (inclusive negativo e com ponto decimal)
-                char.isDigit() || (char == '-' && i + 1 < text.length && text[i+1].isDigit()) -> {
+                char.isDigit() || (char == '-' && i + 1 < text.length && text[i + 1].isDigit()) -> {
                     val start = i
                     i++
                     while (i < text.length && (text[i].isDigit() || text[i] == '.')) i++
