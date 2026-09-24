@@ -392,14 +392,20 @@ fun CodeLineRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(if (isSelected) Color(0xFF264F78) else Color.Transparent),
-        verticalAlignment = Alignment.Top
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        if (isEditMode) {
-            Checkbox(
-                checked = isSelected,
-                onCheckedChange = { onToggleSelect() },
-                modifier = Modifier.padding(top = 2.dp)
-            )
+        // Espaço da caixa de seleção sempre reservado (mesmo fora do modo de edição), pra
+        // número e código não deslocarem para o lado ao ligar/desligar a edição. O Checkbox
+        // do Material tem uma área de toque padrão de 48dp — bem maior que a linha de código
+        // (~24dp) — então ele é encolhido para não esticar a altura da linha.
+        Box(modifier = Modifier.width(32.dp), contentAlignment = Alignment.Center) {
+            if (isEditMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect() },
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
         Text(
             text = lineNumber.toString(),
