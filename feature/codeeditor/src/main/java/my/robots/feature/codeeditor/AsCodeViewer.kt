@@ -28,6 +28,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Ação pendente na janela de edição de linha: alterar uma linha existente (guarda o
@@ -44,8 +47,17 @@ private sealed class LineDialogAction {
  * - fileName: nome mostrado no topo.
  * - content: o texto do arquivo.
  * - onBack: chamado ao tocar em voltar.
+ * - isNewFile: true para um arquivo que ainda não tem um destino certo (ex.: aberto de
+ *   fora do app, sem robô dono ainda). Muda o ícone de salvar para deixar claro que falta
+ *   escolher onde ele vai ser guardado.
  * - onSave: chamado ao tocar no disquete, com o texto atual (linhas juntas por "\n").
- *   O padrão não faz nada, então uma tela somente-leitura simplesmente não grava.
+ *   É suspend e devolve se salvou de verdade (false = usuário cancelou, ex.: fechou a
+ *   janela de escolher o robô) — só aí o ícone volta ao estado "salvo". O padrão sempre
+ *   devolve true sem fazer nada, então uma tela somente-leitura funciona normalmente.
+ *
+ * O ícone de salvar muda de acordo com o estado do arquivo: normal (nada para salvar),
+ * com uma bolinha quando há alteração ainda não salva, ou o ícone "salvar como" (com a
+ * mesma bolinha) quando o arquivo é novo e precisa de um destino antes de gravar.
  *
  * O texto NUNCA é editável direto na área de código — num arquivo com milhares de
  * linhas, digitar dentro de um campo rolando na tela do celular é fácil de errar sem
@@ -67,20 +79,35 @@ fun AsCodeViewer(
     fileName: String,
     content: String,
     onBack: () -> Unit,
-    onSave: (String) -> Unit = {}
+    isNewFile: Boolean = false,
+    onSave: suspend (String) -> Boolean = { true }
 ) {
-    var lines by remember { mutableStateOf(content.lines()) }
+    // content.lines() é rápido para um arquivo comum, mas um backup Full pode ter dezenas
+    // de milhares de linhas — feito direto na composição, isso trava a tela (a UI congela
+    // até terminar). Por isso a divisão roda em segundo plano; "lines" só existe depois
+    // que "isLoadingLines" termina, e a tela mostra um carregando até lá.
+    var lines by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLoadingLines by remember { mutableStateOf(true) }
     var isEditMode by remember { mutableStateOf(false) }
     var selectedLines by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var lineDialog by remember { mutableStateOf<LineDialogAction?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+    var isDirty by remember { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
     val hasSelection = selectedLines.isNotEmpty()
     val hasSingleSelection = selectedLines.size == 1
     val disabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+
+    LaunchedEffect(content) {
+        isLoadingLines = true
+        lines = withContext(Dispatchers.Default) { content.lines() }
+        isLoadingLines = false
+    }
 
     Scaffold(
         topBar = {
@@ -123,17 +150,30 @@ fun AsCodeViewer(
                                 Icon(Icons.Default.Search, null)
                             }
                         }
-                        IconButton(onClick = {
-                            isEditMode = !isEditMode
-                            selectedLines = emptySet()
-                        }) {
+                        IconButton(
+                            enabled = !isLoadingLines,
+                            onClick = {
+                                isEditMode = !isEditMode
+                                selectedLines = emptySet()
+                            }
+                        ) {
                             Icon(
                                 imageVector = if (isEditMode) Icons.Default.EditOff else Icons.Default.Edit,
                                 contentDescription = if (isEditMode) "Sair do Modo de Edição" else "Modo de Edição"
                             )
                         }
-                        IconButton(onClick = { onSave(lines.joinToString("\n")) }) {
-                            Icon(Icons.Default.Save, contentDescription = "Save Changes")
+                        IconButton(
+                            enabled = !isSaving && !isLoadingLines,
+                            onClick = {
+                                scope.launch {
+                                    isSaving = true
+                                    val saved = onSave(lines.joinToString("\n"))
+                                    if (saved) isDirty = false
+                                    isSaving = false
+                                }
+                            }
+                        ) {
+                            SaveIcon(isSaving = isSaving, isDirty = isDirty, isNewFile = isNewFile)
                         }
                     }
                 )
@@ -156,6 +196,7 @@ fun AsCodeViewer(
                                 val pastedLines = clip.lines()
                                 lines = lines.toMutableList().apply { addAll(index, pastedLines) }
                                 selectedLines = emptySet()
+                                isDirty = true
                             }
                         },
                         onChange = { lineDialog = LineDialogAction.Change(selectedLines.first()) },
@@ -163,22 +204,32 @@ fun AsCodeViewer(
                         onDelete = {
                             lines = lines.filterIndexed { index, _ -> index !in selectedLines }
                             selectedLines = emptySet()
+                            isDirty = true
                         }
                     )
                 }
             }
         }
     ) { padding ->
-        CodeLinesList(
-            lines = lines,
-            isEditMode = isEditMode,
-            selectedLines = selectedLines,
-            onToggleSelect = { index ->
-                selectedLines = if (index in selectedLines) selectedLines - index else selectedLines + index
-            },
-            searchQuery = searchQuery,
-            modifier = Modifier.padding(padding)
-        )
+        if (isLoadingLines) {
+            Box(
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else {
+            CodeLinesList(
+                lines = lines,
+                isEditMode = isEditMode,
+                selectedLines = selectedLines,
+                onToggleSelect = { index ->
+                    selectedLines = if (index in selectedLines) selectedLines - index else selectedLines + index
+                },
+                searchQuery = searchQuery,
+                modifier = Modifier.padding(padding)
+            )
+        }
 
         lineDialog?.let { action ->
             val initialText = when (action) {
@@ -196,9 +247,42 @@ fun AsCodeViewer(
                     }
                     selectedLines = emptySet()
                     lineDialog = null
+                    isDirty = true
                 }
             )
         }
+    }
+}
+
+/**
+ * Ícone do botão de salvar, de acordo com o estado do arquivo:
+ * - salvando: um círculo de carregando;
+ * - novo (sem destino ainda): "salvar como" na cor de destaque, com uma bolinha;
+ * - com alteração pendente: o disquete normal, com a mesma bolinha;
+ * - tudo salvo: o disquete normal, sem bolinha.
+ */
+@Composable
+private fun SaveIcon(isSaving: Boolean, isDirty: Boolean, isNewFile: Boolean) {
+    when {
+        isSaving -> CircularProgressIndicator(
+            modifier = Modifier.size(20.dp),
+            strokeWidth = 2.dp
+        )
+        isNewFile -> BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) }) {
+            Icon(
+                imageVector = Icons.Default.SaveAs,
+                contentDescription = "Salvar em um Robô",
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        isDirty -> BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) }) {
+            Icon(Icons.Default.Save, contentDescription = "Salvar Alterações")
+        }
+        else -> Icon(
+            imageVector = Icons.Default.Save,
+            contentDescription = "Tudo Salvo",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        )
     }
 }
 

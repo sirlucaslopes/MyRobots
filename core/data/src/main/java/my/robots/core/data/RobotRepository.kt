@@ -155,6 +155,11 @@ class RobotRepository(
     /**
      * Salva um backup no banco e, se saveToFile for true, também como arquivo em /MyRobots/<robô>/.
      *
+     * O texto do backup é gravado exatamente como veio (mesmo que o controlador tenha
+     * anexado seções estranhas ao idioma AS, como despejos de diagnóstico do sistema) —
+     * nada é apagado do arquivo. Só a contagem de programas/variáveis (calculateAndApplyMetadata)
+     * ignora essas seções, sem precisar mexer no texto guardado.
+     *
      * 1. Limpa o nome do arquivo (só letras, números e _).
      * 2. Conta programas e variáveis do texto.
      * 3. Grava no banco.
@@ -162,8 +167,10 @@ class RobotRepository(
      * Devolve o id do backup salvo.
      */
     suspend fun insertBackup(backup: Backup, saveToFile: Boolean = true): Int {
-        val sanitizedBackup = backup.copy(fileName = FileUtil.sanitizeFileName(backup.fileName))
-        val updatedBackup = calculateAndApplyMetadata(sanitizedBackup)
+        val updatedBackup = withContext(Dispatchers.Default) {
+            val sanitizedBackup = backup.copy(fileName = FileUtil.sanitizeFileName(backup.fileName))
+            calculateAndApplyMetadata(sanitizedBackup)
+        }
         val id = backupDao.insertBackup(updatedBackup).toInt()
         if (saveToFile) {
             saveBackupToFile(updatedBackup.copy(id = id))
@@ -180,9 +187,16 @@ class RobotRepository(
      */
     suspend fun deleteBackupById(id: Int) = backupDao.deleteBackupById(id)
     /**
-     * Busca um backup completo (com o texto) pelo id. Devolve null se não existir.
+     * Busca um backup completo (com o texto) pelo id. Devolve null se não existir OU se o
+     * texto do backup (caso de um backup Full, bem maior que os outros tipos) não couber
+     * na leitura do banco — sem isso, abrir um backup grande derrubava o app inteiro.
      */
-    suspend fun getBackupById(id: Int): Backup? = backupDao.getBackupById(id)
+    suspend fun getBackupById(id: Int): Backup? = try {
+        backupDao.getBackupById(id)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
 
     /**
      * Grava o texto do backup como arquivo dentro da pasta do robô dono dele.
@@ -235,32 +249,37 @@ class RobotRepository(
     }
 
     /**
-     * Lê o texto do backup e conta quantos programas e variáveis ele tem.
+     * Lê o texto do backup e conta quantos programas e variáveis ele tem. O texto em si
+     * NUNCA é alterado (nem o que é salvo, nem o campo `content` devolvido) — a contagem
+     * só ignora, na leitura, seções que o controlador às vezes anexa e que não são do
+     * idioma AS (ex.: despejos de diagnóstico do sistema, sem ".END" e com milhares de
+     * linhas). Ver FileUtil.sanitizeAsContent: ele rastreia onde cada seção conhecida
+     * começa e termina e devolve só essa parte, sem tocar no arquivo original.
      *
      * - Programa: cada linha que começa com ".PROGRAM".
      * - Variável: cada linha com "=" (ou 3+ valores separados por vírgula) dentro
      *   de uma seção .TRANS, .REALS, .STRINGS, .JOINT ou .POINT.
      * - Linhas em branco e comentários (começam com ";") são ignorados.
-     * Também guarda o tamanho do texto em memoryUsage.
+     * Também guarda o tamanho do texto ORIGINAL (sem cortes) em memoryUsage.
      */
     private fun calculateAndApplyMetadata(backup: Backup): Backup {
         val content = backup.content
         if (content.isBlank()) return backup
-        
+
         var programs = 0
         var variables = 0
-        
+
         var inVariableSection = false
-        
-        content.lineSequence().forEach { line ->
+
+        FileUtil.sanitizeAsContent(content).lineSequence().forEach { line ->
             val trimmed = line.trim()
             if (trimmed.isNotEmpty() && !trimmed.startsWith(";")) {
                 if (trimmed.startsWith(".PROGRAM", ignoreCase = true)) {
                     programs++
                     inVariableSection = false
                 } else {
-                    val isVarHeader = trimmed.startsWith(".TRANS", ignoreCase = true) || 
-                                     trimmed.startsWith(".REAL", ignoreCase = true) || 
+                    val isVarHeader = trimmed.startsWith(".TRANS", ignoreCase = true) ||
+                                     trimmed.startsWith(".REAL", ignoreCase = true) ||
                                      trimmed.startsWith(".STRING", ignoreCase = true) ||
                                      trimmed.startsWith(".JOINT", ignoreCase = true) ||
                                      trimmed.startsWith(".POINT", ignoreCase = true)
@@ -279,7 +298,7 @@ class RobotRepository(
                 }
             }
         }
-        
+
         return backup.copy(
             programsCount = programs,
             variablesCount = variables,

@@ -61,4 +61,75 @@ object FileUtil {
             fileName.replace(Regex("[^a-zA-Z0-9_]"), "_")
         }
     }
+
+    /**
+     * Seções do backup que o app sabe ler. Qualquer outra seção de nível superior
+     * (começa com ".") é considerada estranha ao idioma AS e é ignorada por
+     * [sanitizeAsContent] ao montar a visão de leitura.
+     */
+    private val KNOWN_SECTIONS = setOf(
+        ".TRANS", ".REALS", ".STRINGS", ".INTEGER", ".POS", ".JOINT", ".POINT",
+        ".SPRDB", ".ERRLOG", ".OPELOG", ".PGM_EDT_LOG"
+    )
+
+    /**
+     * Monta uma VISÃO do texto do backup, só para leitura, sem as seções que o
+     * controlador às vezes anexa e que não são do idioma AS — ex.: ".pdump", ".dmesg",
+     * ".messages", ".odt", ".interrupts" (despejos de diagnóstico do sistema Linux do
+     * controlador, vistos em backups Full de controladores mais novos). Essas seções não
+     * têm ".END" e podem ter dezenas de milhares de linhas, o que atrapalha quem tenta
+     * contar/extrair os programas e variáveis reais do backup.
+     *
+     * IMPORTANTE: isso NUNCA é salvo de volta no banco ou no arquivo — o texto original
+     * do backup fica sempre intacto, do jeito que o robô mandou. Esta função só serve
+     * para o app "olhar através" das seções estranhas na hora de contar/extrair dados
+     * (ex.: RobotRepository.calculateAndApplyMetadata, RobotDashboardViewModel).
+     *
+     * Como funciona: rastreia o início e o fim de cada seção. Mantém ".PROGRAM ... .END"
+     * sempre inteiro, as seções conhecidas ([KNOWN_SECTIONS]) e qualquer linha fora de
+     * uma seção. Uma seção desconhecida é pulada até a próxima seção que o app reconhece
+     * (não depende de achar ".END", já que essas não têm um).
+     */
+    fun sanitizeAsContent(content: String): String {
+        val result = StringBuilder()
+        var isInsideProgram = false
+        var isSkippingUnknownSection = false
+
+        content.lineSequence().forEach { line ->
+            val trimmed = line.trim()
+
+            if (trimmed.startsWith(".PROGRAM", ignoreCase = true)) {
+                isInsideProgram = true
+                isSkippingUnknownSection = false
+                result.append(line).append("\n")
+                return@forEach
+            }
+
+            if (isInsideProgram) {
+                result.append(line).append("\n")
+                if (trimmed.equals(".END", ignoreCase = true)) isInsideProgram = false
+                return@forEach
+            }
+
+            if (trimmed.startsWith(".")) {
+                if (trimmed.equals(".END", ignoreCase = true)) {
+                    isSkippingUnknownSection = false
+                    result.append(line).append("\n")
+                    return@forEach
+                }
+                val header = trimmed.takeWhile { !it.isWhitespace() }.uppercase()
+                isSkippingUnknownSection = header !in KNOWN_SECTIONS
+                if (!isSkippingUnknownSection) {
+                    result.append(line).append("\n")
+                }
+                return@forEach
+            }
+
+            if (!isSkippingUnknownSection) {
+                result.append(line).append("\n")
+            }
+        }
+
+        return result.toString().trimEnd('\n')
+    }
 }

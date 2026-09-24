@@ -1,6 +1,7 @@
 package my.robots
 
 import android.app.Application
+import android.database.CursorWindow
 import android.os.Environment
 import androidx.room.Room
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,12 @@ class MyRobotsApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // Backups do tipo Full (SAVE/FULL) juntam programas, variáveis, Data Bank e os
+        // logs do controlador num texto só, que pode passar dos 2 MB (limite padrão do
+        // CursorWindow do SQLite para uma linha). Sem isso, abrir um backup Full falha
+        // ao ler a coluna "content" do banco. Precisa rodar antes de qualquer consulta.
+        increaseCursorWindowSize()
+
         // cria a pasta /MyRobots na raiz do armazenamento interno
         createRootFolder()
 
@@ -79,6 +86,22 @@ class MyRobotsApp : Application() {
 
         // garante que todo robô cadastrado tenha a sua pasta
         verifyRobotFolders()
+    }
+
+    /**
+     * Eleva o limite do CursorWindow (padrão ~2 MB) para 100 MB, via reflection no campo
+     * estático interno do Android. Sem isso, ler uma linha do banco com um texto maior
+     * que o limite (caso dos backups Full) derruba a consulta. Se a reflection falhar
+     * (versão do Android sem esse campo), o app segue normalmente com o limite padrão.
+     */
+    private fun increaseCursorWindowSize() {
+        try {
+            val field = CursorWindow::class.java.getDeclaredField("sCursorWindowSize")
+            field.isAccessible = true
+            field.set(null, 100 * 1024 * 1024)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     /**

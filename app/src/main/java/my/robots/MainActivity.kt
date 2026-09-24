@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -25,6 +27,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -66,7 +75,8 @@ import java.nio.charset.StandardCharsets
  * - code_viewer/{backup} .. editor do código AS completo
  * - program_viewer/... .... um programa só
  * - variable_viewer/... ... só as variáveis
- * - external_viewer/... ... arquivo aberto de fora do app
+ * - external_viewer ....... arquivo .as/.pg aberto de fora do app (texto vem da memória;
+ *                            salvar pede o robô)
  * - multi_terminal/... .... terminal geral de um projeto
  * - quick_commands/... .... biblioteca de comandos rápidos
  */
@@ -94,6 +104,13 @@ class MainActivity : ComponentActivity() {
                 
                 // Controla se o aviso de "Configuração Inicial" (permissão de arquivos) aparece.
                 var showPermissionDialog by remember { mutableStateOf(false) }
+
+                // Nome + texto do último arquivo .as/.pg aberto de fora do app, guardado só na
+                // memória (nunca no banco) até o usuário escolher um robô para salvar de vez.
+                // Assim a tela de visualização não depende de gravar e reler o texto gigante do
+                // banco (SQLite tem um limite de tamanho por linha lida, o "CursorWindow") só
+                // para mostrar um arquivo que talvez nem seja salvo.
+                var pendingExternalFile by remember { mutableStateOf<Pair<String, String>?>(null) }
                 
                 // Pedido de permissão comum do Android (usado no Android 10 ou mais antigo).
                 val requestPermissionLauncher = rememberLauncherForActivityResult(
@@ -169,10 +186,13 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // Se o app foi aberto por um arquivo .as/.pg (vindo de outro app), importa o arquivo
-                // e abre no visualizador.
+                // Se o app foi aberto por um arquivo .as/.pg (vindo de outro app), lê o arquivo e
+                // abre no visualizador (o texto fica só na memória até o usuário salvar).
                 LaunchedEffect(intent) {
-                    handleIntent(intent, repository, navController)
+                    handleIntent(intent) { fileName, content ->
+                        pendingExternalFile = fileName to content
+                        navController.navigate("external_viewer")
+                    }
                 }
 
                 Surface(
@@ -390,12 +410,13 @@ class MainActivity : ComponentActivity() {
                                         } ?: navController.popBackStack()
                                     },
                                     onSave = { newProgramContent ->
-                                        backup?.let { currentBackup ->
+                                        val currentBackup = backup
+                                        if (currentBackup != null) {
                                             val oldLines = currentBackup.content.lines()
                                             val newBackupContent = StringBuilder()
                                             var skippingOld = false
                                             var replaced = false
-                                            
+
                                             for (line in oldLines) {
                                                 if (line.trim().startsWith(".PROGRAM $programName", ignoreCase = true)) {
                                                     skippingOld = true
@@ -404,47 +425,107 @@ class MainActivity : ComponentActivity() {
                                                         replaced = true
                                                     }
                                                 }
-                                                
+
                                                 if (!skippingOld) {
                                                     newBackupContent.append(line).append("\n")
                                                 }
-                                                
+
                                                 if (skippingOld && line.trim().equals(".END", ignoreCase = true)) {
                                                     skippingOld = false
                                                 }
                                             }
-                                            
-                                            scope.launch {
-                                                val updated = currentBackup.copy(
-                                                    content = newBackupContent.toString().trim(),
-                                                    timestamp = System.currentTimeMillis()
-                                                )
-                                                repository.insertBackup(updated)
-                                            }
+
+                                            val updated = currentBackup.copy(
+                                                content = newBackupContent.toString().trim(),
+                                                timestamp = System.currentTimeMillis()
+                                            )
+                                            repository.insertBackup(updated)
+                                            backup = updated
+                                            true
+                                        } else {
+                                            false
                                         }
                                     }
                                 )
                             }
                         }
 
-                        // Visualizador de arquivo aberto de fora do app (somente leitura, sem salvar).
-                        composable(
-                            route = "external_viewer/{backupId}",
-                            arguments = listOf(navArgument("backupId") { type = NavType.IntType })
-                        ) { backStackEntry ->
-                            val backupId = backStackEntry.arguments?.getInt("backupId") ?: -1
-                            var backup by remember { mutableStateOf<my.robots.core.model.Backup?>(null) }
-                            
-                            LaunchedEffect(backupId) {
-                                backup = repository.getBackupById(backupId)
-                            }
-                            
-                            backup?.let {
+                        // Visualizador de arquivo aberto de fora do app (.as/.pg). O texto vem direto
+                        // da memória (pendingExternalFile) — não precisa gravar e reler do banco só
+                        // para mostrar, o que evita o limite de tamanho de linha do SQLite num backup
+                        // grande. Ele ainda não tem um robô dono: ao tocar em salvar, pede para
+                        // escolher em qual robô guardar antes de gravar de vez.
+                        composable(route = "external_viewer") {
+                            val fileState = pendingExternalFile
+                            if (fileState == null) {
+                                // nada pendente (ex.: a Activity foi recriada) -> não tem o que mostrar
+                                LaunchedEffect(Unit) { navController.popBackStack() }
+                            } else {
+                                val (initialFileName, initialContent) = fileState
+                                var savedBackup by remember { mutableStateOf<my.robots.core.model.Backup?>(null) }
+                                var showRobotPicker by remember { mutableStateOf(false) }
+                                var pendingSaveContent by remember { mutableStateOf("") }
+                                var pendingSaveDeferred by remember { mutableStateOf<CompletableDeferred<Boolean>?>(null) }
+                                val allRobots by produceState(initialValue = emptyList<my.robots.core.model.Robot>()) {
+                                    repository.allRobots.collect { value = it }
+                                }
+
                                 AsCodeViewer(
-                                    fileName = it.fileName,
-                                    content = it.content,
-                                    onBack = { navController.popBackStack() }
+                                    fileName = savedBackup?.fileName ?: initialFileName,
+                                    content = initialContent,
+                                    onBack = {
+                                        pendingExternalFile = null
+                                        navController.popBackStack()
+                                    },
+                                    isNewFile = savedBackup == null,
+                                    onSave = { newContent ->
+                                        val current = savedBackup
+                                        if (current == null) {
+                                            // ainda sem robô dono: pede a escolha antes de gravar de vez
+                                            pendingSaveContent = newContent
+                                            val deferred = CompletableDeferred<Boolean>()
+                                            pendingSaveDeferred = deferred
+                                            showRobotPicker = true
+                                            deferred.await()
+                                        } else {
+                                            val updated = current.copy(
+                                                content = newContent,
+                                                timestamp = System.currentTimeMillis()
+                                            )
+                                            repository.insertBackup(updated)
+                                            savedBackup = updated
+                                            true
+                                        }
+                                    }
                                 )
+
+                                if (showRobotPicker) {
+                                    RobotPickerDialog(
+                                        robots = allRobots,
+                                        onDismiss = {
+                                            showRobotPicker = false
+                                            pendingSaveDeferred?.complete(false)
+                                            pendingSaveDeferred = null
+                                        },
+                                        onRobotSelected = { robot ->
+                                            scope.launch {
+                                                val newBackup = my.robots.core.model.Backup(
+                                                    robotId = robot.id,
+                                                    backupName = "Importado: $initialFileName",
+                                                    fileName = initialFileName,
+                                                    content = pendingSaveContent,
+                                                    timestamp = System.currentTimeMillis()
+                                                )
+                                                val id = repository.insertBackup(newBackup)
+                                                savedBackup = newBackup.copy(id = id)
+                                                Toast.makeText(context, "Salvo em ${robot.name}", Toast.LENGTH_SHORT).show()
+                                                showRobotPicker = false
+                                                pendingSaveDeferred?.complete(true)
+                                                pendingSaveDeferred = null
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
 
@@ -496,26 +577,49 @@ class MainActivity : ComponentActivity() {
                         ) { backStackEntry ->
                             val backupId = backStackEntry.arguments?.getInt("backupId") ?: return@composable
                             var backup by remember { mutableStateOf<my.robots.core.model.Backup?>(null) }
-                            
+                            var isLoadingBackup by remember { mutableStateOf(true) }
+
                             LaunchedEffect(backupId) {
+                                isLoadingBackup = true
                                 backup = repository.getBackupById(backupId)
+                                isLoadingBackup = false
                             }
-                            
-                            backup?.let { currentBackup ->
-                                AsCodeViewer(
-                                    fileName = currentBackup.fileName,
-                                    content = currentBackup.content,
-                                    onBack = { navController.popBackStack() },
-                                    onSave = { newFullContent ->
-                                        scope.launch {
+
+                            when {
+                                backup != null -> {
+                                    val currentBackup = backup!!
+                                    AsCodeViewer(
+                                        fileName = currentBackup.fileName,
+                                        content = currentBackup.content,
+                                        onBack = { navController.popBackStack() },
+                                        onSave = { newFullContent ->
                                             val updated = currentBackup.copy(
                                                 content = newFullContent,
                                                 timestamp = System.currentTimeMillis()
                                             )
                                             repository.insertBackup(updated)
+                                            backup = updated
+                                            true
                                         }
+                                    )
+                                }
+                                isLoadingBackup -> {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator()
                                     }
-                                )
+                                }
+                                else -> {
+                                    // getBackupById devolveu null: backup não existe mais ou a leitura falhou
+                                    Column(
+                                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text("Não foi possível abrir este backup.")
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Button(onClick = { navController.popBackStack() }) { Text("Voltar") }
+                                    }
+                                }
                             }
                         }
                     }
@@ -548,39 +652,65 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Trata um arquivo .as/.pg enviado por outro app (ação VER ou EDITAR).
-     *
-     * 1. Lê o nome e o texto do arquivo.
-     * 2. Salva como backup temporário (sem robô: robotId = -1 e sem criar arquivo na pasta).
-     * 3. Abre o visualizador externo desse backup.
+     * Trata um arquivo .as/.pg enviado por outro app (ação VER ou EDITAR): só lê o nome e o
+     * texto do arquivo e devolve pra quem chamou (onFileRead), sem gravar nada no banco —
+     * o arquivo só vira um backup de verdade se o usuário escolher um robô para salvá-lo.
      */
-    private suspend fun handleIntent(intent: Intent?, repository: my.robots.core.data.RobotRepository, navController: androidx.navigation.NavController) {
+    private suspend fun handleIntent(intent: Intent?, onFileRead: (fileName: String, content: String) -> Unit) {
         if (intent?.action == Intent.ACTION_VIEW || intent?.action == Intent.ACTION_EDIT) {
             val uri: Uri? = intent.data
             uri?.let {
                 try {
                     val contentResolver = applicationContext.contentResolver
                     val fileName = my.robots.core.common.FileUtil.getFileName(applicationContext, it) ?: "file.as"
-                    
+
                     val content = withContext(kotlinx.coroutines.Dispatchers.IO) {
                         contentResolver.openInputStream(it)?.bufferedReader()?.use { it.readText() }
                     } ?: ""
-                    
-                    // guarda como backup temporário (sem robô dono)
-                    val tempBackup = my.robots.core.model.Backup(
-                        robotId = -1,
-                        backupName = "Arquivo Externo",
-                        fileName = fileName,
-                        content = content,
-                        timestamp = System.currentTimeMillis()
-                    )
-                    val backupId = repository.insertBackup(tempBackup, saveToFile = false)
-                    
-                    navController.navigate("external_viewer/$backupId")
+
+                    onFileRead(fileName, content)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
             }
         }
     }
+}
+
+/**
+ * Janela para escolher em qual robô cadastrado salvar um arquivo (.as/.pg) aberto de
+ * fora do app. Tocar num robô já confirma a escolha (não precisa de botão "OK" à parte).
+ */
+@Composable
+private fun RobotPickerDialog(
+    robots: List<my.robots.core.model.Robot>,
+    onDismiss: () -> Unit,
+    onRobotSelected: (my.robots.core.model.Robot) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Salvar em Qual Robô?") },
+        text = {
+            if (robots.isEmpty()) {
+                Text("Nenhum robô cadastrado ainda. Cadastre um robô antes de salvar este arquivo.")
+            } else {
+                LazyColumn(modifier = Modifier.heightIn(max = 320.dp)) {
+                    items(robots, key = { it.id }) { robot ->
+                        ListItem(
+                            headlineContent = { Text(robot.name) },
+                            supportingContent = { Text(robot.manufacturer.displayName) },
+                            leadingContent = {
+                                Icon(Icons.Default.SmartToy, contentDescription = null)
+                            },
+                            modifier = Modifier.clickable { onRobotSelected(robot) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
 }

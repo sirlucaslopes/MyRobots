@@ -766,6 +766,13 @@ class RobotDashboardViewModel(
     /**
      * Lê o texto do backup UMA vez e monta as listas da tela (em segundo plano).
      *
+     * O backup pode ter, além do idioma AS, seções que o controlador anexa e que o app
+     * não entende (ex.: despejos de diagnóstico do sistema, sem ".END" e com milhares de
+     * linhas — ver FileUtil.sanitizeAsContent). Para não atrapalhar a leitura, os passos
+     * abaixo trabalham em cima de uma VISÃO sem essas seções — o texto original do backup
+     * (`content`, o que fica salvo) não é tocado; só `lineCount` mostra o total de linhas
+     * do arquivo de verdade, sem esse corte.
+     *
      * Passo 1 - grupos: comentários como ";Group:Nome:1" e ";1:programa" ligam cada programa a um grupo.
      * Passo 2 - programas: cada bloco .PROGRAM ... .END vira um item (ignora os "comment___").
      * Passo 3 - variáveis: linhas dentro de .TRANS, .REALS, .STRINGS, .INTEGER e .POS.
@@ -774,13 +781,15 @@ class RobotDashboardViewModel(
      */
     private suspend fun updateStateFromContent(content: String) {
         withContext(Dispatchers.Default) {
+            val cleanContent = FileUtil.sanitizeAsContent(content)
+
             val groupIndexToName = mutableMapOf<String, String>()
             val pendingMappings = mutableListOf<Pair<String, String>>()
-            
+
             val programsList = mutableListOf<RobotProgram>()
             val variablesList = mutableListOf<RobotVariable>()
             val dataBankLines = StringBuilder()
-            
+
             var currentProgramName: String? = null
             var currentProgramContent = StringBuilder()
             var currentProgramModifiedAt = ""
@@ -789,12 +798,10 @@ class RobotDashboardViewModel(
             var isReadingProgram = false
             var currentSection = ""
             var isReadingDataBank = false
-            var totalLines = 0
 
-            content.lineSequence().forEach { line ->
-                totalLines++
+            cleanContent.lineSequence().forEach { line ->
                 val trimmed = line.trim()
-                
+
                 // --- Passo 1: descobrir os grupos (comentários do backup) ---
                 if (trimmed.startsWith(";")) {
                     val commentLine = trimmed.substring(1).trim()
@@ -908,12 +915,13 @@ class RobotDashboardViewModel(
             val dbRaw = dataBankLines.toString()
             _dataBankContent.value = dbRaw
             _dataBankEntries.value = parseDataBankEntries(dbRaw)
-            _lineCount.value = totalLines
+            _lineCount.value = content.lineSequence().count()
 
             // Logs do controlador (só existem em backup SAVE/FULL) — cada seção é lida
             // separado, com acesso direto às linhas (não dá para reaproveitar o forEach
-            // de cima porque essas seções não têm ".END").
-            val allLines = content.lines()
+            // de cima porque essas seções não têm ".END" próprio; usa a visão limpa para
+            // não confundir o fim da seção com uma seção estranha que o robô tenha anexado).
+            val allLines = cleanContent.lines()
             _errorLog.value = parseErrorLog(allLines)
             _operationLog.value = parseLogSection(allLines, ".OPELOG")
             _programEditLog.value = parseLogSection(allLines, ".PGM_EDT_LOG")
