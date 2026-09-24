@@ -3,13 +3,17 @@ package my.robots.feature.codeeditor
 import android.widget.Toast
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -41,6 +45,9 @@ private sealed class LineDialogAction {
     data class Insert(val beforeIndex: Int) : LineDialogAction()
 }
 
+/** Quantos passos de desfazer ficam guardados (o mais antigo cai fora depois disso). */
+private const val MAX_UNDO_STEPS = 50
+
 /**
  * Tela completa para ler e editar um arquivo de código AS, linha por linha.
  *
@@ -64,6 +71,9 @@ private sealed class LineDialogAction {
  * querer. Toda mudança passa pelo modo de edição (ícone de lápis): cada linha ganha uma
  * caixa de seleção, e uma barra de ações aparece embaixo da barra do topo, agindo sobre
  * o que estiver marcado:
+ * - Marcar Linhas (ícone de lista): marcar todas de uma vez, limpar a marcação, marcar da
+ *   linha atual para cima/para baixo, ou marcar tudo entre duas linhas já marcadas — sem
+ *   precisar tocar caixa por caixa num intervalo grande.
  * - Copiar: manda o texto das linhas marcadas (uma ou mais) para a área de transferência.
  * - Colar: insere o texto que estiver na área de transferência acima da linha marcada
  *   (pode ter várias linhas; todas entram, empurrando o resto do arquivo para baixo).
@@ -72,6 +82,13 @@ private sealed class LineDialogAction {
  * - Inserir: abre a mesma janela, vazia; o texto digitado vira uma linha nova acima da
  *   marcada.
  * - Excluir: remove todas as linhas marcadas.
+ * - Deslocar/Espelhar Pontos: veem PointTransform.kt. Agem sobre os pontos usados pelos
+ *   comandos LMOVE/JMOVE dentro das linhas marcadas (o "intervalo" é a seleção) — só altera
+ *   pontos que pertencem exclusivamente ao programa das linhas escolhidas, pulando os que
+ *   também são usados em outro programa.
+ *
+ * Toda mudança (manual ou pelas funções de ponto) passa por updateLines(), que alimenta uma
+ * pilha de desfazer/refazer (ícones no topo, sempre visíveis).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +112,37 @@ fun AsCodeViewer(
     var isSearchActive by remember { mutableStateOf(false) }
     var isDirty by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
+    var showShiftDialog by remember { mutableStateOf(false) }
+    var showMirrorDialog by remember { mutableStateOf(false) }
+
+    // Pilhas de desfazer/refazer: guardam versões anteriores de "lines". Qualquer mudança
+    // (manual ou pelas funções de ponto) deve passar por updateLines(), nunca atribuir
+    // "lines" direto, senão ela não entra no histórico.
+    var undoStack by remember { mutableStateOf<List<List<String>>>(emptyList()) }
+    var redoStack by remember { mutableStateOf<List<List<String>>>(emptyList()) }
+
+    fun updateLines(newLines: List<String>) {
+        undoStack = (undoStack + listOf(lines)).takeLast(MAX_UNDO_STEPS)
+        redoStack = emptyList()
+        lines = newLines
+        isDirty = true
+    }
+
+    fun undo() {
+        val previous = undoStack.lastOrNull() ?: return
+        redoStack = listOf(lines) + redoStack
+        lines = previous
+        undoStack = undoStack.dropLast(1)
+        isDirty = true
+    }
+
+    fun redo() {
+        val next = redoStack.firstOrNull() ?: return
+        undoStack = undoStack + listOf(lines)
+        lines = next
+        redoStack = redoStack.drop(1)
+        isDirty = true
+    }
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -150,6 +198,20 @@ fun AsCodeViewer(
                                 Icon(Icons.Default.Search, null)
                             }
                         }
+                        IconButton(onClick = { undo() }, enabled = undoStack.isNotEmpty()) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Undo,
+                                contentDescription = "Desfazer",
+                                tint = if (undoStack.isNotEmpty()) LocalContentColor.current else disabledTint
+                            )
+                        }
+                        IconButton(onClick = { redo() }, enabled = redoStack.isNotEmpty()) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Redo,
+                                contentDescription = "Refazer",
+                                tint = if (redoStack.isNotEmpty()) LocalContentColor.current else disabledTint
+                            )
+                        }
                         IconButton(
                             enabled = !isLoadingLines,
                             onClick = {
@@ -182,7 +244,22 @@ fun AsCodeViewer(
                     LineActionsToolbar(
                         hasSelection = hasSelection,
                         hasSingleSelection = hasSingleSelection,
+                        hasTwoSelected = selectedLines.size == 2,
                         disabledTint = disabledTint,
+                        onSelectAll = { selectedLines = lines.indices.toSet() },
+                        onClearSelection = { selectedLines = emptySet() },
+                        onSelectUpward = {
+                            val anchor = selectedLines.first()
+                            selectedLines = (0..anchor).toSet()
+                        },
+                        onSelectDownward = {
+                            val anchor = selectedLines.first()
+                            selectedLines = (anchor until lines.size).toSet()
+                        },
+                        onSelectRange = {
+                            val sorted = selectedLines.sorted()
+                            selectedLines = (sorted.first()..sorted.last()).toSet()
+                        },
                         onCopy = {
                             val selectedText = selectedLines.sorted().joinToString("\n") { lines[it] }
                             clipboardManager.setText(AnnotatedString(selectedText))
@@ -194,18 +271,18 @@ fun AsCodeViewer(
                                 Toast.makeText(context, "Nada para colar", Toast.LENGTH_SHORT).show()
                             } else {
                                 val pastedLines = clip.lines()
-                                lines = lines.toMutableList().apply { addAll(index, pastedLines) }
+                                updateLines(lines.toMutableList().apply { addAll(index, pastedLines) })
                                 selectedLines = emptySet()
-                                isDirty = true
                             }
                         },
                         onChange = { lineDialog = LineDialogAction.Change(selectedLines.first()) },
                         onInsert = { lineDialog = LineDialogAction.Insert(selectedLines.first()) },
                         onDelete = {
-                            lines = lines.filterIndexed { index, _ -> index !in selectedLines }
+                            updateLines(lines.filterIndexed { index, _ -> index !in selectedLines })
                             selectedLines = emptySet()
-                            isDirty = true
-                        }
+                        },
+                        onShiftPoints = { showShiftDialog = true },
+                        onMirrorPoints = { showMirrorDialog = true }
                     )
                 }
             }
@@ -241,13 +318,44 @@ fun AsCodeViewer(
                 initialText = initialText,
                 onDismiss = { lineDialog = null },
                 onSave = { newText ->
-                    lines = when (action) {
-                        is LineDialogAction.Change -> lines.toMutableList().apply { this[action.index] = newText }
-                        is LineDialogAction.Insert -> lines.toMutableList().apply { add(action.beforeIndex, newText) }
-                    }
+                    updateLines(
+                        when (action) {
+                            is LineDialogAction.Change -> lines.toMutableList().apply { this[action.index] = newText }
+                            is LineDialogAction.Insert -> lines.toMutableList().apply { add(action.beforeIndex, newText) }
+                        }
+                    )
                     selectedLines = emptySet()
                     lineDialog = null
-                    isDirty = true
+                }
+            )
+        }
+
+        if (showShiftDialog) {
+            ShiftPointsDialog(
+                onDismiss = { showShiftDialog = false },
+                onApply = { moveFilter, deltas ->
+                    val result = applyPointShift(lines, selectedLines.toList(), moveFilter, deltas)
+                    if (result.error == null) {
+                        updateLines(result.lines)
+                        selectedLines = emptySet()
+                    }
+                    Toast.makeText(context, result.summary, Toast.LENGTH_LONG).show()
+                    showShiftDialog = false
+                }
+            )
+        }
+
+        if (showMirrorDialog) {
+            MirrorPointsDialog(
+                onDismiss = { showMirrorDialog = false },
+                onApply = { moveFilter, axis ->
+                    val result = applyPointMirror(lines, selectedLines.toList(), moveFilter, axis)
+                    if (result.error == null) {
+                        updateLines(result.lines)
+                        selectedLines = emptySet()
+                    }
+                    Toast.makeText(context, result.summary, Toast.LENGTH_LONG).show()
+                    showMirrorDialog = false
                 }
             )
         }
@@ -287,26 +395,72 @@ private fun SaveIcon(isSaving: Boolean, isDirty: Boolean, isNewFile: Boolean) {
 }
 
 /**
- * Barra de ações do modo de edição: copiar/colar/alterar/inserir/excluir, agindo sobre
- * as linhas marcadas. Alterar/Inserir/Colar exigem exatamente uma linha marcada (é o
- * ponto de referência); Copiar/Excluir aceitam uma ou mais.
+ * Barra de ações do modo de edição: marcar linhas em lote, copiar/colar/alterar/inserir/
+ * excluir/deslocar/espelhar, agindo sobre as linhas marcadas. Alterar/Inserir/Colar exigem
+ * exatamente uma linha marcada (é o ponto de referência); Copiar/Excluir/Deslocar/Espelhar
+ * aceitam uma ou mais (esse conjunto marcado É o "intervalo de linhas" que as funções de
+ * ponto enxergam). A barra rola de lado se não couber na largura da tela.
  */
 @Composable
 fun LineActionsToolbar(
     hasSelection: Boolean,
     hasSingleSelection: Boolean,
+    hasTwoSelected: Boolean,
     disabledTint: Color,
+    onSelectAll: () -> Unit,
+    onClearSelection: () -> Unit,
+    onSelectUpward: () -> Unit,
+    onSelectDownward: () -> Unit,
+    onSelectRange: () -> Unit,
     onCopy: () -> Unit,
     onPaste: () -> Unit,
     onChange: () -> Unit,
     onInsert: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onShiftPoints: () -> Unit,
+    onMirrorPoints: () -> Unit
 ) {
+    var showSelectionMenu by remember { mutableStateOf(false) }
+
     Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 4.dp, vertical = 4.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            Box {
+                IconButton(onClick = { showSelectionMenu = true }) {
+                    Icon(Icons.Default.Checklist, "Marcar Linhas", tint = LocalContentColor.current)
+                }
+                DropdownMenu(expanded = showSelectionMenu, onDismissRequest = { showSelectionMenu = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Marcar Todas") },
+                        onClick = { showSelectionMenu = false; onSelectAll() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Limpar Marcação") },
+                        enabled = hasSelection,
+                        onClick = { showSelectionMenu = false; onClearSelection() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Da Linha Marcada para Cima") },
+                        enabled = hasSingleSelection,
+                        onClick = { showSelectionMenu = false; onSelectUpward() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Da Linha Marcada para Baixo") },
+                        enabled = hasSingleSelection,
+                        onClick = { showSelectionMenu = false; onSelectDownward() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Preencher Entre as 2 Marcadas") },
+                        enabled = hasTwoSelected,
+                        onClick = { showSelectionMenu = false; onSelectRange() }
+                    )
+                }
+            }
             IconButton(onClick = onCopy, enabled = hasSelection) {
                 Icon(Icons.Default.ContentCopy, "Copiar", tint = if (hasSelection) LocalContentColor.current else disabledTint)
             }
@@ -321,6 +475,12 @@ fun LineActionsToolbar(
             }
             IconButton(onClick = onDelete, enabled = hasSelection) {
                 Icon(Icons.Default.Delete, "Excluir", tint = if (hasSelection) MaterialTheme.colorScheme.error else disabledTint)
+            }
+            IconButton(onClick = onShiftPoints, enabled = hasSelection) {
+                Icon(Icons.Default.OpenWith, "Deslocar Pontos", tint = if (hasSelection) MaterialTheme.colorScheme.primary else disabledTint)
+            }
+            IconButton(onClick = onMirrorPoints, enabled = hasSelection) {
+                Icon(Icons.Default.Flip, "Espelhar Pontos", tint = if (hasSelection) MaterialTheme.colorScheme.primary else disabledTint)
             }
         }
     }
@@ -470,6 +630,141 @@ fun LineEditDialog(
         },
         confirmButton = {
             Button(onClick = { onSave(text) }) { Text("Salvar") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+/**
+ * Chips para escolher quais comandos de movimento (LMOVE/JMOVE/ambos) contam na busca por
+ * pontos nas linhas marcadas. Usado pelos diálogos de Deslocar e Espelhar.
+ */
+@Composable
+private fun MoveFilterSelector(selected: MoveFilter, onSelect: (MoveFilter) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        MoveFilter.entries.forEach { filter ->
+            FilterChip(
+                selected = selected == filter,
+                onClick = { onSelect(filter) },
+                label = { Text(filter.label, style = MaterialTheme.typography.labelSmall) }
+            )
+        }
+    }
+}
+
+/**
+ * Janela da função "Deslocar Pontos": um campo de delta por eixo (X, Y, Z, O, A, T e os 3
+ * eixos externos) — deixar em 0 é o mesmo que não mexer naquele eixo — e o filtro de qual
+ * comando (LMOVE/JMOVE/ambos) considerar. Ao confirmar, devolve o filtro e os deltas prontos
+ * (já convertidos para número) para quem chamou aplicar com [applyPointShift].
+ */
+@Composable
+private fun ShiftPointsDialog(
+    onDismiss: () -> Unit,
+    onApply: (MoveFilter, Map<PointAxis, Double>) -> Unit
+) {
+    var moveFilter by remember { mutableStateOf(MoveFilter.BOTH) }
+    val deltaTexts = remember {
+        mutableStateMapOf<PointAxis, String>().apply { PointAxis.entries.forEach { put(it, "0") } }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Deslocar Pontos") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Só altera pontos definidos e usados exclusivamente neste programa.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Considerar pontos de:", style = MaterialTheme.typography.labelMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                MoveFilterSelector(selected = moveFilter, onSelect = { moveFilter = it })
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Delta por eixo (0 = não mexe):", style = MaterialTheme.typography.labelMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                PointAxis.entries.chunked(3).forEach { row ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                    ) {
+                        row.forEach { axis ->
+                            OutlinedTextField(
+                                value = deltaTexts[axis] ?: "0",
+                                onValueChange = { deltaTexts[axis] = it },
+                                label = { Text(axis.label) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val deltas = PointAxis.entries.associateWith { axis ->
+                    deltaTexts[axis]?.replace(",", ".")?.toDoubleOrNull() ?: 0.0
+                }
+                onApply(moveFilter, deltas)
+            }) { Text("Aplicar") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        }
+    )
+}
+
+/**
+ * Janela da função "Espelhar Pontos": escolhe o eixo (X, Y ou Z) a multiplicar por -1 e o
+ * filtro de comando (LMOVE/JMOVE/ambos).
+ */
+@Composable
+private fun MirrorPointsDialog(
+    onDismiss: () -> Unit,
+    onApply: (MoveFilter, PointAxis) -> Unit
+) {
+    var moveFilter by remember { mutableStateOf(MoveFilter.BOTH) }
+    var axis by remember { mutableStateOf(PointAxis.X) }
+    val mirrorAxes = listOf(PointAxis.X, PointAxis.Y, PointAxis.Z)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Espelhar Pontos") },
+        text = {
+            Column {
+                Text(
+                    "Só altera pontos definidos e usados exclusivamente neste programa.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("Considerar pontos de:", style = MaterialTheme.typography.labelMedium)
+                Spacer(modifier = Modifier.height(4.dp))
+                MoveFilterSelector(selected = moveFilter, onSelect = { moveFilter = it })
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Eixo de espelhamento:", style = MaterialTheme.typography.labelMedium)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    mirrorAxes.forEach { a ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clickable { axis = a }
+                                .padding(end = 8.dp)
+                        ) {
+                            RadioButton(selected = axis == a, onClick = { axis = a })
+                            Text(a.label)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onApply(moveFilter, axis) }) { Text("Aplicar") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancelar") }
