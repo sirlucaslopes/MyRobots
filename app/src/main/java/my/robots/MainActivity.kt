@@ -1,26 +1,18 @@
 package my.robots
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
-import android.os.Environment
-import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -60,7 +52,6 @@ import my.robots.feature.terminal.MultiRobotTerminalViewModelFactory
 import my.robots.feature.terminal.QuickCommandScreen
 import my.robots.feature.terminal.QuickCommandViewModelFactory
 import my.robots.core.designsystem.MyRobotsTheme
-import java.io.File
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -93,7 +84,9 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Monta a tela: liga o modo tela cheia, pega as peças de MyRobotsApp,
-     * pede permissão de arquivos e desenha o mapa de navegação.
+     * trata arquivos abertos de fora do app e desenha o mapa de navegação.
+     * (Desde a v1.2 não pede permissão de armazenamento: os arquivos ficam em
+     * Documentos/MyRobots via MediaStore, ou na pasta escolhida pelo usuário.)
      */
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -114,9 +107,6 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val context = LocalContext.current
                 
-                // Controla se o aviso de "Configuração Inicial" (permissão de arquivos) aparece.
-                var showPermissionDialog by remember { mutableStateOf(false) }
-
                 // Nome + texto do último arquivo .as/.pg aberto de fora do app, guardado só na
                 // memória (nunca no banco) até o usuário escolher um robô para salvar de vez.
                 // Assim a tela de visualização não depende de gravar e reler o texto gigante do
@@ -124,80 +114,6 @@ class MainActivity : ComponentActivity() {
                 // para mostrar um arquivo que talvez nem seja salvo.
                 var pendingExternalFile by remember { mutableStateOf<Pair<String, String>?>(null) }
                 
-                // Pedido de permissão comum do Android (usado no Android 10 ou mais antigo).
-                val requestPermissionLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.RequestPermission()
-                ) { isGranted ->
-                    if (isGranted) {
-                        checkAndCreateRootFolder()
-                    }
-                }
-
-                // Abre a tela do Android de "acesso a todos os arquivos" (Android 11 ou mais novo).
-                // Quando o usuário volta e a permissão foi dada, cria a pasta /MyRobots.
-                val manageFilesLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.StartActivityForResult()
-                ) {
-                    if (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Environment.isExternalStorageManager() else true) {
-                        checkAndCreateRootFolder()
-                    }
-                }
-
-                // Ao abrir o app: confere se já temos a permissão e se a pasta /MyRobots existe.
-                // Se faltar algo, mostra o aviso pedindo a permissão.
-                LaunchedEffect(Unit) {
-                    val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        Environment.isExternalStorageManager()
-                    } else {
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.WRITE_EXTERNAL_STORAGE
-                        ) == PackageManager.PERMISSION_GRANTED
-                    }
-
-                    val root = Environment.getExternalStorageDirectory()
-                    val myRobotsDir = File(root, "MyRobots")
-
-                    if (!hasPermission || !myRobotsDir.exists()) {
-                        showPermissionDialog = true
-                    }
-                }
-
-                // Aviso explicando por que o app precisa da pasta /MyRobots e pedindo a permissão.
-                if (showPermissionDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showPermissionDialog = false },
-                        title = { Text("Configuração Inicial") },
-                        text = { 
-                            Text("O aplicativo precisa criar a pasta 'MyRobots' na raiz do seu dispositivo para centralizar e organizar os arquivos dos robôs.\n\nPara isso, é necessário conceder permissão de acesso ao armazenamento.") 
-                        },
-                        confirmButton = {
-                            Button(onClick = {
-                                showPermissionDialog = false
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                                    try {
-                                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-                                        intent.data = Uri.parse("package:${context.packageName}")
-                                        manageFilesLauncher.launch(intent)
-                                    } catch (e: Exception) {
-                                        val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                                        manageFilesLauncher.launch(intent)
-                                    }
-                                } else {
-                                    requestPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                                }
-                            }) {
-                                Text("Conceder Permissão")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showPermissionDialog = false }) {
-                                Text("Agora Não")
-                            }
-                        }
-                    )
-                }
-
                 // Se o app foi aberto por um arquivo .as/.pg (vindo de outro app), lê o arquivo e
                 // abre no visualizador (o texto fica só na memória até o usuário salvar).
                 // Arquivo recusado (tipo, tamanho, não é texto) só mostra o motivo.
@@ -617,21 +533,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
-    }
-
-    /**
-     * Cria a pasta /MyRobots na raiz do armazenamento, se ela ainda não existir.
-     */
-    private fun checkAndCreateRootFolder() {
-        try {
-            val root = Environment.getExternalStorageDirectory()
-            val myRobotsDir = File(root, "MyRobots")
-            if (!myRobotsDir.exists()) {
-                myRobotsDir.mkdirs()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
