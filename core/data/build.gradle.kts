@@ -26,4 +26,7 @@ dependencies {
     api(project(":core:database"))
     api(project(":core:network"))
     api(project(":core:common"))
+
+    // pasta escolhida pelo usuário (Storage Access Framework)
+    implementation(libs.androidx.documentfile)
 }
