@@ -63,18 +63,6 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.coroutines.android)
 
-    // ---- Ainda não usadas no código (mantidas como estavam antes da modularização) ----
-    implementation(libs.coil.compose)
-    implementation(libs.accompanist.permissions)
-    implementation(libs.play.services.location)
-    implementation(libs.androidx.camera.camera2)
-    implementation(libs.androidx.camera.lifecycle)
-    implementation(libs.androidx.camera.view)
-    implementation(libs.androidx.camera.core)
-    implementation(libs.logging.interceptor)
-    implementation(libs.androidx.datastore.preferences)
-    implementation(libs.material)
-
     // ---- Testes ----
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
