@@ -4,6 +4,7 @@ import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import my.robots.core.database.BackupDao
@@ -12,6 +13,8 @@ import my.robots.core.database.RobotDao
 import my.robots.core.model.*
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsBackupStats
+import my.robots.core.data.security.SecretCipher
+import my.robots.core.data.security.StoredSecret
 import my.robots.core.data.storage.RobotFilesStorage
 import my.robots.core.data.storage.StorageLocation
 import kotlinx.coroutines.flow.StateFlow
@@ -24,17 +27,43 @@ import kotlinx.coroutines.flow.StateFlow
  * - o banco de dados (robôs, comandos rápidos e backups) — a fonte da verdade: o texto
  *   completo de cada backup fica no banco;
  * - a pasta dos arquivos (RobotFilesStorage): Documentos/MyRobots ou a pasta escolhida.
+ *
+ * A senha de login do controlador (Robot.loginPassword) é guardada CIFRADA no banco
+ * (SecretCipher, chave do Android Keystore). Tudo o que sai daqui já vem decifrado; tudo o que
+ * entra é cifrado antes de gravar. Se não der para decifrar (banco restaurado em outro
+ * celular), a senha volta vazia e o usuário digita de novo ao editar o robô.
  */
 class RobotRepository(
     private val robotDao: RobotDao,
     private val quickCommandDao: QuickCommandDao,
     private val backupDao: BackupDao,
-    private val files: RobotFilesStorage
+    private val files: RobotFilesStorage,
+    private val secrets: SecretCipher
 ) {
     /**
      * Lista de todos os robôs cadastrados. Se um robô mudar, a lista se atualiza sozinha.
      */
     val allRobots: Flow<List<Robot>> = robotDao.getAllRobots()
+        .map { robots -> robots.map { fromDb(it) } }
+        .flowOn(Dispatchers.Default)
+
+    /** Robô como vem do banco -> senha decifrada (vazia se não der para decifrar). */
+    private fun fromDb(robot: Robot): Robot =
+        robot.copy(loginPassword = secrets.decrypt(robot.loginPassword) ?: "")
+
+    /** Robô para gravar no banco -> senha cifrada. */
+    private fun toDb(robot: Robot): Robot =
+        robot.copy(loginPassword = secrets.encrypt(robot.loginPassword))
+
+    /**
+     * Cifra as senhas que ainda estão em texto puro (gravadas até a v1.1). Não faz nada nas
+     * que já estão cifradas; pode ser chamada a cada abertura do app.
+     */
+    suspend fun encryptLegacyPasswords() = withContext(Dispatchers.Default) {
+        robotDao.getAllRobots().first()
+            .filter { it.loginPassword.isNotEmpty() && !StoredSecret.isEncrypted(it.loginPassword) }
+            .forEach { robotDao.updateRobot(toDb(it)) }
+    }
 
     /**
      * Cadastra um robô novo.
@@ -44,7 +73,7 @@ class RobotRepository(
      * A pasta do robô aparece sozinha quando o primeiro arquivo dele é gravado.
      */
     suspend fun insertRobot(robot: Robot) {
-        val id = robotDao.insertRobot(robot).toInt()
+        val id = robotDao.insertRobot(toDb(robot)).toInt()
         seedQuickCommandsForRobot(id, robot.manufacturer)
     }
 
@@ -71,7 +100,7 @@ class RobotRepository(
      * o nome novo (os antigos continuam na pasta antiga e os backups continuam no banco).
      */
     suspend fun updateRobot(robot: Robot) {
-        robotDao.updateRobot(robot)
+        robotDao.updateRobot(toDb(robot))
     }
 
     /**
@@ -81,7 +110,7 @@ class RobotRepository(
     /**
      * Busca um robô pelo id. Devolve null se não existir.
      */
-    suspend fun getRobotById(id: Int): Robot? = robotDao.getRobotById(id)
+    suspend fun getRobotById(id: Int): Robot? = robotDao.getRobotById(id)?.let { fromDb(it) }
 
     // ---------- Comandos rápidos ----------
     /**

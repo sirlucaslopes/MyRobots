@@ -61,7 +61,8 @@ para melhorar uma parte sem mexer nas outras.
 ## 1. `:core:model` — os dados que o app entende
 
 - **`Robot`**: um robô cadastrado (nome, IP, porta, projeto/célula, fabricante, dados de
-  login automático). `name` também define o nome da pasta do robô (ver seção 14).
+  login automático). `name` também define o nome da pasta do robô (ver seção 14). No banco,
+  `loginPassword` fica **cifrada** (ver seção 14); o `RobotRepository` entrega sempre decifrada.
 - **`Manufacturer`**: `KAWASAKI` (único com suporte completo hoje: terminal, backups e
   comandos rápidos), `FANUC`, `ABB`, `UNIVERSAL_ROBOTS` (cadastráveis, mas sem função própria ainda).
 - **`Backup`** / **`BackupSummary`**: um backup é o texto completo (`content`) de um arquivo
@@ -524,8 +525,16 @@ pasta liberada no `FileProvider` (`file_paths.xml`). O nome do arquivo é limpo 
 (`RobotRepository.encodeAsText/decodeAsText`). O controlador provavelmente usa ISO-8859-1; a
 troca está pendente de um arquivo real com acento (Fase 0-B.D do plano).
 
+**Senha de login do controlador.** Guardada cifrada no banco (`KeystoreSecretCipher`, AES-256
+GCM com chave do Android Keystore, formato `enc1:<iv>:<cifra>` em `StoredSecret`). O
+`RobotRepository` cifra ao gravar e decifra ao ler; `encryptLegacyPasswords` (chamado a cada
+abertura) cifra as senhas que ficaram em texto puro da v1.1. A chave não sai do aparelho nem
+vai para o backup do Android: depois de trocar de celular ou restaurar um backup, a senha volta
+vazia e o usuário digita de novo ao editar o robô. O login continua indo **sem criptografia**
+pela rede (telnet), porque é o protocolo do controlador.
+
 **Pendências / Próximos passos:**
 - Testar num aparelho com Android 10 e num com Android 13+: gravar pela pasta padrão, conectar
   uma pasta, apagar a pasta e reabrir o app.
 - Confirmar que o MediaStore mantém a extensão `.as` no Android 10 (pasta Documentos).
-- Codificação ISO-8859-1 (0-B.D) e senha do controlador cifrada (0-B.E).
+- Codificação ISO-8859-1 (0-B.D).

@@ -11,6 +11,7 @@ import my.robots.core.database.ALL_MIGRATIONS
 import my.robots.core.database.AppDatabase
 import my.robots.core.network.KawasakiTerminalManager
 import my.robots.core.data.RobotRepository
+import my.robots.core.data.security.KeystoreSecretCipher
 import my.robots.core.data.storage.RobotFilesStorage
 
 /**
@@ -69,12 +70,22 @@ class MyRobotsApp : Application() {
             database.robotDao(),
             database.quickCommandDao(),
             database.backupDao(),
-            RobotFilesStorage(this).also { filesStorage = it }
+            RobotFilesStorage(this).also { filesStorage = it },
+            KeystoreSecretCipher()
         )
         
         terminalManager = KawasakiTerminalManager(this, filesStorage)
 
         migrateFilesToNewFolderOnce()
+
+        // senhas de login gravadas em texto puro até a v1.1 passam a ser guardadas cifradas
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                robotRepository.encryptLegacyPasswords()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     /**

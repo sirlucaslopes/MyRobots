@@ -29,4 +29,6 @@ dependencies {
 
     // pasta escolhida pelo usuário (Storage Access Framework)
     implementation(libs.androidx.documentfile)
+
+    testImplementation(libs.junit)
 }
