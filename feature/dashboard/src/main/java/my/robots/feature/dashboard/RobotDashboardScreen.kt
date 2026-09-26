@@ -53,7 +53,6 @@ import my.robots.core.model.Backup
 import my.robots.core.model.Manufacturer
 import my.robots.core.model.QuickCommand
 import my.robots.core.model.Robot
-import my.robots.core.network.RobotStatusResponse
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -84,7 +83,7 @@ enum class DashboardFeature(val label: String, val icon: ImageVector) {
  * - onProgramClick / onVariablesClick / onFullCodeClick: abrem o editor de código.
  * - onNavigateToRobot: vai para o painel de OUTRO robô (após enviar um item para ele).
  * - onQuickCommandsClick: abre a biblioteca de comandos rápidos.
- * - mockRobot / mockStatus: dados falsos só para pré-visualização.
+ * - mockRobot: dados falsos só para pré-visualização.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,8 +98,7 @@ fun RobotDashboardScreen(
     onNavigateToRobot: (robotId: Int, backupId: Int, feature: DashboardFeature?) -> Unit = { _, _, _ -> },
     onFeatureClick: (DashboardFeature) -> Unit = {},
     initialFeature: DashboardFeature? = null,
-    mockRobot: Robot? = null,
-    mockStatus: RobotStatusResponse? = null
+    mockRobot: Robot? = null
 ) {
     val robotState = if (viewModel != null) viewModel.robot.collectAsState() else remember { mutableStateOf(mockRobot) }
     val terminalOutputState = if (viewModel != null) viewModel.terminalOutput.collectAsState() else remember { mutableStateOf(emptyList<String>()) }
@@ -235,11 +233,7 @@ fun RobotDashboardScreen(
                         }
                     },
                     actions = {
-                        if (activeFeature == null) {
-                            IconButton(onClick = { viewModel?.refreshStatus() }) {
-                                Icon(Icons.Rounded.Refresh, contentDescription = "Refresh")
-                            }
-                        } else if (activeFeature == DashboardFeature.Logs) {
+                        if (activeFeature == DashboardFeature.Logs) {
                             val isConnected by (viewModel?.isConnected?.collectAsState() ?: remember { mutableStateOf(false) })
                             
                             IconButton(onClick = {
@@ -1881,34 +1875,6 @@ fun StatusItem(label: String, value: String) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
         Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-    }
-}
-
-/**
- * Lista simples de logs. NÃO É USADA hoje (o terminal usa o TerminalPanel).
- * Fica aqui caso se queira mostrar os logs de teste.
- */
-@Composable
-fun LogsPanel(logs: List<String>) {
-    val scrollState = rememberLazyListState()
-    LaunchedEffect(logs.size) {
-        if (logs.isNotEmpty()) scrollState.animateScrollToItem(0)
-    }
-    LazyColumn(
-        state = scrollState,
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).navigationBarsPadding(),
-        contentPadding = PaddingValues(16.dp)
-    ) {
-        items(logs) { log ->
-            Text(
-                text = log,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                color = if (log.contains("sucesso", true)) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-            )
-        }
     }
 }
 

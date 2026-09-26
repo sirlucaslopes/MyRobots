@@ -2,10 +2,8 @@ package my.robots.core.data
 
 import android.os.Environment
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import my.robots.core.database.BackupDao
@@ -13,15 +11,8 @@ import my.robots.core.database.QuickCommandDao
 import my.robots.core.database.RobotDao
 import my.robots.core.model.*
 import my.robots.core.network.RobotApiService
-import my.robots.core.network.RobotStatusResponse
 import my.robots.core.common.FileUtil
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlin.random.Random
 
 /**
  * Porta de entrada única para os dados do app.
@@ -304,99 +295,5 @@ class RobotRepository(
             variablesCount = variables,
             memoryUsage = content.length.toLong()
         )
-    }
-
-    /**
-     * Gera logs de teste (simulados) a cada 3 segundos, guardando os 50 mais novos.
-     * Ainda não lê logs reais do robô.
-     */
-    fun getRobotLogs(robotId: Int): Flow<List<String>> = flow {
-        val logs = mutableListOf<String>()
-        while (true) {
-            logs.add(0, "[${System.currentTimeMillis()}] System status: OK - Memory: ${Random.nextInt(100, 500)} MB")
-            if (logs.size > 50) logs.removeAt(50)
-            emit(logs.toList())
-            delay(3000)
-        }
-    }
-
-    /**
-     * Devolve o status do robô. ATENÇÃO: por enquanto os valores são fixos (de teste),
-     * não vêm do robô de verdade.
-     */
-    suspend fun getRobotStatus(robotId: Int): RobotStatusResponse {
-        return RobotStatusResponse(
-            status = "Online",
-            availableMemory = 256000L,
-            programsCount = 12,
-            variablesCount = 45,
-            framesCount = 8,
-            message = "All systems operational"
-        )
-    }
-
-    /**
-     * Cria um backup do robô pela API HTTP.
-     *
-     * Se a API não responder (o que acontece hoje, pois o endereço é de teste),
-     * usa um conteúdo de exemplo. O arquivo é salvo como
-     * <nome_do_robô>_aaaammdd_hhmm.as. Devolve o backup criado.
-     */
-    suspend fun performBackup(robotId: Int): Backup {
-        val response = try {
-            robotApiService.downloadConfig()
-        } catch (e: Exception) {
-            null
-        }
-        
-        val content = if (response?.isSuccessful == true) {
-            response.body()?.string() ?: ""
-        } else {
-            generateMockRobotContent()
-        }
-
-        val robot = getRobotById(robotId)
-        val robotNameClean = robot?.name?.lowercase()?.replace(Regex("[^a-zA-Z0-9_]"), "_") ?: "robot"
-        val timestamp = SimpleDateFormat("_yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
-        val rawFileName = "${robotNameClean}${timestamp}.as"
-        val sanitizedFileName = FileUtil.sanitizeFileName(rawFileName)
-
-        val backup = Backup(
-            robotId = robotId,
-            backupName = "Backup ${SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date())}",
-            fileName = sanitizedFileName,
-            content = content
-        )
-        insertBackup(backup)
-        return backup
-    }
-
-    /**
-     * Envia o texto de um backup para o robô pela API HTTP. Devolve true se deu certo.
-     */
-    suspend fun uploadBackupToRobot(backup: Backup): Boolean {
-        val requestBody = backup.content.toRequestBody("text/plain".toMediaTypeOrNull())
-        val response = try {
-            robotApiService.uploadConfig(requestBody)
-        } catch (e: Exception) {
-            return false
-        }
-        return response.isSuccessful
-    }
-
-    /**
-     * Cria um texto AS de exemplo, usado quando não há robô real para baixar o backup.
-     */
-    private fun generateMockRobotContent(): String {
-        return """
-            .PROGRAM main()
-              ; Robot Configuration
-              SPEED 50
-              ACCEL 50
-            .END
-            .TRANS
-              p1 = {0,0,0,0,0,0}
-            .END
-        """.trimIndent()
     }
 }

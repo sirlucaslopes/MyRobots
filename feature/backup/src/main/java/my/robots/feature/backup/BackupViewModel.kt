@@ -175,29 +175,6 @@ class BackupViewModel(
     }
 
     /**
-     * Cria um backup do tipo escolhido (padrão: completo).
-     * Monta o nome do arquivo como <robô>_<tipo>_aaaammdd_hhmm.as e salva no banco e na pasta.
-     */
-    fun createBackup(type: BackupType = BackupType.FULL) {
-        viewModelScope.launch {
-            val robot = repository.getRobotById(robotId)
-            val robotName = robot?.name?.lowercase()?.replace(Regex("[^a-zA-Z0-9_]"), "_") ?: "robot"
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
-            val baseFileName = "${robotName}_${type.label.lowercase()}_$timestamp.as"
-            val sanitizedFileName = FileUtil.sanitizeFileName(baseFileName)
-            
-            val backup = repository.performBackup(robotId)
-            
-            val enrichedBackup = backup.copy(
-                backupName = "${type.label} - ${SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date())}",
-                fileName = sanitizedFileName,
-                timestamp = System.currentTimeMillis()
-            )
-            repository.insertBackup(enrichedBackup)
-        }
-    }
-
-    /**
      * Cria uma cópia de um backup com o nome informado (o arquivo da cópia começa com "copy_" + data).
      */
     fun duplicateBackup(backupId: Int, newName: String) {

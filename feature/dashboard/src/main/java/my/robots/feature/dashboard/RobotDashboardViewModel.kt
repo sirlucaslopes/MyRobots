@@ -11,7 +11,6 @@ import my.robots.core.model.Backup
 import my.robots.core.model.QuickCommand
 import my.robots.core.model.Robot
 import my.robots.core.network.KawasakiTerminalManager
-import my.robots.core.network.RobotStatusResponse
 import my.robots.core.data.RobotRepository
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsProgramBlocks
@@ -361,12 +360,6 @@ class RobotDashboardViewModel(
      */
     val robot: StateFlow<Robot?> = _robot.asStateFlow()
 
-    private val _status = MutableStateFlow<RobotStatusResponse?>(null)
-    /**
-     * Status mostrado no painel. No modo backup indica "Modo Backup" e o nome do backup.
-     */
-    val status: StateFlow<RobotStatusResponse?> = _status.asStateFlow()
-
     private val _latestBackup = MutableStateFlow<my.robots.core.model.BackupSummary?>(null)
     /**
      * Resumo do backup que está sendo analisado.
@@ -434,12 +427,6 @@ class RobotDashboardViewModel(
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     /**
-     * Logs de teste (simulados) do robô.
-     */
-    val logs: StateFlow<List<String>> = repository.getRobotLogs(robotId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /**
      * Comandos rápidos deste robô.
      */
     val quickCommands: StateFlow<List<QuickCommand>> = repository.getQuickCommands(robotId)
@@ -456,10 +443,9 @@ class RobotDashboardViewModel(
     val allRobots: StateFlow<List<Robot>> = repository.allRobots
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Ao criar o painel: carrega o robô, o status, observa o backup e confere envios pendentes.
+    // Ao criar o painel: carrega o robô, observa o backup e confere envios pendentes.
     init {
         loadRobot()
-        refreshStatus()
         observeBackup()
         checkPendingTransfers()
     }
@@ -718,17 +704,6 @@ class RobotDashboardViewModel(
                         val fullBackup = repository.getBackupById(targetSummary.id)
                         
                         if (fullBackup != null) {
-                            if (initialBackupId != null && initialBackupId != -1) {
-                                _status.value = RobotStatusResponse(
-                                    status = "Modo Backup",
-                                    availableMemory = fullBackup.memoryUsage,
-                                    programsCount = fullBackup.programsCount,
-                                    variablesCount = fullBackup.variablesCount,
-                                    framesCount = 0,
-                                    message = "Analisando: ${fullBackup.backupName}"
-                                )
-                            }
-
                             updateStateFromContent(fullBackup.content)
                             _latestBackup.value = my.robots.core.model.BackupSummary(
                                 id = fullBackup.id,
@@ -951,19 +926,6 @@ class RobotDashboardViewModel(
             }
         }
         return entries
-    }
-
-    /**
-     * Atualiza o status do painel. Só faz algo no modo "robô ao vivo" (quando não há backup escolhido).
-     */
-    fun refreshStatus() {
-        if (initialBackupId == null || initialBackupId == -1) {
-            viewModelScope.launch {
-                try {
-                    _status.value = repository.getRobotStatus(robotId)
-                } catch (e: Exception) { }
-            }
-        }
     }
 
     /**
