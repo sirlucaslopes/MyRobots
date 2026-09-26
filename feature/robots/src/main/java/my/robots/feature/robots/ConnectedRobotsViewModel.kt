@@ -12,8 +12,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import my.robots.core.data.RobotRepository
+import my.robots.core.model.HeartbeatState
 import my.robots.core.model.Robot
-import my.robots.core.network.HeartbeatState
 import my.robots.core.network.KawasakiTerminalManager
 
 /**

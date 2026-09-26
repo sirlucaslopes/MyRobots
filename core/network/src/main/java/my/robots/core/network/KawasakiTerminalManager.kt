@@ -5,6 +5,7 @@ import android.os.Environment
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import my.robots.core.model.HeartbeatState
 import my.robots.core.model.Robot
 import java.io.InputStream
 import java.io.OutputStream
@@ -13,17 +14,6 @@ import java.net.Socket
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.Charset
-
-/**
- * Estado do "heartbeat" (pulso) de um robô conectado.
- *
- * - ALIVE: chegou alguma coisa do robô há pouco tempo (ele está respondendo de verdade).
- * - STALE: a conexão continua aberta, mas faz tempo que o robô não manda nada.
- * - DISCONNECTED: sem conexão.
- */
-enum class HeartbeatState {
-    ALIVE, STALE, DISCONNECTED
-}
 
 /**
  * Cuida da conversa com os controladores Kawasaki pela rede (telnet/TCP).
