@@ -14,6 +14,7 @@ import my.robots.core.network.KawasakiTerminalManager
 import my.robots.core.network.RobotStatusResponse
 import my.robots.core.data.RobotRepository
 import my.robots.core.common.FileUtil
+import my.robots.core.common.ascode.AsProgramBlocks
 
 /**
  * Um programa lido do backup (bloco .PROGRAM ... .END).
@@ -553,24 +554,9 @@ class RobotDashboardViewModel(
         if (programs.isEmpty()) return ""
         val summary = _latestBackup.value ?: return ""
         val fullBackup = repository.getBackupById(summary.id) ?: return ""
-        val nameSet = programs.map { it.name.lowercase() }.toSet()
 
         return withContext(Dispatchers.Default) {
-            val lines = fullBackup.content.lines()
-            val extracted = StringBuilder()
-            var isReading = false
-            for (line in lines) {
-                val trimmed = line.trim()
-                if (trimmed.startsWith(".PROGRAM", ignoreCase = true)) {
-                    val name = trimmed.substringAfter(".PROGRAM").substringBefore("(").trim()
-                    isReading = name.lowercase() in nameSet
-                }
-                if (isReading) {
-                    extracted.append(line).append("\n")
-                    if (trimmed.equals(".END", ignoreCase = true)) isReading = false
-                }
-            }
-            extracted.toString()
+            AsProgramBlocks.extractMany(fullBackup.content, programs.map { it.name })
         }
     }
 
@@ -1034,22 +1020,13 @@ class RobotDashboardViewModel(
             _isLoading.value = true
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
             val newContent = withContext(Dispatchers.Default) {
-                val lines = fullBackup.content.lines()
-                val programContent = StringBuilder()
-                var isReading = false
-                for (line in lines) {
-                    if (line.trim().startsWith(".PROGRAM ${oldProgram.name}", ignoreCase = true)) isReading = true
-                    if (isReading) {
-                        programContent.append(line).append("\n")
-                        if (line.trim().equals(".END", ignoreCase = true)) break
-                    }
-                }
-                val duplicate = programContent.toString().replaceFirst(
-                    ".PROGRAM ${oldProgram.name}", 
-                    ".PROGRAM $newName",
-                    ignoreCase = true
-                )
-                fullBackup.content + "\n" + duplicate
+                // nome exato: duplicar "pg1" não pode copiar o "pg10"
+                val block = AsProgramBlocks.extract(fullBackup.content, oldProgram.name)
+                block?.let { fullBackup.content + "\n" + AsProgramBlocks.renameHeader(it, newName) }
+            }
+            if (newContent == null) {
+                _isLoading.value = false
+                return@launch
             }
             saveBackupContent(newContent)
         }
@@ -1173,25 +1150,7 @@ class RobotDashboardViewModel(
             }
 
             val newContent = withContext(Dispatchers.Default) {
-                val lines = fullBackup.content.lines()
-                val result = StringBuilder()
-                var isSkipping = false
-                for (line in lines) {
-                    val trimmed = line.trim()
-                    if (trimmed.startsWith(".PROGRAM", ignoreCase = true)) {
-                        val name = trimmed.substringAfter(".PROGRAM").substringBefore("(").trim()
-                        if (name.lowercase() in nameSet) {
-                            isSkipping = true
-                            continue
-                        }
-                    }
-                    if (isSkipping) {
-                        if (trimmed.equals(".END", ignoreCase = true)) isSkipping = false
-                        continue
-                    }
-                    result.append(line).append("\n")
-                }
-                result.toString()
+                AsProgramBlocks.remove(fullBackup.content, nameSet)
             }
             saveBackupContent(newContent)
         }

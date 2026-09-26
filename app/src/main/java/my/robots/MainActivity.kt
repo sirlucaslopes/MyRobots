@@ -37,6 +37,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import my.robots.core.common.ascode.AsProgramBlocks
 import my.robots.core.model.Manufacturer
 import my.robots.feature.codeeditor.AsCodeViewer
 import my.robots.feature.backup.BackupHistoryScreen
@@ -383,19 +384,8 @@ class MainActivity : ComponentActivity() {
                             LaunchedEffect(backupId) {
                                 backup = repository.getBackupById(backupId)
                                 backup?.let {
-                                    val lines = it.content.lines()
-                                    val extracted = StringBuilder()
-                                    var isReading = false
-                                    for (line in lines) {
-                                        if (line.trim().startsWith(".PROGRAM $programName", ignoreCase = true)) {
-                                            isReading = true
-                                        }
-                                        if (isReading) {
-                                            extracted.append(line).append("\n")
-                                            if (line.trim().equals(".END", ignoreCase = true)) break
-                                        }
-                                    }
-                                    programContent = extracted.toString()
+                                    // nome exato: "pg1" não pode abrir o "pg10"
+                                    programContent = AsProgramBlocks.extract(it.content, programName) ?: ""
                                 }
                             }
                             
@@ -412,31 +402,13 @@ class MainActivity : ComponentActivity() {
                                     onSave = { newProgramContent ->
                                         val currentBackup = backup
                                         if (currentBackup != null) {
-                                            val oldLines = currentBackup.content.lines()
-                                            val newBackupContent = StringBuilder()
-                                            var skippingOld = false
-                                            var replaced = false
-
-                                            for (line in oldLines) {
-                                                if (line.trim().startsWith(".PROGRAM $programName", ignoreCase = true)) {
-                                                    skippingOld = true
-                                                    if (!replaced) {
-                                                        newBackupContent.append(newProgramContent).append("\n")
-                                                        replaced = true
-                                                    }
-                                                }
-
-                                                if (!skippingOld) {
-                                                    newBackupContent.append(line).append("\n")
-                                                }
-
-                                                if (skippingOld && line.trim().equals(".END", ignoreCase = true)) {
-                                                    skippingOld = false
-                                                }
-                                            }
+                                            // troca só o bloco deste programa (nome exato), o resto do backup fica igual
+                                            val newBackupContent = AsProgramBlocks.replace(
+                                                currentBackup.content, programName, newProgramContent
+                                            )
 
                                             val updated = currentBackup.copy(
-                                                content = newBackupContent.toString().trim(),
+                                                content = newBackupContent.trim(),
                                                 timestamp = System.currentTimeMillis()
                                             )
                                             repository.insertBackup(updated)
