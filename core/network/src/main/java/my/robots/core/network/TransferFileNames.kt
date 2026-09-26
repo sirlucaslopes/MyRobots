@@ -1,14 +1,13 @@
 package my.robots.core.network
 
-import java.io.File
-
 /**
  * Valida o nome de arquivo que o CONTROLADOR manda no protocolo de transferência
  * (bloco 'B' do SAVE e bloco 'A' do LOAD).
  *
- * Esse nome vem da rede e não pode ser usado direto em File(pasta, nome): um aparelho que
- * responda no IP do robô poderia mandar "../../data/data/my.robots/databases/robot_database"
- * e fazer o app enviar o próprio banco (com as senhas dos robôs) ou gravar fora da pasta do robô.
+ * Esse nome vem da rede e não pode ser usado como caminho: um aparelho que responda no IP do
+ * robô poderia mandar "../../data/data/my.robots/databases/robot_database" e fazer o app
+ * enviar o próprio banco (com as senhas dos robôs) ou gravar fora da pasta do robô.
+ * A RobotFileStore também exige um nome aprovado aqui.
  */
 object TransferFileNames {
 
@@ -29,16 +28,5 @@ object TransferFileNames {
         if (!ALLOWED.matches(name)) return null
         if (name.startsWith(".") || name.contains("..")) return null
         return name
-    }
-
-    /**
-     * Resolve o arquivo dentro de `dir`, ou null se o nome não for seguro ou se o caminho final
-     * (já resolvido pelo sistema) cair fora de `dir`.
-     */
-    fun resolveInside(dir: File, raw: String): File? {
-        val name = safeName(raw) ?: return null
-        val file = File(dir, name)
-        val dirPath = dir.canonicalPath + File.separator
-        return if (file.canonicalPath.startsWith(dirPath)) file else null
     }
 }

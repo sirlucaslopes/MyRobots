@@ -2,15 +2,9 @@ package my.robots.core.network
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Rule
 import org.junit.Test
-import org.junit.rules.TemporaryFolder
-import java.io.File
 
 class TransferFileNamesTest {
-
-    @get:Rule
-    val tmp = TemporaryFolder()
 
     @Test
     fun safeName_aceitaNomesNormaisDoControlador() {
@@ -38,13 +32,5 @@ class TransferFileNamesTest {
         assertNull(TransferFileNames.safeName("meu arquivo.as"))
         assertNull(TransferFileNames.safeName("a".repeat(TransferFileNames.MAX_LENGTH + 1)))
         assertNull(TransferFileNames.safeName("nulo\u0000.as"))
-    }
-
-    @Test
-    fun resolveInside_ficaDentroDaPasta() {
-        val dir = tmp.newFolder("r10")
-        assertEquals(File(dir, "r10.as").canonicalPath, TransferFileNames.resolveInside(dir, "r10.as")!!.canonicalPath)
-        assertNull(TransferFileNames.resolveInside(dir, "../outro/r11.as"))
-        assertNull(TransferFileNames.resolveInside(dir, "../../../../etc/passwd"))
     }
 }

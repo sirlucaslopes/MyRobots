@@ -1,6 +1,5 @@
 package my.robots.feature.backup
 
-import android.os.Environment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +13,6 @@ import my.robots.core.model.BackupSummary
 import my.robots.core.model.Robot
 import my.robots.core.data.RobotRepository
 import my.robots.core.common.FileUtil
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -85,77 +83,15 @@ class BackupViewModel(
     }
 
     /**
-     * Deixa o banco igual às pastas do robô.
-     *
-     * - Procura arquivos .as em /MyRobots (só os que começam com o nome do robô) e
-     *   em /MyRobots/<robô>/.
-     * - Arquivo que não está no banco -> vira um backup novo ("Sinc: nome").
-     * - Backup do banco cujo arquivo sumiu -> é removido.
-     * - Se a pasta /MyRobots não existir, todos os backups do robô são removidos do banco.
-     * Depois recalcula as contagens de programas e variáveis.
+     * Traz para o banco os .as novos da pasta do robô (ex.: um SAVE feito pelo terminal ou um
+     * arquivo copiado pelo PC para a pasta escolhida) e recalcula as contagens.
+     * Nunca apaga backup do banco (ver RobotRepository.syncRobotFolder).
      */
     fun syncBackupsWithFileSystem() {
         viewModelScope.launch {
             val robot = repository.getRobotById(robotId) ?: return@launch
-            val robotNameClean = robot.name.lowercase().replace(Regex("[^a-zA-Z0-9_]"), "_")
-            val root = Environment.getExternalStorageDirectory()
-            val myRobotsDir = File(root, "MyRobots")
-            
-            if (!myRobotsDir.exists()) {
-                val dbBackups = repository.getBackupsForRobotFull(robotId).first()
-                dbBackups.forEach { repository.deleteBackup(it) }
-                return@launch
-            }
-
-            val foldersToSearch = mutableListOf(myRobotsDir)
-            val robotSpecificDir = File(myRobotsDir, robotNameClean)
-            if (robotSpecificDir.exists() && robotSpecificDir.isDirectory) {
-                foldersToSearch.add(robotSpecificDir)
-            }
-
-            val dbBackups = repository.getBackupsSummary(robotId).first()
-            
-            withContext(Dispatchers.IO) {
-                val existingFiles = mutableSetOf<String>()
-                var changed = false
-
-                foldersToSearch.forEach { folder ->
-                    val files = folder.listFiles { _, name -> 
-                        name.endsWith(".as", ignoreCase = true) && 
-                        (folder != myRobotsDir || name.startsWith(robotNameClean, ignoreCase = true))
-                    } ?: emptyArray()
-                    
-                    files.forEach { file -> 
-                        existingFiles.add(file.name.lowercase()) 
-                        
-                        val alreadyInDb = dbBackups.any { it.fileName.equals(file.name, ignoreCase = true) }
-                        if (!alreadyInDb) {
-                            try {
-                                val content = file.readText()
-                                val backup = Backup(
-                                    robotId = robotId,
-                                    backupName = "Sinc: ${file.name}",
-                                    fileName = file.name,
-                                    content = content,
-                                    timestamp = file.lastModified()
-                                )
-                                repository.insertBackup(backup)
-                                changed = true
-                            } catch (e: Exception) { }
-                        }
-                    }
-                }
-
-                dbBackups.forEach { backup ->
-                    if (!existingFiles.contains(backup.fileName.lowercase())) {
-                        repository.deleteBackupById(backup.id)
-                        changed = true
-                    }
-                }
-                
-                if (changed) {
-                    repository.refreshBackupsMetadata(robotId)
-                }
+            if (repository.syncRobotFolder(robot) > 0) {
+                repository.refreshBackupsMetadata(robotId)
             }
         }
     }
@@ -214,23 +150,11 @@ class BackupViewModel(
     }
 
     /**
-     * Exclui um backup: remove do banco E apaga o arquivo físico
-     * (tanto em /MyRobots/<robô>/ quanto em /MyRobots/).
+     * Exclui um backup: remove do banco E apaga o arquivo da pasta do robô.
      */
     fun deleteBackup(backupId: Int, fileName: String) {
         viewModelScope.launch {
-            repository.deleteBackupById(backupId)
-            
-            val robot = repository.getRobotById(robotId) ?: return@launch
-            val robotDirName = robot.name.lowercase().replace(Regex("[^a-zA-Z0-9_]"), "_")
-            val root = Environment.getExternalStorageDirectory()
-            val myRobotsRootDir = File(root, "MyRobots")
-            
-            val robotFile = File(File(myRobotsRootDir, robotDirName), fileName)
-            if (robotFile.exists()) robotFile.delete()
-            
-            val rootFile = File(myRobotsRootDir, fileName)
-            if (rootFile.exists()) rootFile.delete()
+            repository.deleteBackupAndFile(backupId, fileName)
         }
     }
 

@@ -1,6 +1,6 @@
 package my.robots.core.data
 
-import android.os.Environment
+import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -12,20 +12,24 @@ import my.robots.core.database.RobotDao
 import my.robots.core.model.*
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsBackupStats
-import java.io.File
+import my.robots.core.data.storage.RobotFilesStorage
+import my.robots.core.data.storage.StorageLocation
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Porta de entrada única para os dados do app.
  *
- * As telas (ViewModels) nunca falam direto com o banco, com a rede ou com as
- * pastas do celular: elas pedem tudo a esta classe. Ela junta:
- * - o banco de dados (robôs, comandos rápidos e backups);
- * - os arquivos na pasta /MyRobots do celular.
+ * As telas (ViewModels) nunca falam direto com o banco ou com as pastas do celular:
+ * elas pedem tudo a esta classe. Ela junta:
+ * - o banco de dados (robôs, comandos rápidos e backups) — a fonte da verdade: o texto
+ *   completo de cada backup fica no banco;
+ * - a pasta dos arquivos (RobotFilesStorage): Documentos/MyRobots ou a pasta escolhida.
  */
 class RobotRepository(
     private val robotDao: RobotDao,
     private val quickCommandDao: QuickCommandDao,
-    private val backupDao: BackupDao
+    private val backupDao: BackupDao,
+    private val files: RobotFilesStorage
 ) {
     /**
      * Lista de todos os robôs cadastrados. Se um robô mudar, a lista se atualiza sozinha.
@@ -36,12 +40,11 @@ class RobotRepository(
      * Cadastra um robô novo.
      *
      * 1. Salva o robô no banco.
-     * 2. Cria a pasta dele em /MyRobots.
-     * 3. Cria os comandos rápidos padrão da marca dele.
+     * 2. Cria os comandos rápidos padrão da marca dele.
+     * A pasta do robô aparece sozinha quando o primeiro arquivo dele é gravado.
      */
     suspend fun insertRobot(robot: Robot) {
         val id = robotDao.insertRobot(robot).toInt()
-        createRobotFolder(robot.copy(id = id))
         seedQuickCommandsForRobot(id, robot.manufacturer)
     }
 
@@ -64,33 +67,15 @@ class RobotRepository(
     }
 
     /**
-     * Atualiza os dados de um robô e garante que a pasta dele existe (o nome pode ter mudado).
+     * Atualiza os dados de um robô. Se o nome mudar, os próximos arquivos vão para a pasta com
+     * o nome novo (os antigos continuam na pasta antiga e os backups continuam no banco).
      */
     suspend fun updateRobot(robot: Robot) {
         robotDao.updateRobot(robot)
-        createRobotFolder(robot)
     }
 
     /**
-     * Cria a pasta do robô dentro de /MyRobots, se ainda não existir.
-     * O nome da pasta é o nome do robô em minúsculo, trocando caracteres especiais por "_".
-     */
-    fun createRobotFolder(robot: Robot) {
-        try {
-            val root = Environment.getExternalStorageDirectory()
-            val myRobotsDir = File(root, "MyRobots")
-            val robotDirName = robot.name.lowercase().replace(Regex("[^a-zA-Z0-9_]"), "_")
-            val robotDir = File(myRobotsDir, robotDirName)
-            if (!robotDir.exists()) {
-                robotDir.mkdirs()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
-    /**
-     * Apaga o robô do banco. Os arquivos dele na pasta /MyRobots não são apagados.
+     * Apaga o robô do banco. Os arquivos dele na pasta não são apagados.
      */
     suspend fun deleteRobot(robot: Robot) = robotDao.deleteRobot(robot)
     /**
@@ -142,7 +127,7 @@ class RobotRepository(
     fun getBackupsForRobotFull(robotId: Int) = backupDao.getBackupsForRobot(robotId)
     
     /**
-     * Salva um backup no banco e, se saveToFile for true, também como arquivo em /MyRobots/<robô>/.
+     * Salva um backup no banco e, se saveToFile for true, também como arquivo na pasta do robô.
      *
      * O texto do backup é gravado exatamente como veio (mesmo que o controlador tenha
      * anexado seções estranhas ao idioma AS, como despejos de diagnóstico do sistema) —
@@ -189,33 +174,134 @@ class RobotRepository(
 
     /**
      * Grava o texto do backup como arquivo dentro da pasta do robô dono dele.
+     * Devolve false se não conseguiu gravar (o backup continua salvo no banco).
      */
-    suspend fun saveBackupToFile(backup: Backup) {
+    suspend fun saveBackupToFile(backup: Backup): Boolean =
         saveFileToRobotFolder(backup.robotId, backup.fileName, backup.content)
+
+    /**
+     * Grava um arquivo de texto na pasta do robô (<pasta dos arquivos>/<robô>/<arquivo>).
+     * Devolve false se o robô não existe ou se a gravação falhou (o motivo vai para o log).
+     */
+    suspend fun saveFileToRobotFolder(robotId: Int, fileName: String, content: String): Boolean {
+        val robot = getRobotById(robotId) ?: return false
+        return withContext(Dispatchers.IO) {
+            try {
+                files.openOutput(robot.name, FileUtil.sanitizeFileName(fileName)).use { out ->
+                    out.write(encodeAsText(content))
+                }
+                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
     }
 
     /**
-     * Grava um arquivo de texto na pasta do robô (/MyRobots/<robô>/<arquivo>).
-     * Cria as pastas se não existirem. Se der erro ao gravar, o erro é ignorado.
+     * Apaga o backup do banco e o arquivo dele da pasta do robô.
      */
-    suspend fun saveFileToRobotFolder(robotId: Int, fileName: String, content: String) {
-        val robot = getRobotById(robotId) ?: return
-        val robotDirName = robot.name.lowercase().replace(Regex("[^a-zA-Z0-9_]"), "_")
-        val root = Environment.getExternalStorageDirectory()
-        val myRobotsRootDir = File(root, "MyRobots")
-        val robotDir = File(myRobotsRootDir, robotDirName)
-        
-        if (!myRobotsRootDir.exists()) myRobotsRootDir.mkdirs()
-        if (!robotDir.exists()) robotDir.mkdirs()
-        
-        withContext(Dispatchers.IO) {
-            try {
-                val sanitizedFileName = FileUtil.sanitizeFileName(fileName)
-                val robotFile = File(robotDir, sanitizedFileName)
-                robotFile.writeText(content)
-            } catch (e: Exception) { }
-        }
+    suspend fun deleteBackupAndFile(backupId: Int, fileName: String) {
+        val robotId = backupDao.getBackupsSummaryById(backupId)?.robotId
+        backupDao.deleteBackupById(backupId)
+        val robot = robotId?.let { getRobotById(it) } ?: return
+        withContext(Dispatchers.IO) { files.delete(robot.name, fileName) }
     }
+
+    /**
+     * Traz para o banco os arquivos .as da pasta do robô que ainda não estão nele (ex.: um SAVE
+     * feito pelo terminal, ou um arquivo copiado pelo PC para a pasta escolhida). Devolve
+     * quantos backups novos entraram.
+     *
+     * NUNCA apaga backup do banco por causa de arquivo ausente: o banco guarda o texto
+     * completo e é a fonte da verdade. (Até a v1.1 apagava, o que com a pasta nova — que
+     * pode não enxergar arquivos antigos depois de reinstalar, ou perder a permissão —
+     * poderia apagar todos os backups.)
+     */
+    suspend fun syncRobotFolder(robot: Robot): Int = withContext(Dispatchers.IO) {
+        val known = backupDao.getBackupsSummaryForRobot(robot.id).first()
+            .map { it.fileName.lowercase() }.toSet()
+        var imported = 0
+        files.list(robot.name).forEach { info ->
+            if (info.name.lowercase() in known) return@forEach
+            val bytes = files.read(robot.name, info.name) ?: return@forEach
+            insertBackup(
+                Backup(
+                    robotId = robot.id,
+                    backupName = "Sinc: ${info.name}",
+                    fileName = info.name,
+                    content = decodeAsText(bytes),
+                    timestamp = if (info.lastModified > 0) info.lastModified else System.currentTimeMillis()
+                ),
+                saveToFile = false
+            )
+            imported++
+        }
+        imported
+    }
+
+    /**
+     * Regrava na pasta dos arquivos cada backup do banco cujo arquivo não está lá. Usado na
+     * migração da v1.2 (a pasta /MyRobots antiga deixou de ser acessível) e depois de trocar
+     * de pasta. Devolve quantos arquivos foram gravados.
+     */
+    suspend fun restoreMissingFiles(): Int = withContext(Dispatchers.IO) {
+        var written = 0
+        allRobots.first().forEach { robot ->
+            val existing = files.list(robot.name).map { it.name.lowercase() }.toSet()
+            backupDao.getBackupsSummaryForRobot(robot.id).first().forEach { summary ->
+                val name = FileUtil.sanitizeFileName(summary.fileName)
+                if (name.lowercase() in existing) return@forEach
+                // um por vez, para não carregar todos os textos na memória
+                val backup = getBackupById(summary.id) ?: return@forEach
+                if (saveFileToRobotFolder(robot.id, name, backup.content)) written++
+            }
+        }
+        written
+    }
+
+    // ---------- Pasta dos arquivos ----------
+    /** Onde os arquivos estão sendo gravados (pasta padrão ou pasta escolhida). */
+    val storageLocation: StateFlow<StorageLocation> get() = files.location
+
+    /** Reconfere se a pasta escolhida continua disponível. */
+    fun refreshStorageLocation() = files.refresh()
+
+    /**
+     * Passa a usar a pasta escolhida no seletor, grava nela os backups que faltam e importa
+     * os .as que já estavam lá. Devolve (gravados, importados).
+     */
+    suspend fun useStorageFolder(treeUri: Uri): Pair<Int, Int> {
+        withContext(Dispatchers.IO) { files.useFolder(treeUri) }
+        return restoreMissingFiles() to syncAllRobotFolders()
+    }
+
+    /** Volta para a pasta padrão Documentos/MyRobots e grava nela os backups que faltam. */
+    suspend fun useDefaultStorage(): Int {
+        files.useDefault()
+        return restoreMissingFiles()
+    }
+
+    /** Uri para abrir a pasta dos arquivos no gerenciador de arquivos do Android. */
+    fun filesFolderUri(): Uri = files.folderViewUri()
+
+    /** syncRobotFolder de todos os robôs. Devolve o total de backups importados. */
+    suspend fun syncAllRobotFolders(): Int {
+        var total = 0
+        allRobots.first().forEach { robot ->
+            val imported = syncRobotFolder(robot)
+            if (imported > 0) refreshBackupsMetadata(robot.id)
+            total += imported
+        }
+        return total
+    }
+
+    /**
+     * Texto <-> bytes dos arquivos AS. Hoje UTF-8, como a v1.1 sempre leu e gravou; é o único
+     * lugar a mudar quando a codificação do controlador for confirmada (Fase 0-B.D do plano).
+     */
+    private fun encodeAsText(content: String): ByteArray = content.toByteArray(Charsets.UTF_8)
+    private fun decodeAsText(bytes: ByteArray): String = String(bytes, Charsets.UTF_8)
 
     /**
      * Recalcula as contagens (programas e variáveis) dos backups de um robô.

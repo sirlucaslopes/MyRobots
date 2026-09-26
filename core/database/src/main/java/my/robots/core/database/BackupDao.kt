@@ -43,6 +43,12 @@ interface BackupDao {
     suspend fun deleteBackup(backup: Backup)
 
     /**
+     * Resumo (sem o texto) de um backup pelo id. Devolve null se não existir.
+     */
+    @Query("SELECT id, robotId, backupName, fileName, programsCount, variablesCount, framesCount, memoryUsage, timestamp FROM backups WHERE id = :id")
+    suspend fun getBackupsSummaryById(id: Int): BackupSummary?
+
+    /**
      * Busca um backup completo (com o texto) pelo id. Devolve null se não existir.
      */
     @Query("SELECT * FROM backups WHERE id = :id")

@@ -1,7 +1,6 @@
 package my.robots.core.network
 
 import android.content.Context
-import android.os.Environment
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -11,8 +10,6 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.io.File
-import java.io.FileOutputStream
 import java.nio.charset.Charset
 
 /**
@@ -30,7 +27,10 @@ import java.nio.charset.Charset
  * Uma única instância vive o app inteiro (criada em MyRobotsApp), então a
  * conexão continua aberta mesmo quando você troca de tela.
  */
-class KawasakiTerminalManager(private val context: Context) {
+class KawasakiTerminalManager(
+    private val context: Context,
+    private val files: RobotFileStore
+) {
     /**
      * Guarda o estado da conexão de cada robô. A chave é o id do robô.
      */
@@ -66,18 +66,6 @@ class KawasakiTerminalManager(private val context: Context) {
     )
 
     /**
-     * Devolve a pasta do robô dentro de /MyRobots (ex.: /MyRobots/kawasaki_r1).
-     * Se a pasta ainda não existir, ela é criada. O nome vira minúsculo e sem espaços.
-     */
-    private fun getRobotDir(robotName: String): File {
-        val root = Environment.getExternalStorageDirectory()
-        val myRobotsDir = File(root, "MyRobots")
-        val robotDir = File(myRobotsDir, robotName.lowercase().replace(" ", "_"))
-        if (!robotDir.exists()) robotDir.mkdirs()
-        return robotDir
-    }
-
-    /**
      * Tudo o que o app precisa lembrar sobre a conexão de UM robô.
      *
      * - socket / outputStream: o "cano" de rede aberto (entrada e saída).
@@ -102,7 +90,7 @@ class KawasakiTerminalManager(private val context: Context) {
         var lastActivityAt: Long = 0L,
         var heartbeatJob: Job? = null,
         var isSaving: Boolean = false,
-        var saveFileOutputStream: FileOutputStream? = null,
+        var saveFileOutputStream: OutputStream? = null,
         var currentFileName: String? = null,
         var isLoading: Boolean = false,
         var loadData: ByteArray? = null,
@@ -437,24 +425,26 @@ class KawasakiTerminalManager(private val context: Context) {
     }
 
     /**
-     * Abre o arquivo (na pasta do robô) onde será gravado o que o robô enviar. Se falhar, avisa no terminal.
+     * Abre o arquivo (na pasta do robô, via RobotFileStore) onde será gravado o que o robô
+     * enviar. Se falhar, avisa no terminal.
      *
-     * O nome vem do controlador (rede): só é aceito se for um nome simples, dentro da pasta do
-     * robô (TransferFileNames). Nome recusado = nada é gravado e o motivo aparece no terminal.
+     * O nome vem do controlador (rede): só é aceito se for um nome simples (TransferFileNames).
+     * Nome recusado = nada é gravado e o motivo aparece no terminal.
      */
     private fun startSaveFile(robotId: Int, fileName: String) {
         val state = getOrCreateState(robotId)
+        val safeName = TransferFileNames.safeName(fileName)
+        if (safeName == null) {
+            state.isSaving = false
+            appendLog(robotId, "\n>>> SAVE recusado: nome de arquivo inválido vindo do robô (\"${fileName.take(60)}\")")
+            return
+        }
         try {
-            val file = TransferFileNames.resolveInside(getRobotDir(state.robotName), fileName)
-            if (file == null) {
-                state.isSaving = false
-                appendLog(robotId, "\n>>> SAVE recusado: nome de arquivo inválido vindo do robô (\"${fileName.take(60)}\")")
-                return
-            }
-            state.saveFileOutputStream = FileOutputStream(file)
+            state.saveFileOutputStream = files.openOutput(state.robotName, safeName)
             state.isSaving = true
         } catch (e: Exception) {
-            appendLog(robotId, ">>> Erro E/S: ${e.message}")
+            state.isSaving = false
+            appendLog(robotId, "\n>>> Erro ao gravar $safeName: ${e.message}")
         }
     }
 
@@ -473,18 +463,20 @@ class KawasakiTerminalManager(private val context: Context) {
      * Lê o arquivo inteiro para a memória. Devolve false se o arquivo não existir.
      *
      * O nome vem do controlador (rede): só arquivos da própria pasta do robô podem ser enviados
-     * (TransferFileNames). Nome recusado é tratado como arquivo inexistente e avisado no terminal.
+     * (TransferFileNames + RobotFileStore). Nome recusado é tratado como arquivo inexistente e
+     * avisado no terminal.
      */
     private fun prepareLoadFile(robotId: Int, fileName: String): Boolean {
         val state = getOrCreateState(robotId)
-        val file = TransferFileNames.resolveInside(getRobotDir(state.robotName), fileName)
-        if (file == null) {
+        val safeName = TransferFileNames.safeName(fileName)
+        if (safeName == null) {
             state.isLoading = false
             appendLog(robotId, "\n>>> LOAD recusado: nome de arquivo inválido vindo do robô (\"${fileName.take(60)}\")")
             return false
         }
-        return if (file.isFile) {
-            state.loadData = file.readBytes()
+        val data = files.read(state.robotName, safeName)
+        return if (data != null) {
+            state.loadData = data
             state.loadOffset = 0
             state.isLoading = true
             true

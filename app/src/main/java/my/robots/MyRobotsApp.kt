@@ -2,18 +2,16 @@ package my.robots
 
 import android.app.Application
 import android.database.CursorWindow
-import android.os.Environment
 import androidx.room.Room
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import my.robots.core.database.ALL_MIGRATIONS
 import my.robots.core.database.AppDatabase
 import my.robots.core.network.KawasakiTerminalManager
 import my.robots.core.data.RobotRepository
-import java.io.File
+import my.robots.core.data.storage.RobotFilesStorage
 
 /**
  * Classe que o Android cria UMA vez quando o app abre (antes de qualquer tela).
@@ -38,11 +36,15 @@ class MyRobotsApp : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /**
+     * Pasta dos arquivos dos robôs (Documentos/MyRobots ou a pasta escolhida pelo usuário).
+     */
+    lateinit var filesStorage: RobotFilesStorage
+
+    /**
      * Chamado quando o app inicia. Faz, na ordem:
-     * 1. Cria a pasta /MyRobots.
-     * 2. Abre o banco de dados.
-     * 3. Cria o repositório e o gerenciador de terminal.
-     * 4. Confere se cada robô cadastrado tem a sua pasta.
+     * 1. Abre o banco de dados.
+     * 2. Cria a pasta dos arquivos, o repositório e o gerenciador de terminal.
+     * 3. Na primeira abertura da v1.2, regrava os backups do banco na pasta nova.
      */
     override fun onCreate() {
         super.onCreate()
@@ -52,9 +54,6 @@ class MyRobotsApp : Application() {
         // CursorWindow do SQLite para uma linha). Sem isso, abrir um backup Full falha
         // ao ler a coluna "content" do banco. Precisa rodar antes de qualquer consulta.
         increaseCursorWindowSize()
-
-        // cria a pasta /MyRobots na raiz do armazenamento interno
-        createRootFolder()
 
         val database = Room.databaseBuilder(
             this,
@@ -69,13 +68,13 @@ class MyRobotsApp : Application() {
         robotRepository = RobotRepository(
             database.robotDao(),
             database.quickCommandDao(),
-            database.backupDao()
+            database.backupDao(),
+            RobotFilesStorage(this).also { filesStorage = it }
         )
         
-        terminalManager = KawasakiTerminalManager(this)
+        terminalManager = KawasakiTerminalManager(this, filesStorage)
 
-        // garante que todo robô cadastrado tenha a sua pasta
-        verifyRobotFolders()
+        migrateFilesToNewFolderOnce()
     }
 
     /**
@@ -95,29 +94,27 @@ class MyRobotsApp : Application() {
     }
 
     /**
-     * Cria a pasta /MyRobots na raiz do armazenamento, se ela ainda não existir.
+     * Migração de armazenamento da v1.2: até a v1.1 os arquivos ficavam em /MyRobots, com
+     * "acesso a todos os arquivos". Sem essa permissão a pasta antiga deixa de ser acessível,
+     * então, uma vez só, cada backup do banco (que guarda o texto completo) é regravado na
+     * pasta nova. Se falhar (ex.: sem espaço), tenta de novo na próxima abertura.
+     * Arquivos que estavam só na pasta antiga e nunca entraram no banco continuam no disco:
+     * o usuário pode escolher a pasta /MyRobots antiga em "Pasta dos arquivos" para importá-los.
      */
-    private fun createRootFolder() {
-        try {
-            val root = Environment.getExternalStorageDirectory()
-            val myRobotsDir = File(root, "MyRobots")
-            if (!myRobotsDir.exists()) {
-                myRobotsDir.mkdirs()
+    private fun migrateFilesToNewFolderOnce() {
+        val prefs = getSharedPreferences("migrations", MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_FILES_MIGRATED_V12, false)) return
+        applicationScope.launch(Dispatchers.IO) {
+            try {
+                robotRepository.restoreMissingFiles()
+                prefs.edit().putBoolean(KEY_FILES_MIGRATED_V12, true).apply()
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
     }
 
-    /**
-     * Percorre os robôs cadastrados e cria a pasta de cada um que estiver faltando (em segundo plano).
-     */
-    private fun verifyRobotFolders() {
-        applicationScope.launch(Dispatchers.IO) {
-            val robots = robotRepository.allRobots.first()
-            robots.forEach { robot ->
-                robotRepository.createRobotFolder(robot)
-            }
-        }
+    private companion object {
+        const val KEY_FILES_MIGRATED_V12 = "files_migrated_v12"
     }
 }
