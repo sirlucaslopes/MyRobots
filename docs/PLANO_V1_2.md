@@ -992,11 +992,10 @@ Estas ainda bloqueiam alguma parte:
    com os robôs reais, que precisa ser feito antes do Copiar programa.
 4. **Idade de backup "antigo" no Buscar programa:** proponho 7 dias. Serve?
 5. ~~Alterações locais não commitadas~~: respondida (commit separado `ed78a4a`).
-6. **`minSdk` 28 ou 29?** Subir para 29 (Android 10) tira o caminho legado do Android 9 na
-   migração de armazenamento. Deixa de fora só aparelhos com Android 9. Algum celular de uso na
-   fábrica ainda tem Android 9?
-7. **Senha do controlador (0-B.E):** cifrar com o Android Keystore (recomendado; depois de trocar
-   de celular, a senha precisa ser digitada de novo) ou só tirar o banco do backup na nuvem?
+6. ~~`minSdk` 28 ou 29?~~ Respondida em 26/09: **`minSdk` 29**. A migração de armazenamento
+   (0-B.A) não tem caminho legado e não declara nenhuma permissão de armazenamento.
+7. ~~Senha do controlador~~: respondida em 26/09: **cifrar com o Android Keystore** (0-B.E).
+   Depois de restaurar o backup ou trocar de celular, o app pede a senha de novo.
 8. **Arquivo SAVE/FULL de exemplo:** preciso de um real, anonimizado, para os testes da 0-C, para
    confirmar a codificação dos acentos (0-B.D) e para a pergunta da BASE (item 1).
 
