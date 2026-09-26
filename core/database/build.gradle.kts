@@ -2,6 +2,12 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.google.devtools.ksp)
+    alias(libs.plugins.androidx.room)
+}
+
+// Grava o schema de cada versão do banco em schemas/ (usado pelas migrações e pelo teste de migração).
+room {
+    schemaDirectory("$projectDir/schemas")
 }
 
 android {
