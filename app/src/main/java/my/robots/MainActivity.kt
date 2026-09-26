@@ -275,8 +275,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Histórico de backups de um robô.
-                        // - Tocar no backup -> painel do robô analisando aquele backup.
+                        // Histórico de backups de um robô (aberto pelo painel).
+                        // - Tocar no backup -> painel do robô analisando aquele backup (substitui o painel anterior).
                         // - Ícone de código -> editor do texto completo.
                         // - Botão "criar" -> painel do robô no terminal, para baixar um backup do robô.
                         composable(
@@ -291,14 +291,17 @@ class MainActivity : ComponentActivity() {
                                 viewModel = backupViewModel,
                                 onBack = { navController.popBackStack() },
                                 onViewDashboard = { backup ->
-                                    navController.navigate("robot_dashboard/${robotId}/${backup.id}")
+                                    // troca o painel que abriu o histórico (não empilha um painel sobre outro)
+                                    navController.navigate("robot_dashboard/${robotId}/${backup.id}") {
+                                        popUpTo(DASHBOARD_ROUTE) { inclusive = true }
+                                    }
                                 },
                                 onViewCode = { backup ->
                                     navController.navigate("code_viewer/${backup.id}")
                                 },
                                 onCreateBackup = {
                                     navController.navigate("robot_dashboard/${robotId}/-1?feature=Terminal") {
-                                        launchSingleTop = true
+                                        popUpTo(DASHBOARD_ROUTE) { inclusive = true }
                                     }
                                 }
                             )
@@ -308,7 +311,7 @@ class MainActivity : ComponentActivity() {
                         // O parâmetro "feature" abre direto uma seção (ex.: Terminal).
                         // Ao enviar algo para OUTRO robô, navega para o painel dele.
                         composable(
-                            route = "robot_dashboard/{robotId}/{backupId}?feature={feature}",
+                            route = DASHBOARD_ROUTE,
                             arguments = listOf(
                                 navArgument("robotId") { type = NavType.IntType },
                                 navArgument("backupId") { type = NavType.IntType },
@@ -648,6 +651,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+/**
+ * Rota do painel do robô. backupId = -1 usa o backup mais recente; feature abre uma seção.
+ */
+private const val DASHBOARD_ROUTE = "robot_dashboard/{robotId}/{backupId}?feature={feature}"
 
 /**
  * Janela para escolher em qual robô cadastrado salvar um arquivo (.as/.pg) aberto de

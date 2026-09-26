@@ -107,6 +107,7 @@ fun RobotDashboardScreen(
     val variablesState = if (viewModel != null) viewModel.variables.collectAsState() else remember { mutableStateOf(emptyList<RobotVariable>()) }
     val dataBankEntriesState = if (viewModel != null) viewModel.dataBankEntries.collectAsState() else remember { mutableStateOf(emptyList<RobotDataBankEntry>()) }
     val latestBackupState = if (viewModel != null) viewModel.latestBackup.collectAsState() else remember { mutableStateOf(null) }
+    val isNewestBackupState = if (viewModel != null) viewModel.isShowingNewestBackup.collectAsState() else remember { mutableStateOf(true) }
     val isLoadingState = if (viewModel != null) viewModel.isLoading.collectAsState() else remember { mutableStateOf(false) }
     val allRobotsState = if (viewModel != null) viewModel.allRobots.collectAsState() else remember { mutableStateOf(emptyList<Robot>()) }
     val quickCommandsState = if (viewModel != null) viewModel.quickCommands.collectAsState() else remember { mutableStateOf(emptyList<QuickCommand>()) }
@@ -121,6 +122,7 @@ fun RobotDashboardScreen(
     val variables by variablesState
     val dataBankEntries by dataBankEntriesState
     val latestBackup by latestBackupState
+    val isNewestBackup by isNewestBackupState
     val isLoading by isLoadingState
     val allRobots by allRobotsState
     val quickCommands by quickCommandsState
@@ -347,11 +349,13 @@ fun RobotDashboardScreen(
                         null -> DashboardHome(
                             robot = robot,
                             backup = latestBackup,
+                            isNewestBackup = isNewestBackup,
                             lineCount = lineCount,
                             dataBankCount = dataBankEntries.size,
                             errorLogCount = errorLog.size,
                             operationLogCount = operationLog.size,
                             programEditLogCount = programEditLog.size,
+                            onViewBackups = onViewBackups,
                             onFeatureClick = { selected ->
                                 if (selected == DashboardFeature.FullCode) {
                                     if (latestBackup != null) onFullCodeClick(latestBackup!!)
@@ -1397,16 +1401,21 @@ fun VariableDuplicateDialog(
  * de linhas) e os atalhos: Programas, Variáveis, Data Bank, Código AS e os três logs do
  * controlador (Erros, Operação, Edição) — esses três só têm registros quando o backup foi
  * feito com SAVE/FULL no robô; sem isso, aparecem zerados.
+ *
+ * O cartão tem o atalho "Histórico de backups" (onde se troca o backup analisado) e avisa
+ * quando o backup mostrado não é o mais recente do robô (isNewestBackup = false).
  */
 @Composable
 fun DashboardHome(
     robot: Robot?,
     backup: my.robots.core.model.BackupSummary?,
+    isNewestBackup: Boolean = true,
     lineCount: Int,
     dataBankCount: Int,
     errorLogCount: Int,
     operationLogCount: Int,
     programEditLogCount: Int,
+    onViewBackups: () -> Unit = {},
     onFeatureClick: (DashboardFeature) -> Unit
 ) {
     Column(
@@ -1450,6 +1459,22 @@ fun DashboardHome(
                 StatusItem("Robô Origem", robot?.name ?: "-")
                 StatusItem("Data Criação", date)
                 StatusItem("Total de Linhas", lineCount.toString())
+
+                if (!isNewestBackup) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Este não é o backup mais recente do robô (foi escolhido no histórico).",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(onClick = onViewBackups, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Histórico de backups")
+                }
             }
         }
 
