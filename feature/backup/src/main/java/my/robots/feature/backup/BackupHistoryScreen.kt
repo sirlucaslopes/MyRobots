@@ -3,7 +3,6 @@ package my.robots.feature.backup
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +29,7 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import my.robots.core.common.ExternalAsFile
 import my.robots.core.model.BackupSummary
 import java.io.File
 import java.text.SimpleDateFormat
@@ -71,35 +71,20 @@ fun BackupHistoryScreen(
     val sheetState = rememberModalBottomSheetState()
 
     // Seletor de arquivos do Android, usado para IMPORTAR um .as.
-    // Lê o nome e o texto do arquivo escolhido e cria um backup com eles.
+    // Lê o nome e o texto do arquivo escolhido (ExternalAsFile: até 20 MB, só texto) e cria
+    // um backup com eles. Aqui a extensão não é exigida: o próprio usuário escolheu o arquivo.
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri: Uri? ->
             uri?.let {
                 scope.launch {
-                    val contentResolver = context.contentResolver
-                    val fileName = withContext(Dispatchers.IO) {
-                        contentResolver.query(it, null, null, null, null)?.use { cursor ->
-                            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                            if (nameIndex != -1 && cursor.moveToFirst()) {
-                                cursor.getString(nameIndex)
-                            } else null
-                        }
-                    } ?: "imported_backup.as"
-
-                    withContext(Dispatchers.IO) {
-                        try {
-                            contentResolver.openInputStream(it)?.use { inputStream ->
-                                val content = inputStream.bufferedReader().use { reader -> reader.readText() }
-                                withContext(Dispatchers.Main) {
-                                    viewModel.importBackup(fileName, content)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "Erro ao importar: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        }
+                    val result = withContext(Dispatchers.IO) {
+                        ExternalAsFile.read(context, it, requireAsExtension = false)
+                    }
+                    when (result) {
+                        is ExternalAsFile.Result.Ok -> viewModel.importBackup(result.fileName, result.content)
+                        is ExternalAsFile.Result.Rejected ->
+                            Toast.makeText(context, "Erro ao importar: ${result.reason}", Toast.LENGTH_LONG).show()
                     }
                 }
             }

@@ -37,6 +37,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import my.robots.core.common.ExternalAsFile
 import my.robots.core.common.ascode.AsProgramBlocks
 import my.robots.core.model.Manufacturer
 import my.robots.feature.codeeditor.AsCodeViewer
@@ -83,6 +85,13 @@ import java.nio.charset.StandardCharsets
  */
 class MainActivity : ComponentActivity() {
     /**
+     * Pedido de "abrir arquivo" ainda não tratado. Vem do onCreate (primeira abertura) ou do
+     * onNewIntent (app já aberto). A tela observa e zera depois de tratar, então girar a tela
+     * não reabre o mesmo arquivo e um segundo arquivo com o app aberto não é ignorado.
+     */
+    private val incomingIntent = MutableStateFlow<Intent?>(null)
+
+    /**
      * Monta a tela: liga o modo tela cheia, pega as peças de MyRobotsApp,
      * pede permissão de arquivos e desenha o mapa de navegação.
      */
@@ -90,6 +99,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Só na primeira criação: ao recriar (girar a tela) o intent é o mesmo e já foi tratado.
+        if (savedInstanceState == null) incomingIntent.value = intent
         
         // Pega as peças que foram criadas uma única vez em MyRobotsApp.
         val app = application as MyRobotsApp
@@ -189,10 +200,19 @@ class MainActivity : ComponentActivity() {
 
                 // Se o app foi aberto por um arquivo .as/.pg (vindo de outro app), lê o arquivo e
                 // abre no visualizador (o texto fica só na memória até o usuário salvar).
-                LaunchedEffect(intent) {
-                    handleIntent(intent) { fileName, content ->
-                        pendingExternalFile = fileName to content
-                        navController.navigate("external_viewer")
+                // Arquivo recusado (tipo, tamanho, não é texto) só mostra o motivo.
+                LaunchedEffect(Unit) {
+                    incomingIntent.collect { newIntent ->
+                        if (newIntent != null) {
+                            incomingIntent.value = null
+                            handleIntent(
+                                newIntent,
+                                onRejected = { reason -> Toast.makeText(context, reason, Toast.LENGTH_LONG).show() }
+                            ) { fileName, content ->
+                                pendingExternalFile = fileName to content
+                                navController.navigate("external_viewer")
+                            }
+                        }
                     }
                 }
 
@@ -616,35 +636,36 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Chamado quando o app já está aberto e recebe um novo arquivo para abrir. Guarda o novo pedido.
+     * Chamado quando o app já está aberto e recebe um novo arquivo para abrir. Guarda o novo
+     * pedido; a tela trata com as mesmas conferências da primeira abertura.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        incomingIntent.value = intent
     }
 
     /**
      * Trata um arquivo .as/.pg enviado por outro app (ação VER ou EDITAR): só lê o nome e o
      * texto do arquivo e devolve pra quem chamou (onFileRead), sem gravar nada no banco —
      * o arquivo só vira um backup de verdade se o usuário escolher um robô para salvá-lo.
+     *
+     * A leitura passa por ExternalAsFile: só content://, só .as/.pg, até 20 MB e só texto.
+     * Qualquer recusa vai para onRejected com o motivo.
      */
-    private suspend fun handleIntent(intent: Intent?, onFileRead: (fileName: String, content: String) -> Unit) {
-        if (intent?.action == Intent.ACTION_VIEW || intent?.action == Intent.ACTION_EDIT) {
-            val uri: Uri? = intent.data
-            uri?.let {
-                try {
-                    val contentResolver = applicationContext.contentResolver
-                    val fileName = my.robots.core.common.FileUtil.getFileName(applicationContext, it) ?: "file.as"
-
-                    val content = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        contentResolver.openInputStream(it)?.bufferedReader()?.use { it.readText() }
-                    } ?: ""
-
-                    onFileRead(fileName, content)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
+    private suspend fun handleIntent(
+        intent: Intent,
+        onRejected: (reason: String) -> Unit,
+        onFileRead: (fileName: String, content: String) -> Unit
+    ) {
+        if (intent.action != Intent.ACTION_VIEW && intent.action != Intent.ACTION_EDIT) return
+        val uri: Uri = intent.data ?: return
+        val result = withContext(Dispatchers.IO) {
+            ExternalAsFile.read(applicationContext, uri, requireAsExtension = true)
+        }
+        when (result) {
+            is ExternalAsFile.Result.Ok -> onFileRead(result.fileName, result.content)
+            is ExternalAsFile.Result.Rejected -> onRejected(result.reason)
         }
     }
 }
