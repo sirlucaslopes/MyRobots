@@ -438,11 +438,19 @@ class KawasakiTerminalManager(private val context: Context) {
 
     /**
      * Abre o arquivo (na pasta do robô) onde será gravado o que o robô enviar. Se falhar, avisa no terminal.
+     *
+     * O nome vem do controlador (rede): só é aceito se for um nome simples, dentro da pasta do
+     * robô (TransferFileNames). Nome recusado = nada é gravado e o motivo aparece no terminal.
      */
     private fun startSaveFile(robotId: Int, fileName: String) {
         val state = getOrCreateState(robotId)
         try {
-            val file = File(getRobotDir(state.robotName), fileName)
+            val file = TransferFileNames.resolveInside(getRobotDir(state.robotName), fileName)
+            if (file == null) {
+                state.isSaving = false
+                appendLog(robotId, "\n>>> SAVE recusado: nome de arquivo inválido vindo do robô (\"${fileName.take(60)}\")")
+                return
+            }
             state.saveFileOutputStream = FileOutputStream(file)
             state.isSaving = true
         } catch (e: Exception) {
@@ -463,11 +471,19 @@ class KawasakiTerminalManager(private val context: Context) {
     /**
      * Prepara o envio de um arquivo da pasta do robô para o robô.
      * Lê o arquivo inteiro para a memória. Devolve false se o arquivo não existir.
+     *
+     * O nome vem do controlador (rede): só arquivos da própria pasta do robô podem ser enviados
+     * (TransferFileNames). Nome recusado é tratado como arquivo inexistente e avisado no terminal.
      */
     private fun prepareLoadFile(robotId: Int, fileName: String): Boolean {
         val state = getOrCreateState(robotId)
-        val file = File(getRobotDir(state.robotName), fileName)
-        return if (file.exists()) {
+        val file = TransferFileNames.resolveInside(getRobotDir(state.robotName), fileName)
+        if (file == null) {
+            state.isLoading = false
+            appendLog(robotId, "\n>>> LOAD recusado: nome de arquivo inválido vindo do robô (\"${fileName.take(60)}\")")
+            return false
+        }
+        return if (file.isFile) {
             state.loadData = file.readBytes()
             state.loadOffset = 0
             state.isLoading = true
