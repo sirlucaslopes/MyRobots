@@ -1,9 +1,12 @@
 # Plano MyRobots v1.2
 
-> Branch: `melhorias/v1.2`. **Situação em 25/09/2026:** Fase 0 (passos 1–11) feita. Fase 0-B
-> (auditorias de Play, permissões e intents) e Fase 0-C (testes) planejadas, ainda não
-> implementadas. Fase 1: passos 1–2 feitos, passo 3 guardado em `git stash` ("Fase 1 passo 3
-> (WIP)"). Skills Android instaladas em `.claude/skills/` (commit `fc4d670`).
+> Branch: `melhorias/v1.2`. **Situação em 26/09/2026:**
+> - Fase 0: feita.
+> - Fase 0-B: B, C, A e E feitas; D (acentos) espera um arquivo real; F (Play Console) é com
+>   você. **Nada disso foi testado num aparelho ainda.**
+> - Fase 0-C: passos 3–5 feitos; 1 (rodar o `MigrationTest`) e 2 (arquivo real) pendentes.
+> - Fase 1: passos 1–2 feitos, passo 3 em `git stash` ("Fase 1 passo 3 (WIP)").
+> - Skills Android em `.claude/skills/` (commit `fc4d670`).
 
 ## Contexto
 
@@ -466,6 +469,14 @@ do template no `:app`.
    - ponto usado por outro programa, que precisa ser ignorado e reportado;
    - formatação dos números preservada.
 5. **Nome de arquivo do protocolo e extensão** (item B da 0-B).
+
+**Feito (26/09):** passos 3, 4 e 5, além dos testes de `ExternalAsFile` e `StoredSecret`. Total:
+44 testes JVM. Os testes do `PointTransform` acharam dois problemas:
+- **Corrigido:** num celular em português, "Deslocar/Espelhar pontos" gravava `101,500` (vírgula),
+  que o controlador não entende.
+- **A confirmar com o arquivo real:** com o filtro JMOVE, um ponto de junta `#j1` não é alterado.
+  A busca da definição compara `#j1` com `J1`, e a lista de seções tem `.JOINT`, enquanto o
+  backup real provavelmente usa `.JOINTS`. O teste fixa o comportamento atual até lá.
 6. **Na Fase 2**, cada peça nova já nasce com teste:
    - `KawasakiStreamParser` (fluxo partido em todos os pontos);
    - `LayoutOps`;
