@@ -50,6 +50,9 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import my.robots.core.common.FileUtil
+import my.robots.core.common.ascode.RobotErrorLogEntry
+import my.robots.core.common.ascode.RobotErrorLogProgram
+import my.robots.core.common.ascode.RobotLogEntry
 import my.robots.core.model.Backup
 import my.robots.core.model.Manufacturer
 import my.robots.core.model.QuickCommand

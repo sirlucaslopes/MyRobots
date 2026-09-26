@@ -18,6 +18,38 @@ object AsProgramBlocks {
     private val HEADER_REGEX = Regex("""^(\s*\.PROGRAM\s+)([^(\s]+)(.*)$""", RegexOption.IGNORE_CASE)
 
     /**
+     * Data/hora e comentário lidos de ".PROGRAM nome(params)@dd/mm/aa hh:mm#N;comentário".
+     * Cada parte depois do nome é opcional (backups mais antigos podem não ter data ou
+     * comentário). Grupos: 1 = data (dd/mm/aa), 2 = hora (hh:mm), 3 = comentário.
+     * (Era a PROGRAM_HEADER_REGEX do RobotDashboardViewModel, sem mudança.)
+     */
+    private val HEADER_DETAILS_REGEX = Regex(
+        """\.PROGRAM\s+\S+?\([^)]*\)(?:@([^\s#;]+)\s+([^\s#;]+))?(?:#[^;]*)?(?:;(.*))?""",
+        RegexOption.IGNORE_CASE
+    )
+
+    /**
+     * Partes opcionais do cabeçalho de um programa.
+     * - modifiedAt: "dd/mm/aa hh:mm", ou vazio se faltar a data ou a hora.
+     * - comment: o texto depois do ";", ou vazio.
+     */
+    data class Header(val modifiedAt: String, val comment: String)
+
+    /**
+     * Lê data/hora e comentário do cabeçalho. Devolve null se a linha não casar com o formato
+     * (por exemplo, um cabeçalho sem os parênteses dos parâmetros).
+     */
+    fun parseHeader(line: String): Header? {
+        val match = HEADER_DETAILS_REGEX.find(line) ?: return null
+        val date = match.groupValues.getOrNull(1)?.trim().orEmpty()
+        val time = match.groupValues.getOrNull(2)?.trim().orEmpty()
+        return Header(
+            modifiedAt = if (date.isNotEmpty() && time.isNotEmpty()) "$date $time" else "",
+            comment = match.groupValues.getOrNull(3)?.trim().orEmpty()
+        )
+    }
+
+    /**
      * Nome do programa se a linha abre um programa (".PROGRAM nome(...)"); senão, null.
      */
     fun programName(line: String): String? = HEADER_REGEX.find(line)?.groupValues?.get(2)
