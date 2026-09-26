@@ -20,6 +20,7 @@ android {
 
     defaultConfig {
         minSdk = 28
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {
@@ -34,4 +35,10 @@ dependencies {
     api(libs.androidx.room.ktx)
     api(libs.kotlinx.coroutines.core)
     "ksp"(libs.androidx.room.compiler)
+
+    // Teste de migração (roda no celular: :core:database:connectedDebugAndroidTest).
+    // O plugin do Room já entrega os schemas/ ao MigrationTestHelper.
+    androidTestImplementation(libs.androidx.room.testing)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.runner)
 }
