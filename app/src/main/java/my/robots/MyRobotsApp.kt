@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import my.robots.core.database.ALL_MIGRATIONS
 import my.robots.core.database.AppDatabase
 import my.robots.core.network.KawasakiTerminalManager
 import my.robots.core.network.RobotApiService
@@ -64,8 +65,9 @@ class MyRobotsApp : Application() {
             AppDatabase::class.java,
             "robot_database"
         )
-        // Se a versão do banco mudar, ele é apagado e recriado (os dados não são migrados).
-        .fallbackToDestructiveMigration()
+        // Ao mudar a versão do banco, os dados são levados pelas migrações escritas à mão
+        // (DatabaseMigrations.kt). Nunca apaga o banco: sem migração, o app falha ao abrir.
+        .addMigrations(*ALL_MIGRATIONS)
         .build()
 
         val retrofit = Retrofit.Builder()
