@@ -12,10 +12,7 @@ import kotlinx.coroutines.launch
 import my.robots.core.database.ALL_MIGRATIONS
 import my.robots.core.database.AppDatabase
 import my.robots.core.network.KawasakiTerminalManager
-import my.robots.core.network.RobotApiService
 import my.robots.core.data.RobotRepository
-import retrofit2.Retrofit
-import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.File
 
 /**
@@ -44,9 +41,8 @@ class MyRobotsApp : Application() {
      * Chamado quando o app inicia. Faz, na ordem:
      * 1. Cria a pasta /MyRobots.
      * 2. Abre o banco de dados.
-     * 3. Prepara a API HTTP (endereço de teste).
-     * 4. Cria o repositório e o gerenciador de terminal.
-     * 5. Confere se cada robô cadastrado tem a sua pasta.
+     * 3. Cria o repositório e o gerenciador de terminal.
+     * 4. Confere se cada robô cadastrado tem a sua pasta.
      */
     override fun onCreate() {
         super.onCreate()
@@ -70,18 +66,10 @@ class MyRobotsApp : Application() {
         .addMigrations(*ALL_MIGRATIONS)
         .build()
 
-        val retrofit = Retrofit.Builder()
-            .baseUrl("http://localhost/") // endereço de teste: ainda não existe servidor HTTP de verdade
-            .addConverterFactory(MoshiConverterFactory.create())
-            .build()
-
-        val apiService = retrofit.create(RobotApiService::class.java)
-
         robotRepository = RobotRepository(
             database.robotDao(),
             database.quickCommandDao(),
-            database.backupDao(),
-            apiService
+            database.backupDao()
         )
         
         terminalManager = KawasakiTerminalManager(this)

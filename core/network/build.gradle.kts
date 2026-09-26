@@ -1,7 +1,6 @@
-// Comunicação com o robô: terminal TCP (Kawasaki) e API HTTP (Retrofit).
+// Comunicação com o robô: terminal TCP/telnet (Kawasaki).
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.google.devtools.ksp)
 }
 
 android {
@@ -25,9 +24,4 @@ android {
 dependencies {
     api(project(":core:model"))
     api(libs.kotlinx.coroutines.android)
-    api(libs.retrofit)
-    api(libs.converter.moshi)
-    api(libs.okhttp)
-    api(libs.moshi.kotlin)
-    "ksp"(libs.moshi.kotlin.codegen)
 }

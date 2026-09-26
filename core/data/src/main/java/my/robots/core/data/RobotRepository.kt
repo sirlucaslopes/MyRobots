@@ -10,7 +10,6 @@ import my.robots.core.database.BackupDao
 import my.robots.core.database.QuickCommandDao
 import my.robots.core.database.RobotDao
 import my.robots.core.model.*
-import my.robots.core.network.RobotApiService
 import my.robots.core.common.FileUtil
 import java.io.File
 
@@ -20,14 +19,12 @@ import java.io.File
  * As telas (ViewModels) nunca falam direto com o banco, com a rede ou com as
  * pastas do celular: elas pedem tudo a esta classe. Ela junta:
  * - o banco de dados (robôs, comandos rápidos e backups);
- * - a API HTTP (Retrofit);
  * - os arquivos na pasta /MyRobots do celular.
  */
 class RobotRepository(
     private val robotDao: RobotDao,
     private val quickCommandDao: QuickCommandDao,
-    private val backupDao: BackupDao,
-    private val robotApiService: RobotApiService
+    private val backupDao: BackupDao
 ) {
     /**
      * Lista de todos os robôs cadastrados. Se um robô mudar, a lista se atualiza sozinha.
