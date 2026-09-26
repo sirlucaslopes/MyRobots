@@ -228,7 +228,7 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate("backup_list/${robot.id}")
                                 },
                                 onTerminalClick = { robot ->
-                                    navController.navigate("robot_dashboard/${robot.id}/-1?feature=Logs")
+                                    navController.navigate("robot_dashboard/${robot.id}/-1?feature=Terminal")
                                 },
                                 onMultiTerminalClick = { projectName ->
                                     val encodedProject = URLEncoder.encode(projectName, StandardCharsets.UTF_8.toString())
@@ -297,7 +297,7 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate("code_viewer/${backup.id}")
                                 },
                                 onCreateBackup = {
-                                    navController.navigate("robot_dashboard/${robotId}/-1?feature=Logs") {
+                                    navController.navigate("robot_dashboard/${robotId}/-1?feature=Terminal") {
                                         launchSingleTop = true
                                     }
                                 }
@@ -305,7 +305,7 @@ class MainActivity : ComponentActivity() {
                         }
                         
                         // Painel do robô. backupId = -1 significa "usar o backup mais recente".
-                        // O parâmetro "feature" abre direto uma seção (ex.: Logs = terminal).
+                        // O parâmetro "feature" abre direto uma seção (ex.: Terminal).
                         // Ao enviar algo para OUTRO robô, navega para o painel dele.
                         composable(
                             route = "robot_dashboard/{robotId}/{backupId}?feature={feature}",

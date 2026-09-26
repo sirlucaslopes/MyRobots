@@ -58,11 +58,12 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Seções do painel do robô. "Logs" é o terminal (o nome ficou por histórico).
+ * Seções do painel do robô. "Terminal" é o terminal ao vivo; os logs de verdade do
+ * controlador são ErrorLog, OperationLog e ProgramEditLog.
  * Cada uma tem o título e o ícone mostrados na tela.
  */
 enum class DashboardFeature(val label: String, val icon: ImageVector) {
-    Logs("Terminal", Icons.AutoMirrored.Rounded.Article),
+    Terminal("Terminal", Icons.AutoMirrored.Rounded.Article),
     Programs("Programas", Icons.Rounded.Code),
     Variables("Variáveis", Icons.Rounded.Tune),
     FullCode("Código AS", Icons.Rounded.Description),
@@ -208,7 +209,7 @@ fun RobotDashboardScreen(
                             Text(
                                 text = when (activeFeature) {
                                     null -> robot?.name ?: "Painel"
-                                    DashboardFeature.Logs -> "Terminal: ${robot?.name ?: ""}"
+                                    DashboardFeature.Terminal -> "Terminal: ${robot?.name ?: ""}"
                                     DashboardFeature.Programs -> "Programas: ${robot?.name ?: ""}"
                                     DashboardFeature.Variables -> "Variáveis: ${robot?.name ?: ""}"
                                     DashboardFeature.DataBank -> "Data Bank: ${robot?.name ?: ""}"
@@ -233,7 +234,7 @@ fun RobotDashboardScreen(
                         }
                     },
                     actions = {
-                        if (activeFeature == DashboardFeature.Logs) {
+                        if (activeFeature == DashboardFeature.Terminal) {
                             val isConnected by (viewModel?.isConnected?.collectAsState() ?: remember { mutableStateOf(false) })
                             
                             IconButton(onClick = {
@@ -360,7 +361,7 @@ fun RobotDashboardScreen(
                                 }
                             }
                         )
-                        DashboardFeature.Logs -> TerminalPanel(
+                        DashboardFeature.Terminal -> TerminalPanel(
                             output = terminalOutput,
                             quickCommands = quickCommands,
                             viewModel = viewModel,
@@ -521,9 +522,9 @@ fun RobotDashboardScreen(
                     programsToUpload = null
                     selectedProgramNames = emptySet()
                     if (targetId == (robot?.id ?: -1)) {
-                        activeFeature = DashboardFeature.Logs
+                        activeFeature = DashboardFeature.Terminal
                     } else {
-                        onNavigateToRobot(targetId, -1, DashboardFeature.Logs)
+                        onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
                     }
                 },
                 onDismiss = { programsToUpload = null }
@@ -540,9 +541,9 @@ fun RobotDashboardScreen(
                     val targetId = r.id
                     variableToUpload = null
                     if (targetId == (robot?.id ?: -1)) {
-                        activeFeature = DashboardFeature.Logs
+                        activeFeature = DashboardFeature.Terminal
                     } else {
-                        onNavigateToRobot(targetId, -1, DashboardFeature.Logs)
+                        onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
                     }
                 },
                 onDismiss = { variableToUpload = null }
@@ -559,9 +560,9 @@ fun RobotDashboardScreen(
                     val targetId = r.id
                     dataBankToUpload = null
                     if (targetId == (robot?.id ?: -1)) {
-                        activeFeature = DashboardFeature.Logs
+                        activeFeature = DashboardFeature.Terminal
                     } else {
-                        onNavigateToRobot(targetId, -1, DashboardFeature.Logs)
+                        onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
                     }
                 },
                 onDismiss = { dataBankToUpload = null }
