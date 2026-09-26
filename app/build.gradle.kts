@@ -16,7 +16,7 @@ android {
 
     defaultConfig {
         applicationId = "my.robots"
-        minSdk = 28
+        minSdk = 29
         targetSdk = 36
         versionCode = 2
         versionName = "1.1"
