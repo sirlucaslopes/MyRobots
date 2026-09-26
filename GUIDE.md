@@ -17,11 +17,11 @@ para melhorar uma parte sem mexer nas outras.
 ```
 :app                     MainActivity, MyRobotsApp e o mapa de navegação (liga as telas)
 
-:core:common             FileUtil (nomes de arquivo)
-:core:model              Robot, Backup, QuickCommand, Manufacturer, WifiConfig, RobotCommandLibrary
-:core:database           Room: AppDatabase e os DAOs
-:core:network            KawasakiTerminalManager (terminal TCP) e RobotApiService (HTTP)
-:core:data               RobotRepository (junta banco + rede + arquivos)
+:core:common             FileUtil (nomes de arquivo) e AsProgramBlocks (blocos .PROGRAM do texto AS)
+:core:model              Robot, Backup, QuickCommand, Manufacturer, RobotCommandLibrary
+:core:database           Room: AppDatabase, os DAOs, as migrações e o schema exportado
+:core:network            KawasakiTerminalManager (terminal TCP/telnet)
+:core:data               RobotRepository (junta banco + arquivos)
 :core:designsystem       Tema (cores, fontes, formas) + bibliotecas de Compose compartilhadas
 
 :feature:splash          Tela de abertura
@@ -30,14 +30,18 @@ para melhorar uma parte sem mexer nas outras.
 :feature:codeeditor      AsCodeViewer: ver/editar código AS
 :feature:dashboard       Painel do robô: terminal, programas, variáveis, Data Bank
 :feature:terminal        Terminal Geral (vários robôs) e comandos rápidos
-:feature:settings        Telas de Settings/Wifi (ainda não ligadas à navegação)
 ```
 
 ### Regras de dependência (para manter tudo organizado)
 - `:feature:*` pode usar `:core:*`, mas **uma feature nunca usa outra feature**. Quem liga uma
   tela na outra é o `:app` (na `MainActivity`).
 - `:core:model` não depende de ninguém. `:core:database` e `:core:network` dependem só de `:core:model`.
-- `:core:data` (repositório) junta database + network + common. As telas só falam com o repositório.
+- `:core:data` (repositório) junta database + network + common. Para dados (robôs, backups,
+  comandos, arquivos), as telas falam só com o `RobotRepository`, nunca com os DAOs.
+- A conversa ao vivo com o robô é a exceção: os ViewModels que usam o terminal (painel,
+  Terminal Geral, comandos rápidos, robôs conectados) recebem o `KawasakiTerminalManager` direto
+  do `:app`, pela factory. Lógica nova com várias etapas sobre o terminal (ex.: backup de vários
+  robôs) deve ir para uma classe do `:core:data`, não para o ViewModel.
 - Para uma parte nova e independente, crie um novo módulo `:feature:nome` (copie o `build.gradle.kts`
   de outra feature) e inclua em `settings.gradle.kts` e em `app/build.gradle.kts`.
 
@@ -62,8 +66,6 @@ para melhorar uma parte sem mexer nas outras.
   `[ROBOT]` (nome do robô) e `[DATA]` (data/hora `_aaaammdd_hhmm`), trocados na hora de enviar.
   Pode pertencer a um robô específico (`robotId`) ou a um fabricante inteiro (`manufacturer`,
   com `robotId` negativo fixo por fabricante — ver `RobotRepository.getQuickCommandsByManufacturer`).
-- **`WifiConfig`**: SSID, senha e, opcionalmente, IP estático/gateway/máscara. Usado pela tela
-  `WifiSettingsScreen`, que ainda não está ligada a nada de verdade (ver seção 13).
 - **`RobotCommandLibrary`**: biblioteca de comandos por fabricante (existe no módulo, ver o
   arquivo para o conteúdo atual).
 
@@ -73,13 +75,22 @@ para melhorar uma parte sem mexer nas outras.
 
 ## 2. `:core:database` — persistência local (Room)
 
-`AppDatabase` + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao`. Guarda robôs, backups
-e comandos rápidos. Em `MyRobotsApp`, o banco usa `fallbackToDestructiveMigration()`: se a
-versão mudar, o banco é **apagado e recriado**, sem migração dos dados.
+`AppDatabase` (versão 4) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao`. Guarda robôs,
+backups e comandos rápidos.
 
-**Pendências / Próximos passos:** trocar `fallbackToDestructiveMigration` por migrações de
-verdade antes de mudar o schema em produção (hoje qualquer mudança de versão apaga os dados
-do usuário).
+- **Schema exportado:** o plugin Gradle do Room grava o schema de cada versão em
+  `core/database/schemas/my.robots.core.database.AppDatabase/<versão>.json` (versionado no git).
+- **Migrações escritas à mão:** o banco **nunca é apagado**. `MyRobotsApp` abre o banco com
+  `addMigrations(*ALL_MIGRATIONS)` (lista em `DatabaseMigrations.kt`, vazia por enquanto). Subir
+  a versão sem escrever a migração faz o app falhar ao abrir, em vez de apagar os dados.
+- **Para mudar uma entidade:** subir a versão no `AppDatabase`, compilar (gera o `.json` novo),
+  escrever o `Migration(antiga, nova)` comparando os dois `.json`, incluir em `ALL_MIGRATIONS` e
+  acrescentar o caso no `MigrationTest`.
+- **Teste de migração:** `MigrationTest` (androidTest, `MigrationTestHelper`) cria o banco v4
+  com dados e confere que eles continuam lá na versão atual. Roda com o celular ligado:
+  `.\gradlew.bat :core:database:connectedDebugAndroidTest`.
+
+**Pendências / Próximos passos:** nenhuma pendência conhecida.
 
 ---
 
@@ -111,35 +122,32 @@ do usuário).
     que o usuário estava digitando. Uma queda de conexão de verdade continua sendo detectada
     pelo `readLoop` (EOF/erro de leitura), só que sem a checagem ativa a cada 3s. Consumido
     por `getHeartbeat(robotId)`.
-- **`RobotApiService`**: interface Retrofit para uma API HTTP do robô (`downloadConfig`,
-  `uploadConfig`). Hoje aponta para `http://localhost/`, um endereço de teste — **não existe
-  servidor HTTP de verdade**; por isso `RobotRepository.performBackup` sempre cai no
-  conteúdo simulado (`generateMockRobotContent`) quando a chamada falha.
+- Não existe API HTTP: o controlador não tem servidor HTTP, e todo backup (SAVE) e envio
+  (LOAD) passa pelo terminal. A antiga `RobotApiService` (Retrofit, apontando para
+  `http://localhost/`) foi removida na v1.2.
 
-**Pendências / Próximos passos:** apontar `RobotApiService` para o endereço real do robô (ou
-remover essa via se o backup só for feito pelo terminal/telnet); tratar blocos de handshake
-partidos entre pacotes de rede.
+**Pendências / Próximos passos:** tratar blocos de handshake partidos entre pacotes de rede
+(Fase 2.0 de `docs/PLANO_V1_2.md`).
 
 ---
 
 ## 4. `:core:data` — `RobotRepository`
 
-Junta banco (Room) + rede (API/terminal) + arquivos. É a única porta de entrada de dados
-para as telas — nenhuma feature fala direto com o DAO ou com a API.
+Junta banco (Room) + arquivos da pasta `/MyRobots`. É a única porta de entrada de dados
+para as telas — nenhuma feature fala direto com o DAO. (O terminal ao vivo fica fora: ver as
+regras de dependência na seção 0.)
 
 Principais responsabilidades:
 - CRUD de robôs, comandos rápidos e backups.
 - `insertBackup`: recalcula `programsCount`/`variablesCount`/`memoryUsage` a partir do texto
   (`calculateAndApplyMetadata`) antes de gravar.
-- `performBackup`: baixa da API (ou gera conteúdo simulado se falhar), salva como arquivo
-  `<robô>_<data>.as` em `/MyRobots/<robô>/` e cria o registro do backup.
-- `uploadBackupToRobot`: envia o texto de um backup para a API do robô.
-- `getRobotLogs`: gera logs de teste simulados a cada 3 segundos (**não lê logs reais do robô ainda**).
-- `getRobotStatus`: devolve status fixo/simulado (Online, memória, contagens) — **não vem do
-  robô real ainda**.
+- `saveBackupToFile`/`saveFileToRobotFolder`: gravam o texto em `/MyRobots/<robô>/`.
+- Não há nenhum dado simulado: `performBackup` (que criava um backup de exemplo quando a API
+  de teste falhava), `getRobotLogs` e `getRobotStatus` foram removidos na v1.2.
 
-**Pendências / Próximos passos:** `getRobotLogs` e `getRobotStatus` são simulados; trocar por
-dados reais quando o protocolo Kawasaki tiver como fornecer status/log ao vivo.
+**Pendências / Próximos passos:** um `SAVE` feito pelo terminal grava o arquivo na pasta, mas só
+vira backup no banco quando a lista de robôs abre (sincronização do `RobotViewModel`) ou no
+ícone de sincronizar do histórico. Registrar na hora é a Fase 2.0 de `docs/PLANO_V1_2.md`.
 
 ---
 
@@ -147,8 +155,14 @@ dados reais quando o protocolo Kawasaki tiver como fornecer status/log ao vivo.
 
 - **`:core:designsystem`**: `Theme.kt`, `Color.kt`, `Shape.kt`, `Type.kt` — o tema visual
   (`MyRobotsTheme`) usado em todo o app.
-- **`:core:common`**: `FileUtil` — hoje só resolve o nome de um arquivo a partir de uma `Uri`
-  do Android (usado ao importar/abrir arquivos externos).
+- **`:core:common`**:
+  - `FileUtil`: resolve o nome de um arquivo a partir de uma `Uri` do Android, limpa nomes de
+    arquivo e separa as seções AS conhecidas (`sanitizeAsContent`).
+  - `ascode.AsProgramBlocks`: lê e troca blocos `.PROGRAM nome(...)` ... `.END` no texto de um
+    backup (`extract`, `extractMany`, `replace`, `remove`, `list`, `renameHeader`). **Sempre
+    compara o nome exato**: antes, `startsWith(".PROGRAM pg1")` também pegava o `pg10`, e salvar
+    o `pg1` apagava os dois. Toda tela que mexe em programa deve usar este objeto. Tem testes JVM
+    (`:core:common:testDebugUnitTest`).
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -182,7 +196,7 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 - Cada robô mostra nome e `ip:porta`, com botões de terminal (abre o dashboard direto na
   seção Terminal), editar e excluir (com confirmação).
 - Cada projeto tem um ícone de terminal próprio que abre o **Terminal Geral** (fala com
-  todos os robôs do projeto de uma vez — ver seção 12).
+  todos os robôs do projeto de uma vez — ver seção 11).
 - Tocar num robô abre o histórico de backups dele.
 
 ### Cadastro/edição (`RobotDialog`)
@@ -220,7 +234,7 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 
 ## 8. `:feature:backup` — Histórico de Backups
 
-**Arquivos:** `BackupHistoryScreen.kt`, `BackupType.kt`, `BackupViewModel.kt`, `BackupViewModelFactory.kt`
+**Arquivos:** `BackupHistoryScreen.kt`, `BackupViewModel.kt`, `BackupViewModelFactory.kt`
 
 - Lista os backups de um robô, com busca por texto e ordenação por data (crescente/decrescente).
 - Cada item tem: ver código (abre no `AsCodeViewer`), duplicar (pede um novo nome), compartilhar
@@ -233,9 +247,6 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   para o dashboard/terminal) ou **importar** um arquivo `.as` já existente no celular
   (`ActivityResultContracts.OpenDocument`).
 - Ícone do robô (`SmartToy`) força a sincronização da lista com a pasta `/MyRobots` na hora.
-- `BackupType`: os tipos de backup que o robô Kawasaki sabe salvar (`FULL`, `PROGRAMS`,
-  `POSE_VARS`, `REAL_VARS`, `STRINGS`, `AUX`, `SYSTEM`, `ROBOT`, `ERROR_LOG`, `OP_LOG`,
-  `ALL_LOG`), cada um com o comando `SAVE/...` correspondente.
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -269,7 +280,7 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   - **Inserir** (exatamente 1 marcada): abre a mesma janela vazia; o texto digitado vira uma
     linha nova acima da marcada, empurrando o resto do arquivo para baixo.
   - **Excluir** (1+ marcadas): remove as linhas marcadas.
-- É usado em quatro rotas diferentes no `:app` (ver seção 14): código completo, um programa
+- É usado em quatro rotas diferentes no `:app` (ver seção 13): código completo, um programa
   só, só as variáveis, e arquivo aberto de fora do app (somente leitura).
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
@@ -287,7 +298,7 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   linhas) e sete atalhos em grade: Programas, Variáveis, Data Bank, Código AS (abre o
   `AsCodeViewer` em tela cheia, fora do dashboard) e os três logs do controlador (Erros,
   Operação, Edição) — cada atalho mostra a contagem de itens, como nos de Programas/Variáveis.
-- **Terminal (`Logs`)**: terminal de verdade — caixa preta com texto verde (o que o usuário
+- **Terminal (`DashboardFeature.Terminal`)**: terminal de verdade — caixa preta com texto verde (o que o usuário
   digitou aparece em azul-claro). Cada tecla digitada é enviada ao robô na hora (como um
   terminal real); apagar manda backspace; setas ⬆⬇ mandam histórico de comando do robô; o
   raio abre a biblioteca de comandos rápidos (`:feature:terminal`); um botão abre o gerenciador
@@ -308,7 +319,8 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   ViewModel); compartilhar usa o mesmo pacote para abrir o menu de compartilhar do Android
   (`FileProvider`, igual ao histórico de backups); excluir remove todos numa passada só
   (`deletePrograms`), para não perder uma exclusão por causa de outra sendo salva ao mesmo
-  tempo. "Duplicar" continua por linha, pois é uma ação de um programa só.
+  tempo. "Duplicar" continua por linha, pois é uma ação de um programa só (copia o bloco com
+  `AsProgramBlocks` e troca só o nome no cabeçalho, mantendo parâmetros, data e comentário).
 - **Variáveis**: tabela com nome fixo à esquerda e valores `X, Y, Z, O, A, T, JT7, JT8`
   rolando para o lado — variáveis do tipo `FRAME` (posição) mostram um valor por coluna, as
   outras mostram o valor inteiro numa célula só. Nomes que começam com `!` aparecem em
@@ -377,24 +389,11 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
 
 ---
 
-## 12. `:feature:settings` — Configurações (não ligadas ainda)
+## 12. `:feature:settings` — removido
 
-**Arquivos:** `SettingsScreen.kt`, `WifiSettingsScreen.kt`
-
-> **Atenção: nenhuma das duas telas está ligada à navegação do `:app` hoje** — não aparecem
-> em nenhum lugar do app rodando. Ficam prontas no módulo à espera de serem conectadas.
-
-- **`SettingsScreen`**: escolher IP automático (DHCP) ou fixo (Static), com campos de IP,
-  gateway e máscara quando fixo. O botão "Save" **só fecha a tela, não salva nada de verdade**.
-- **`WifiSettingsScreen`**: lista de redes Wifi configuradas (`WifiConfig`), com botão "+"
-  para cadastrar SSID/senha/IP fixo opcional. **Não está ligada ao banco de dados** — os dados
-  vêm só dos parâmetros passados de fora (hoje, ninguém passa nada).
-
-**Pendências / Próximos passos:**
-1. Decidir se essas telas ainda fazem sentido (o Wifi real hoje é resolvido abrindo direto as
-   configurações do Android, a partir de `RobotListScreen`).
-2. Se forem mantidas: ligar `SettingsScreen`/`WifiSettingsScreen` a rotas do `NavHost` em
-   `MainActivity`, e ligar `WifiSettingsScreen` a um DAO/repositório para persistir de verdade.
+Removido na v1.2: `SettingsScreen` e `WifiSettingsScreen` nunca foram ligadas à navegação, e o
+Wifi é resolvido abrindo as configurações do próprio Android (ver seção 7). O número da seção
+fica reservado para não mudar as referências às seções seguintes.
 
 ---
 
@@ -402,10 +401,10 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
 
 **Arquivos:** `MainActivity.kt`, `MyRobotsApp.kt`
 
-- **`MyRobotsApp`** (roda uma vez, antes de qualquer tela): cria a pasta `/MyRobots`, abre o
-  banco Room, monta o `Retrofit`/`RobotApiService`, cria o `RobotRepository` e o
-  `KawasakiTerminalManager` (esses dois vivem o app inteiro) e confere a pasta de cada robô
-  cadastrado.
+- **`MyRobotsApp`** (roda uma vez, antes de qualquer tela): aumenta o limite do `CursorWindow`
+  (backups FULL grandes), cria a pasta `/MyRobots`, abre o banco Room com as migrações
+  (`ALL_MIGRATIONS`), cria o `RobotRepository` e o `KawasakiTerminalManager` (esses dois vivem o
+  app inteiro) e confere a pasta de cada robô cadastrado.
 - **`MainActivity`**: pede a permissão de armazenamento (no Android 11+, "acesso a todos os
   arquivos"; antes disso, a permissão comum) explicando por que precisa da pasta `/MyRobots`,
   trata arquivos `.as`/`.pg` abertos de fora do app (`handleIntent`, ação VER/EDITAR — importa
@@ -419,11 +418,11 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
 | `multi_terminal/{projectName}` | `MultiRobotTerminalScreen` | terminal de todos os robôs do projeto |
 | `quick_commands/{manufacturer}/{robotId}` | `QuickCommandScreen` | biblioteca de comandos |
 | `backup_list/{robotId}` | `BackupHistoryScreen` | histórico de backups do robô |
-| `robot_dashboard/{robotId}/{backupId}?feature={feature}` | `RobotDashboardScreen` | `backupId = -1` usa o backup mais recente; `feature` abre direto uma seção |
-| `program_viewer/{backupId}/{programName}` | `AsCodeViewer` | extrai só o trecho `.PROGRAM ... .END` do backup, e ao salvar substitui esse trecho de volta |
+| `robot_dashboard/{robotId}/{backupId}?feature={feature}` | `RobotDashboardScreen` | `backupId = -1` usa o backup mais recente; `feature` abre direto uma seção (ex.: `?feature=Terminal`) |
+| `program_viewer/{backupId}/{programName}` | `AsCodeViewer` | extrai só o bloco `.PROGRAM ... .END` daquele nome exato (`AsProgramBlocks`), e ao salvar troca só esse bloco |
 | `variable_viewer/{backupId}` | `AsCodeViewer` | junta as seções `.TRANS`/`.REALS`/`.STRINGS` do backup, somente leitura |
 | `code_viewer/{backupId}` | `AsCodeViewer` | backup inteiro, com salvar |
 | `external_viewer/{backupId}` | `AsCodeViewer` | arquivo importado de fora do app, somente leitura |
 
-**Pendências / Próximos passos:** nenhuma pendência conhecida (além das já listadas em
-`:feature:settings`, que dependem de rotas novas aqui quando forem ligadas).
+**Pendências / Próximos passos:** as mudanças de navegação da v1.2 (tocar no robô abre o
+painel, tela de Projeto) estão em `docs/PLANO_V1_2.md`.
