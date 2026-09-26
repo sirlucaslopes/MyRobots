@@ -228,6 +228,11 @@ class RobotDashboardViewModel(
     }
 
     /**
+     * Uri da pasta dos arquivos (padrão ou escolhida), para o botão "Arquivos" do terminal.
+     */
+    fun filesFolderUri(): android.net.Uri = repository.filesFolderUri()
+
+    /**
      * Conecta o terminal ao robô.
      */
     fun connectToRobot() {

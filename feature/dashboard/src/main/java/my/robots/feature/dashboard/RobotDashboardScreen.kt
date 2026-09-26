@@ -250,7 +250,8 @@ fun RobotDashboardScreen(
                             IconButton(onClick = {
                                 try {
                                     val intent = Intent(Intent.ACTION_VIEW)
-                                    val rootUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3AMyRobots")
+                                    // pasta dos arquivos atual: Documentos/MyRobots ou a escolhida pelo usuário
+                                    val rootUri = viewModel?.filesFolderUri() ?: return@IconButton
                                     intent.setDataAndType(rootUri, DocumentsContract.Document.MIME_TYPE_DIR)
                                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     context.startActivity(intent)

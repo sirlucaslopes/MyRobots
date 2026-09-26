@@ -6,6 +6,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -38,7 +40,8 @@ import java.nio.ByteOrder
  * Os robôs são agrupados em FABRICANTE > PROJETO > ROBÔ, e cada grupo pode ser
  * aberto ou fechado. Na barra do topo há: robôs conectados (popup para conectar
  * vários robôs de uma vez, com heartbeat), ordenar A-Z, o ícone do Wifi (nome da
- * rede e IP do celular) e a engrenagem (abre as configurações de Wifi do Android).
+ * rede e IP do celular) e a engrenagem (configurações de Wifi do Android e "Pasta dos
+ * arquivos", onde se escolhe onde os backups são gravados).
  * O botão "+" cadastra um robô novo.
  *
  * - onRobotClick: tocar no robô (abre o painel dele).
@@ -69,6 +72,12 @@ fun RobotListScreen(
     var showSettingsMenu by remember { mutableStateOf(false) }
     var showConnectedRobots by remember { mutableStateOf(false) }
     var sortAlphabetical by remember { mutableStateOf(false) }
+    var showStorageDialog by remember { mutableStateOf(false) }
+
+    // Seletor de pastas do Android (SAF) para a janela "Pasta dos arquivos".
+    val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) viewModel?.chooseStorageFolder(uri)
+    }
     
     val context = LocalContext.current
     val wifiInfo = rememberWifiInfo(context)
@@ -160,6 +169,17 @@ fun RobotListScreen(
                                     },
                                     leadingIcon = { Icon(Icons.Default.Wifi, null) }
                                 )
+                                if (viewModel != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Pasta dos arquivos") },
+                                        onClick = {
+                                            showSettingsMenu = false
+                                            viewModel.refreshStorage()
+                                            showStorageDialog = true
+                                        },
+                                        leadingIcon = { Icon(Icons.Default.Folder, null) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -332,6 +352,21 @@ fun RobotListScreen(
                         Text("Cancelar")
                     }
                 }
+            )
+        }
+
+        // Janela "Pasta dos arquivos": onde os backups são gravados (padrão ou pasta escolhida).
+        if (showStorageDialog && viewModel != null) {
+            val location by viewModel.storageLocation.collectAsState()
+            val busy by viewModel.storageBusy.collectAsState()
+            val message by viewModel.storageMessage.collectAsState()
+            StorageFolderDialog(
+                location = location,
+                isBusy = busy,
+                message = message,
+                onChooseFolder = { folderPicker.launch(null) },
+                onUseDefault = { viewModel.useDefaultStorage() },
+                onDismiss = { showStorageDialog = false }
             )
         }
 
