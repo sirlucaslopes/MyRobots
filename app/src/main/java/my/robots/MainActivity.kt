@@ -214,7 +214,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         // Tela 2: lista de robôs.
-                        // - Tocar no robô -> histórico de backups dele.
+                        // - Tocar no robô -> painel dele, com o backup mais recente (-1).
                         // - Ícone do terminal -> painel do robô já no terminal.
                         // - Ícone do terminal do projeto -> terminal geral (todos os robôs do projeto).
                         composable("robot_list") {
@@ -225,7 +225,7 @@ class MainActivity : ComponentActivity() {
                                 viewModel = viewModel(factory = RobotViewModelFactory(repository)),
                                 connectedRobotsViewModel = connectedRobotsViewModel,
                                 onRobotClick = { robot ->
-                                    navController.navigate("backup_list/${robot.id}")
+                                    navController.navigate("robot_dashboard/${robot.id}/-1")
                                 },
                                 onTerminalClick = { robot ->
                                     navController.navigate("robot_dashboard/${robot.id}/-1?feature=Terminal")

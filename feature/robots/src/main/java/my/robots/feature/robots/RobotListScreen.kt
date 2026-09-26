@@ -41,7 +41,7 @@ import java.nio.ByteOrder
  * rede e IP do celular) e a engrenagem (abre as configurações de Wifi do Android).
  * O botão "+" cadastra um robô novo.
  *
- * - onRobotClick: tocar no robô (abre o histórico de backups dele).
+ * - onRobotClick: tocar no robô (abre o painel dele).
  * - onTerminalClick: ícone de terminal do robô.
  * - onMultiTerminalClick: ícone de terminal do projeto (todos os robôs dele).
  * - connectedRobotsViewModel: cérebro do popup "Robôs Conectados". Se vier null
