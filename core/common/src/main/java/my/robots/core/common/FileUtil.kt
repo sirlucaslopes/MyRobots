@@ -47,16 +47,18 @@ object FileUtil {
      *
      * Só permite letras, números e sublinhado (_) no nome. Qualquer outro
      * caractere (espaço, colchete, parênteses...) vira "_".
-     * A extensão (ex.: ".as") é preservada.
-     * Exemplo: "meu robo[1].as" vira "meu_robo_1_.as".
+     * A extensão (ex.: ".as") é preservada, mas também só com letras e números: um nome vindo
+     * de fora (ex.: o nome de exibição de um arquivo de outro app) com "/" depois do último
+     * ponto faria o arquivo cair numa subpasta.
+     * Exemplo: "meu robo[1].as" vira "meu_robo_1_.as"; "x.a/b" vira "x.a_b".
      */
     fun sanitizeFileName(fileName: String): String {
         val lastDotIndex = fileName.lastIndexOf('.')
         return if (lastDotIndex != -1) {
             val namePart = fileName.substring(0, lastDotIndex)
-            val extensionPart = fileName.substring(lastDotIndex) // guarda a extensão à parte (ex.: .as), pois ela não pode ser mexida
+            val extensionPart = fileName.substring(lastDotIndex + 1) // a extensão (ex.: as) fica, só limpa
             val sanitizedName = namePart.replace(Regex("[^a-zA-Z0-9_]"), "_")
-            sanitizedName + extensionPart
+            sanitizedName + "." + extensionPart.replace(Regex("[^a-zA-Z0-9]"), "_")
         } else {
             fileName.replace(Regex("[^a-zA-Z0-9_]"), "_")
         }

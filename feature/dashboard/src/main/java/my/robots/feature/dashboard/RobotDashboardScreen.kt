@@ -49,6 +49,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
+import my.robots.core.common.FileUtil
 import my.robots.core.model.Backup
 import my.robots.core.model.Manufacturer
 import my.robots.core.model.QuickCommand
@@ -1997,7 +1998,8 @@ fun ProgramsPanel(
 private fun shareProgramsContent(context: Context, programs: List<RobotProgram>, content: String) {
     try {
         val fileName = if (programs.size == 1) {
-            "${programs[0].name}.as"
+            // o nome do programa vem do texto do backup: limpa para não sair de shared_backups
+            FileUtil.sanitizeFileName("${programs[0].name}.as")
         } else {
             "programas_${System.currentTimeMillis()}.as"
         }
