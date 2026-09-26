@@ -48,13 +48,20 @@ para melhorar uma parte sem mexer nas outras.
 ### Como compilar
 - No Android Studio: sincronize o Gradle e rode o app normalmente.
 - Pelo terminal: `./gradlew assembleDebug` (precisa de internet na primeira vez).
+- `minSdk` 29 (Android 10) desde a v1.2.
+
+### Como testar
+- Testes JVM (lógica AS, nomes de arquivo, validação de arquivo externo, deslocar pontos):
+  `./gradlew testDebugUnitTest`. Ficam em `:core:common`, `:core:network` e `:feature:codeeditor`.
+- Teste de migração do banco (precisa de celular ou emulador):
+  `./gradlew :core:database:connectedDebugAndroidTest`.
 
 ---
 
 ## 1. `:core:model` — os dados que o app entende
 
 - **`Robot`**: um robô cadastrado (nome, IP, porta, projeto/célula, fabricante, dados de
-  login automático). `name` também vira o nome da pasta do robô em `/MyRobots`.
+  login automático). `name` também define o nome da pasta do robô (ver seção 14).
 - **`Manufacturer`**: `KAWASAKI` (único com suporte completo hoje: terminal, backups e
   comandos rápidos), `FANUC`, `ABB`, `UNIVERSAL_ROBOTS` (cadastráveis, mas sem função própria ainda).
 - **`Backup`** / **`BackupSummary`**: um backup é o texto completo (`content`) de um arquivo
@@ -66,6 +73,9 @@ para melhorar uma parte sem mexer nas outras.
   `[ROBOT]` (nome do robô) e `[DATA]` (data/hora `_aaaammdd_hhmm`), trocados na hora de enviar.
   Pode pertencer a um robô específico (`robotId`) ou a um fabricante inteiro (`manufacturer`,
   com `robotId` negativo fixo por fabricante — ver `RobotRepository.getQuickCommandsByManufacturer`).
+- **`HeartbeatState`**: `ALIVE`/`STALE`/`DISCONNECTED`, o pulso da conexão de um robô (calculado
+  pelo `KawasakiTerminalManager`, ver seção 3). Fica aqui para a bolinha de status
+  (`HeartbeatDot`, `:core:designsystem`) poder ser usada por qualquer tela.
 - **`RobotCommandLibrary`**: biblioteca de comandos por fabricante (existe no módulo, ver o
   arquivo para o conteúdo atual).
 
@@ -103,9 +113,15 @@ backups e comandos rápidos.
   - Login automático: observa o texto do robô por "login:"/"user:" e "password:" e digita
     sozinho, letra por letra (o controlador perde caractere se receber tudo de uma vez).
   - Entende o protocolo de transferência de arquivo do controlador: quando o robô manda um
-    `SAVE`, grava o arquivo em `/MyRobots/<robô>/`; quando pede um `LOAD`, envia o arquivo do
-    celular em blocos de 512 bytes. **Atenção:** um bloco do protocolo só é interpretado se
-    chegar inteiro no mesmo pacote de rede — se vier partido em dois pacotes, é descartado.
+    `SAVE`, grava o arquivo na pasta do robô; quando pede um `LOAD`, envia o arquivo da pasta
+    do robô em blocos de 512 bytes. Os arquivos passam pela `RobotFileStore` (seção 14).
+    **Atenção:** um bloco do protocolo só é interpretado se chegar inteiro no mesmo pacote de
+    rede — se vier partido em dois pacotes, é descartado.
+  - **O nome do arquivo que o robô manda é validado** (`TransferFileNames.safeName`: só
+    `[A-Za-z0-9_.-]`, sem `..`, até 100 caracteres). Ele vem da rede: sem essa conferência, um
+    aparelho respondendo no IP do robô podia pedir um `LOAD` de
+    `../../data/data/my.robots/databases/...` e receber o banco do app. Nome recusado não grava
+    nem envia nada e aparece como `>>> SAVE recusado`/`>>> LOAD recusado` no terminal.
   - `sendChar`/`sendCommand`: enviam tecla a tecla (usado enquanto o usuário digita no terminal
     real-time) ou um comando inteiro com Enter.
   - `deleteProgram`/`deleteVariable`: montam o comando `DELETE` certo (com `/P`, `/D`, `/L`,
@@ -133,15 +149,28 @@ backups e comandos rápidos.
 
 ## 4. `:core:data` — `RobotRepository`
 
-Junta banco (Room) + arquivos da pasta `/MyRobots`. É a única porta de entrada de dados
-para as telas — nenhuma feature fala direto com o DAO. (O terminal ao vivo fica fora: ver as
-regras de dependência na seção 0.)
+Junta banco (Room) + a pasta dos arquivos (`RobotFilesStorage`, seção 14). É a única porta de
+entrada de dados para as telas — nenhuma feature fala direto com o DAO nem com a pasta. (O
+terminal ao vivo fica fora: ver as regras de dependência na seção 0.)
+
+**O banco é a fonte da verdade:** o texto completo de cada backup fica no banco; o arquivo na
+pasta é uma cópia para o terminal (`LOAD`) e para o usuário (PC, compartilhar).
 
 Principais responsabilidades:
 - CRUD de robôs, comandos rápidos e backups.
-- `insertBackup`: recalcula `programsCount`/`variablesCount`/`memoryUsage` a partir do texto
-  (`calculateAndApplyMetadata`) antes de gravar.
-- `saveBackupToFile`/`saveFileToRobotFolder`: gravam o texto em `/MyRobots/<robô>/`.
+- `insertBackup`: recalcula `programsCount`/`variablesCount` (`AsBackupStats`) e `memoryUsage`
+  antes de gravar.
+- `saveBackupToFile`/`saveFileToRobotFolder`: gravam o texto na pasta do robô e devolvem
+  `true`/`false` (o erro não é mais engolido).
+- `deleteBackupAndFile`: apaga o backup do banco e o arquivo da pasta.
+- `syncRobotFolder`/`syncAllRobotFolders`: trazem para o banco os `.as` da pasta que ainda não
+  estão nele ("Sinc: <arquivo>"). **Só importam, nunca apagam backup do banco** — até a v1.1
+  um arquivo ausente apagava o backup, o que com a pasta nova (que pode não enxergar arquivos
+  antigos depois de reinstalar, ou perder a permissão) apagaria tudo.
+- `restoreMissingFiles`: regrava na pasta os backups do banco cujo arquivo não está lá (usado na
+  migração da v1.2 e ao trocar de pasta).
+- `storageLocation`, `useStorageFolder`, `useDefaultStorage`, `filesFolderUri`: a janela "Pasta
+  dos arquivos" (seção 7) e o botão "Arquivos" do terminal (seção 10).
 - Não há nenhum dado simulado: `performBackup` (que criava um backup de exemplo quando a API
   de teste falhava), `getRobotLogs` e `getRobotStatus` foram removidos na v1.2.
 
@@ -154,15 +183,20 @@ vira backup no banco quando a lista de robôs abre (sincronização do `RobotVie
 ## 5. `:core:designsystem` e `:core:common`
 
 - **`:core:designsystem`**: `Theme.kt`, `Color.kt`, `Shape.kt`, `Type.kt` — o tema visual
-  (`MyRobotsTheme`) usado em todo o app.
+  (`MyRobotsTheme`) usado em todo o app — e `HeartbeatIndicator.kt` (`HeartbeatDot` e o texto
+  de cada `HeartbeatState`). Depende de `:core:model`.
 - **`:core:common`**:
   - `FileUtil`: resolve o nome de um arquivo a partir de uma `Uri` do Android, limpa nomes de
     arquivo e separa as seções AS conhecidas (`sanitizeAsContent`).
   - `ascode.AsProgramBlocks`: lê e troca blocos `.PROGRAM nome(...)` ... `.END` no texto de um
     backup (`extract`, `extractMany`, `replace`, `remove`, `list`, `renameHeader`). **Sempre
     compara o nome exato**: antes, `startsWith(".PROGRAM pg1")` também pegava o `pg10`, e salvar
-    o `pg1` apagava os dois. Toda tela que mexe em programa deve usar este objeto. Tem testes JVM
-    (`:core:common:testDebugUnitTest`).
+    o `pg1` apagava os dois. Toda tela que mexe em programa deve usar este objeto. Também lê
+    data/hora e comentário do cabeçalho (`parseHeader`). Tem testes JVM.
+  - `ascode.AsControllerLogs`: leitura dos logs `.ERRLOG`, `.OPELOG` e `.PGM_EDT_LOG` do backup
+    (as classes `RobotLogEntry`/`RobotErrorLog*` moram aqui). Testes de caracterização.
+  - `ascode.AsBackupStats.count`: contagem de programas e variáveis de um backup.
+  - `ExternalAsFile`: leitura segura de arquivo vindo de fora do app (ver seção 14).
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -190,14 +224,23 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 - Barra do topo: robôs conectados (ícone de hub — ver abaixo), ordenar A-Z (liga/desliga
   ordenação alfabética nos três níveis), ícone de Wifi (mostra SSID e IP do celular,
   atualizado a cada 3 segundos, para conferir se está na mesma rede do robô) e engrenagem
-  (abre um menu com o status do Wifi e atalho para "Configurar Wifi", que leva para as
-  configurações de Wifi **do próprio Android**).
+  (abre um menu com o status do Wifi, atalho para "Configurar Wifi", que leva para as
+  configurações de Wifi **do próprio Android**, e **"Pasta dos arquivos"** — ver abaixo).
 - Botão "+" abre `RobotDialog` para cadastrar um robô novo.
 - Cada robô mostra nome e `ip:porta`, com botões de terminal (abre o dashboard direto na
   seção Terminal), editar e excluir (com confirmação).
 - Cada projeto tem um ícone de terminal próprio que abre o **Terminal Geral** (fala com
   todos os robôs do projeto de uma vez — ver seção 11).
-- Tocar num robô abre o histórico de backups dele.
+- Tocar num robô abre o **painel** dele, já com o backup mais recente
+  (`robot_dashboard/{id}/-1`).
+
+### Janela "Pasta dos arquivos" (`StorageFolderDialog`)
+- Mostra onde os backups estão sendo gravados: **Documentos/MyRobots** (padrão) ou uma pasta
+  escolhida pelo usuário. Avisa quando a pasta escolhida sumiu ou perdeu a permissão (os
+  arquivos vão para a pasta padrão enquanto isso).
+- "Escolher pasta" abre o seletor de pastas do Android. Ao escolher, o app grava na pasta os
+  backups que faltam e importa os `.as` que já estavam lá (escolher a pasta `/MyRobots` antiga
+  traz de volta os arquivos da v1.1). "Usar a pasta padrão" volta para Documentos/MyRobots.
 
 ### Cadastro/edição (`RobotDialog`)
 - Campos: fabricante (dropdown), projeto (texto livre com sugestões dos projetos já
@@ -208,15 +251,16 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 
 ### ViewModel (`RobotViewModel`)
 - Expõe a lista de robôs (`StateFlow`) direto do `RobotRepository`.
-- **Sincronização automática ao abrir o app:** para cada robô cadastrado, compara o banco
-  com a pasta `/MyRobots/<robô>/` — arquivo `.as` que está na pasta mas não no banco vira um
-  backup novo ("Sinc: <arquivo>"); backup do banco cujo arquivo sumiu da pasta é removido do banco.
+- **Sincronização automática ao abrir a lista:** `RobotRepository.syncAllRobotFolders` — arquivo
+  `.as` que está na pasta do robô mas não no banco vira um backup novo ("Sinc: <arquivo>").
+  Backup cujo arquivo sumiu da pasta **continua no banco**.
+- Janela "Pasta dos arquivos": `storageLocation`, `chooseStorageFolder`, `useDefaultStorage`.
 
 ### Popup "Robôs Conectados" (`ConnectedRobotsSheet` + `ConnectedRobotsViewModel`)
 - Aberto pelo ícone de hub na barra do topo da lista de robôs. Um `ModalBottomSheet` agrupa
   todos os robôs cadastrados **por Projeto** (sem o nível de Fabricante, para focar em "quem
   está online agora").
-- Cada linha mostra: bolinha de heartbeat (ver `HeartbeatState` em `:core:network`), nome,
+- Cada linha mostra: bolinha de heartbeat (`HeartbeatDot`; ver `HeartbeatState`), nome,
   `ip:porta`, o texto do status ("Ativo"/"Sem resposta"/"Desconectado") e um botão
   Conectar/Desconectar — dá para conectar em quantos robôs quiser ao mesmo tempo, cada um
   com sua própria conexão TCP (mesmo mecanismo do Terminal Geral).
@@ -245,8 +289,10 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   de enviar.
 - Botão "+" abre um menu com duas formas de criar backup: **baixar do robô conectado** (navega
   para o dashboard/terminal) ou **importar** um arquivo `.as` já existente no celular
-  (`ActivityResultContracts.OpenDocument`).
-- Ícone do robô (`SmartToy`) força a sincronização da lista com a pasta `/MyRobots` na hora.
+  (`ActivityResultContracts.OpenDocument`, lido por `ExternalAsFile`: até 20 MB e só texto;
+  recusa com mensagem).
+- Ícone do robô (`SmartToy`) traz na hora os `.as` novos da pasta do robô (ex.: um `SAVE` feito
+  pelo terminal). Não apaga nada.
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -302,8 +348,9 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   digitou aparece em azul-claro). Cada tecla digitada é enviada ao robô na hora (como um
   terminal real); apagar manda backspace; setas ⬆⬇ mandam histórico de comando do robô; o
   raio abre a biblioteca de comandos rápidos (`:feature:terminal`); um botão abre o gerenciador
-  de arquivos do Android direto na pasta `/MyRobots` (se não conseguir abrir, cai no histórico
-  de backups); botão Conectar/Desconectar muda de cor conforme o estado.
+  de arquivos do Android na pasta dos arquivos atual (Documentos/MyRobots ou a escolhida; se não
+  conseguir abrir, cai no histórico de backups); botão Conectar/Desconectar muda de cor
+  conforme o estado.
 - **Programas**: lista os programas do backup atual com caixa de seleção em cada linha; cada
   item mostra, além do nome, o comentário de descrição, o tamanho, a quantidade de linhas
   (do `.PROGRAM` ao `.END`) e a data/hora de modificação lidos do próprio cabeçalho do
@@ -402,19 +449,22 @@ fica reservado para não mudar as referências às seções seguintes.
 **Arquivos:** `MainActivity.kt`, `MyRobotsApp.kt`
 
 - **`MyRobotsApp`** (roda uma vez, antes de qualquer tela): aumenta o limite do `CursorWindow`
-  (backups FULL grandes), cria a pasta `/MyRobots`, abre o banco Room com as migrações
-  (`ALL_MIGRATIONS`), cria o `RobotRepository` e o `KawasakiTerminalManager` (esses dois vivem o
-  app inteiro) e confere a pasta de cada robô cadastrado.
-- **`MainActivity`**: pede a permissão de armazenamento (no Android 11+, "acesso a todos os
-  arquivos"; antes disso, a permissão comum) explicando por que precisa da pasta `/MyRobots`,
-  trata arquivos `.as`/`.pg` abertos de fora do app (`handleIntent`, ação VER/EDITAR — importa
-  como backup temporário com `robotId = -1` e abre no editor somente-leitura) e define o mapa
-  de rotas do `NavHost`:
+  (backups FULL grandes), abre o banco Room com as migrações (`ALL_MIGRATIONS`), cria a
+  `RobotFilesStorage`, o `RobotRepository` e o `KawasakiTerminalManager` (vivem o app inteiro)
+  e, na primeira abertura da v1.2, regrava na pasta nova os backups do banco
+  (`migrateFilesToNewFolderOnce`, ver seção 14).
+- **`MainActivity`**: **não pede permissão de armazenamento** (desde a v1.2). Trata arquivos
+  `.as`/`.pg` abertos de fora do app (`handleIntent`, ação VER/EDITAR — o texto fica só na
+  memória e abre no editor; vira backup se o usuário escolher um robô para salvar). A leitura
+  passa por `ExternalAsFile` (seção 14); o pedido é guardado num estado (`incomingIntent`)
+  preenchido no `onCreate` e no `onNewIntent`, então um segundo arquivo aberto com o app já
+  aberto também é tratado, e girar a tela não reabre o arquivo. Define o mapa de rotas do
+  `NavHost`:
 
 | Rota | Tela | Observação |
 |---|---|---|
 | `splash` | `SplashScreen` | início; some do histórico ao terminar |
-| `robot_list` | `RobotListScreen` | lista de robôs |
+| `robot_list` | `RobotListScreen` | lista de robôs; tocar no robô → `robot_dashboard/{id}/-1` |
 | `multi_terminal/{projectName}` | `MultiRobotTerminalScreen` | terminal de todos os robôs do projeto |
 | `quick_commands/{manufacturer}/{robotId}` | `QuickCommandScreen` | biblioteca de comandos |
 | `backup_list/{robotId}` | `BackupHistoryScreen` | histórico de backups do robô |
@@ -426,3 +476,56 @@ fica reservado para não mudar as referências às seções seguintes.
 
 **Pendências / Próximos passos:** as mudanças de navegação da v1.2 (tocar no robô abre o
 painel, tela de Projeto) estão em `docs/PLANO_V1_2.md`.
+
+---
+
+## 14. Arquivos e permissões
+
+**Onde ficam os arquivos (desde a v1.2).** O app **não usa mais "acesso a todos os arquivos"**
+(`MANAGE_EXTERNAL_STORAGE`, recusado pela Play para este tipo de app) nem
+`READ/WRITE_EXTERNAL_STORAGE`. As únicas permissões são de rede (`INTERNET`,
+`ACCESS_WIFI_STATE`, `ACCESS_NETWORK_STATE`).
+
+- `RobotFileStore` (interface em `:core:network`, para o terminal poder usar): listar, ler,
+  gravar e apagar os `.as` de um robô. `robotDirName(nome)` é a única regra do nome da pasta do
+  robô (minúsculo; o que não for letra, número ou `_` vira `_`). Só aceita nomes de arquivo
+  aprovados por `TransferFileNames.safeName`.
+- `MediaStoreRobotFileStore` (`:core:data`): pasta padrão **Documentos/MyRobots/<robô>/**. Não
+  precisa de permissão, mas o MediaStore **só enxerga os arquivos que o próprio app gravou**:
+  um `.as` copiado pelo PC não aparece, e depois de desinstalar/reinstalar o app perde a posse
+  dos arquivos antigos (o banco continua com tudo).
+- `SafRobotFileStore` (`:core:data`): pasta escolhida pelo usuário no seletor do Android
+  (Storage Access Framework), com a mesma estrutura `<pasta>/<robô>/`. Enxerga tudo o que está
+  na pasta. A permissão fica guardada (`takePersistableUriPermission`).
+- `RobotFilesStorage` (`:core:data`): lembra a escolha (preferência `storage`), usa a pasta
+  escolhida enquanto ela estiver disponível e cai na padrão se ela sumir.
+- Arquivos gravados com o tipo `application/octet-stream`, para o sistema não trocar a extensão
+  `.as` (ex.: `.as.txt`).
+
+**Migração da v1.1.** A pasta `/MyRobots` antiga deixa de ser acessível. Na primeira abertura, o
+`MyRobotsApp` regrava cada backup do banco (que tem o texto completo) na pasta nova. Arquivos que
+estavam só na pasta antiga e nunca entraram no banco continuam no disco: escolher `/MyRobots` em
+"Pasta dos arquivos" os importa.
+
+**Arquivos vindos de fora (`ExternalAsFile`, `:core:common`).** Usado pelo "abrir com" de outro
+app e pela importação do histórico:
+- só `content://` (um `file://` de outro app poderia apontar para os arquivos privados do app);
+- até 20 MB (confere o tamanho declarado e lê com limite, sem carregar o resto na memória);
+- só texto (recusa byte nulo);
+- no "abrir com", só `.as`/`.pg`.
+Recusas aparecem para o usuário com o motivo. O filtro do manifesto aceita só `content://`, sem
+`BROWSABLE`.
+
+**Compartilhar.** Os arquivos compartilhados são copiados para `cacheDir/shared_backups`, a única
+pasta liberada no `FileProvider` (`file_paths.xml`). O nome do arquivo é limpo por
+`FileUtil.sanitizeFileName`, que também limpa a extensão.
+
+**Codificação.** Os arquivos são lidos e gravados em UTF-8 (como na v1.1), num lugar só
+(`RobotRepository.encodeAsText/decodeAsText`). O controlador provavelmente usa ISO-8859-1; a
+troca está pendente de um arquivo real com acento (Fase 0-B.D do plano).
+
+**Pendências / Próximos passos:**
+- Testar num aparelho com Android 10 e num com Android 13+: gravar pela pasta padrão, conectar
+  uma pasta, apagar a pasta e reabrir o app.
+- Confirmar que o MediaStore mantém a extensão `.as` no Android 10 (pasta Documentos).
+- Codificação ISO-8859-1 (0-B.D) e senha do controlador cifrada (0-B.E).
