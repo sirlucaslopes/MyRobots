@@ -1,5 +1,7 @@
 package my.robots.feature.codeeditor
 
+import java.util.Locale
+
 /**
  * Filtro de quais comandos de movimento considerar ao procurar pontos nas linhas
  * selecionadas: só LMOVE (pontos cartesianos), só JMOVE (pontos de junta) ou ambos.
@@ -120,11 +122,15 @@ private fun findPointDefinitionLine(lines: List<String>, pointName: String): Int
     return null
 }
 
-/** Formata newValue com a mesma quantidade de casas decimais que o texto original tinha. */
+/**
+ * Formata newValue com a mesma quantidade de casas decimais que o texto original tinha.
+ * Sempre com PONTO decimal (Locale.ROOT): o controlador AS não entende vírgula, e o format
+ * sem locale usaria o idioma do celular ("101,500" num celular em português).
+ */
 private fun formatNumberLike(original: String, newValue: Double): String {
     val decimals = original.substringAfter('.', "").takeWhile { it.isDigit() }.length
     val digits = if (decimals in 1..6) decimals else 3
-    return "%.${digits}f".format(newValue)
+    return String.format(Locale.ROOT, "%.${digits}f", newValue)
 }
 
 /**

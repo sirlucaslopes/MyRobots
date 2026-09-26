@@ -94,7 +94,6 @@ class PointTransformTest {
         assertNotNull(result.error)
     }
 
-    @org.junit.Ignore("Bug da v1.1: String.format usa o idioma do celular (\"101,500\"). Corrigido no commit seguinte.")
     @Test
     fun celularEmPortugues_usaPontoDecimal() {
         // O controlador AS só entende ponto como separador decimal.
