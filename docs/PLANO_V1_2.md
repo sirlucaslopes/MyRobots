@@ -1,7 +1,9 @@
 # Plano MyRobots v1.2
 
-> Entrega: ao aprovar, este texto é gravado como `docs/PLANO_V1_2.md` (primeiro commit da branch
-> nova, antes de qualquer código). Nenhum arquivo de código é alterado antes disso.
+> Branch: `melhorias/v1.2`. **Situação em 25/09/2026:** Fase 0 (passos 1–11) feita. Fase 0-B
+> (auditorias de Play, permissões e intents) e Fase 0-C (testes) planejadas, ainda não
+> implementadas. Fase 1: passos 1–2 feitos, passo 3 guardado em `git stash` ("Fase 1 passo 3
+> (WIP)"). Skills Android instaladas em `.claude/skills/` (commit `fc4d670`).
 
 ## Contexto
 
@@ -89,6 +91,10 @@ Nestes pontos, vale o código. Cada um é tratado na fase indicada.
 ## Fase 0: Segurança antes de distribuir
 
 **Objetivo:** nenhuma atualização do app pode apagar ou falsificar dados do usuário.
+
+**Situação:** passos 1–11 feitos (commits `8654bd9` a `96f040d`). O `MigrationTest` compila,
+mas ainda não rodou num aparelho. O que as auditorias da Play e de segurança encontraram
+depois disso está na **Fase 0-B**, e os testes na **Fase 0-C**, logo abaixo.
 
 **Módulos afetados:**
 - `:core:database`: `AppDatabase`, novo `DatabaseMigrations.kt`, `schemas/`, testes de migração.
@@ -182,9 +188,305 @@ destrutivo. A primeira migração de verdade (4→5) é na Fase 2.
 
 ---
 
+## Fase 0-B: Publicação na Play e segurança (achados das auditorias)
+
+**Objetivo:** o app poder ser publicado na Google Play sem violar política e sem expor os dados
+do usuário (arquivos dos robôs e senha de login do controlador).
+
+**Origem:** três auditorias feitas em 25/09/2026 com as skills `play-policy-insights`
+(relatório gerado pelo script da skill), `android-permissions-security` e
+`android-intent-security`. O `PLANO_MELHORIAS.md` citado no pedido não existe no repositório.
+A decisão de armazenamento usada aqui é a que você descreveu: pasta automática
+`Documentos/MyRobots` via MediaStore, com opção de escolher outra pasta pelo Storage Access
+Framework (SAF).
+
+### Achados, em ordem de gravidade
+
+**Crítico**
+
+1. **`MANAGE_EXTERNAL_STORAGE` sem justificativa na política.** *(play-policy-insights,
+   verificado pelo crítico da skill)*
+   - `AndroidManifest.xml:10` declara a permissão e `MainActivity.kt:168/172` manda o usuário
+     para "acesso a todos os arquivos".
+   - Todo acesso a arquivo é só em `<armazenamento>/MyRobots` (`MyRobotsApp`, `RobotRepository`,
+     `KawasakiTerminalManager.getRobotDir`, `RobotViewModel.syncRobotBackups`).
+   - Um app de robôs não é gerenciador de arquivos, antivírus nem backup do aparelho, então a
+     Play recusa. Correção: item A (migração de armazenamento).
+2. **O robô (ou qualquer aparelho no IP dele) escolhe o caminho do arquivo no celular.**
+   *(achado próprio, na linha da android-intent-security: entrada externa sem validação)*
+   - No protocolo de transferência, o nome do arquivo vem do controlador: bloco `B` (SAVE) e
+     bloco `A` (LOAD).
+   - O nome é usado direto em `File(getRobotDir(...), fileName)` (`startSaveFile` e
+     `prepareLoadFile` em `KawasakiTerminalManager`), sem limpeza.
+   - Um bloco `A` com `../../../../data/data/my.robots/databases/robot_database` faz o app
+     **enviar o próprio banco** (com as senhas dos robôs) pela rede. Um `B` com `../` grava
+     fora da pasta do robô.
+   - O telnet não autentica o servidor: basta um aparelho responder no IP cadastrado.
+   - Correção: item B.
+
+**Importante**
+
+3. **Armazenamento quebrado no Android 10 hoje.** *(android-permissions-security)*
+   - No Android 10 (API 29, dentro do `minSdk 28`), `WRITE_EXTERNAL_STORAGE` sozinha não dá
+     acesso a `/sdcard/MyRobots` por `java.io.File`, e o manifesto não tem
+     `requestLegacyExternalStorage`. O manifesto antigo apagado na Fase 0 tinha.
+   - As gravações falham caladas (`saveFileToRobotFolder` engole a exceção).
+   - Resolvido pelo item A. Até lá, é um bug real para quem usa Android 10.
+4. **Senha do controlador em texto puro e incluída no backup na nuvem.** *(play-policy-insights
+   Data Safety e android-permissions-security)*
+   - `Robot.loginPassword` é uma coluna comum da tabela `robots`.
+   - `android:allowBackup="true"` com `data_extraction_rules.xml` e `backup_rules.xml` só com
+     exemplos comentados: o banco inteiro, com as senhas, vai para o backup do Google e para a
+     transferência entre aparelhos.
+   - Correção: item E.
+5. **O filtro de "abrir arquivo" aceita demais.** *(android-intent-security)*
+   - A `MainActivity` é exportada (obrigatório, é a de LAUNCHER) e aceita `VIEW`/`EDIT` com:
+     - esquema `file://` (além de `content://`);
+     - categoria `BROWSABLE`;
+     - qualquer `text/plain` ou `application/octet-stream`, sem conferir extensão nem conteúdo
+       depois.
+   - Com `file://`, outro app pode mandar `file:///data/data/my.robots/databases/...`. O app lê o
+     próprio arquivo privado, mostra no editor e, se o usuário salvar num robô, grava a cópia na
+     pasta compartilhada. É um caso de "confused deputy".
+   - Correção: item C.
+6. **Arquivo externo sem limite de tamanho.** *(android-intent-security)*
+   - `handleIntent` (`MainActivity.kt:640`) e a importação do histórico
+     (`BackupHistoryScreen.kt:93`) fazem `readText()` do arquivo inteiro.
+   - Um arquivo enorme (ou um provider que nunca termina) derruba o app por falta de memória.
+   - Correção: item C.
+7. **Fluxo de pedir permissão incompleto.** *(android-permissions-security)*
+   - Falta `shouldShowRequestPermissionRationale` e o tratamento de "negado para sempre" (levar
+     para `ACTION_APPLICATION_DETAILS_SETTINGS`).
+   - O aviso aparece de novo a cada abertura do app.
+   - "Agora não" deixa o app seguir sem pasta, e as gravações falham caladas.
+   - Resolvido pelo item A: no Android 10+ não sobra permissão de armazenamento para pedir, e no
+     Android 9 fica um fluxo de três estados.
+
+**Médio**
+
+8. **Um segundo arquivo aberto com o app já aberto é ignorado.** *(android-intent-security,
+   seção onNewIntent)*
+   - `onNewIntent` chama `setIntent`, mas o processamento está em `LaunchedEffect(intent)`
+     dentro do `setContent`, que não recompõe com a Activity `singleTask` já aberta.
+   - Correção: item C (guardar o intent num estado atualizado em `onNewIntent`, com a mesma
+     validação do `onCreate`).
+9. **Acentos corrompidos (a confirmar com arquivo real).**
+   - O terminal grava os bytes do SAVE como vieram (o controlador usa ISO-8859-1), mas a
+     sincronização (`file.readText()`), a importação e o `handleIntent` leem como UTF-8, e
+     `writeText` grava UTF-8.
+   - Um comentário com "ç/ã" pode virar `�` e voltar assim para o robô no LOAD.
+   - Correção: item D.
+10. **FileProvider amplo demais.** *(android-permissions-security, "URI grants com escopo")*
+    - `file_paths.xml` expõe `cache-path path="."` (o cache inteiro) e
+      `external-path path="MyRobots"`, que nenhum código usa: os dois compartilhamentos usam
+      `cacheDir/shared_backups`.
+    - Correção: item C.
+11. **Falhas de arquivo caladas.**
+    - `saveFileToRobotFolder` tem `catch (e: Exception) { }` e `handleIntent` só faz
+      `printStackTrace`. O usuário acha que salvou.
+    - Correção: junto do item A (a camada nova devolve sucesso/erro e a tela avisa).
+
+**Baixo**
+
+12. **`android:usesCleartextTraffic="true"` sobrou da API HTTP removida.** Sockets TCP (telnet)
+    não passam por essa regra, então dá para tirar.
+13. **Nome do arquivo de compartilhar vem do nome do programa sem limpeza.**
+    `shareProgramsContent` (`RobotDashboardScreen`) usa `"${programs[0].name}.as"` em `cacheDir`.
+    Um nome com `../` vindo de um backup grava fora de `shared_backups` (só dentro da área
+    privada do app).
+14. **A extensão não é limpa em `FileUtil.sanitizeFileName`.** Ela é preservada como veio.
+    Conferi que não permite sair da pasta (a parte após o último ponto não tem `..`), mas uma `/`
+    na extensão faz o arquivo cair numa subpasta ou falhar calado.
+15. **SSID do Wi-Fi aparece como `<unknown ssid>` no Android 8.1+.**
+    - Ler o SSID exige permissão de localização.
+    - **Não** adicione localização: é permissão sensível na Play e não é função central.
+    - Mostre só o IP do celular (via `ConnectivityManager`/`LinkProperties`) ou "rede atual".
+
+**Play Console (não é código, mas bloqueia a publicação)**
+
+16. **Política de privacidade:** a Play exige a URL no Play Console. Recomendo também um link no
+    app (menu da lista de robôs). O texto deve dizer que:
+    - os dados (robôs, IPs, login dos controladores, backups) ficam só no aparelho;
+    - o login é enviado ao controlador por telnet, sem criptografia;
+    - o app não usa SDK de análise nem de anúncios.
+17. **Formulário Data Safety.** O script da skill sugere declarar "Files and docs" e "User IDs"
+    como coletados, porque o app envia arquivos e login para fora do aparelho. Minha leitura é
+    diferente: esses envios são iniciados pelo usuário e vão para o compartilhamento do Android
+    ou para o próprio controlador dele, nunca para o desenvolvedor. Por isso não seriam "coleta".
+    **Confirme com o texto da Central de Ajuda antes de enviar.** Nas práticas de segurança,
+    responder que os dados **não** são criptografados em trânsito (telnet) e que o usuário pode
+    apagá-los (excluir robô ou desinstalar).
+18. **Acesso para revisão (App access):** o app não tem login, mas quase tudo precisa de um
+    controlador Kawasaki na rede. Explique isso nas instruções e ofereça um `.as` de exemplo
+    para abrir no editor e no painel sem robô.
+
+**Pontos de atenção da solução MediaStore + SAF (pedido "c")**
+
+- **MediaStore só enxerga os arquivos que o próprio app criou.**
+  - No Android 11+, um `.as` copiado para `Documentos/MyRobots` pelo PC ou por outro app não
+    aparece na consulta do MediaStore sem permissão, e a "sincronização da pasta" atual depende
+    disso.
+  - **Depois de desinstalar e reinstalar, o app perde a posse dos próprios arquivos antigos.**
+  - Para ler o que o usuário colocou na pasta, o caminho é o SAF: pedir a árvore
+    `Documentos/MyRobots` com `ACTION_OPEN_DOCUMENT_TREE` e guardar a permissão com
+    `takePersistableUriPermission`.
+  - **Recomendação:** o MediaStore cria a pasta e grava, e um "Conectar pasta" (SAF) no primeiro
+    uso libera a leitura completa.
+- **Limites do SAF:** no Android 11+ o seletor não deixa escolher a raiz do armazenamento, a raiz
+  de `Download` nem `Android/data`. `Documentos/MyRobots` e `/MyRobots` podem ser escolhidas.
+  Tratar a permissão perdida (pasta apagada ou permissão revogada) pedindo de novo.
+- **Android 9 (`minSdk 28`)** não tem `RELATIVE_PATH` no MediaStore. Ou mantém
+  `WRITE_EXTERNAL_STORAGE` com `maxSdkVersion="28"` e `java.io.File` só nessa versão, ou sobe o
+  `minSdk` para 29 (ver Perguntas em aberto).
+- **O terminal grava e lê com `java.io.File`** (SAVE, LOAD e pasta do robô). Ele passa a receber
+  uma interface de acesso a arquivos (`OutputStream`/`InputStream` por nome), definida no
+  `:core:network` e implementada no `:core:data`, para não quebrar a regra "network só depende
+  de model".
+- **Migração dos arquivos que já existem:** a versão nova não declara mais
+  `MANAGE_EXTERNAL_STORAGE`, então perde o acesso a `/MyRobots` ao atualizar.
+  - O banco já tem o texto completo de cada backup (`Backup.content`), e dá para regravar os
+    arquivos em `Documentos/MyRobots` a partir dele no primeiro uso.
+  - Arquivos que estavam só na pasta e nunca entraram no banco ficam no disco. O usuário importa
+    com "Conectar pasta" apontando para `/MyRobots`.
+- **Política:** MediaStore e SAF não exigem declaração nem formulário na Play, e o aviso de
+  permissão da `MainActivity` deixa de existir no Android 10+.
+
+### Correções (passos em ordem, um commit cada)
+
+- **B. Nome de arquivo do protocolo (P, primeiro, é segurança).**
+  - Função `safeTransferFileName(name)`: aceita só `[A-Za-z0-9_.-]`, sem `..`, sem `/` ou `\`,
+    e com tamanho máximo.
+  - Usada em `startSaveFile` e `prepareLoadFile`. Nome inválido responde com erro ao robô e
+    escreve o motivo no terminal.
+  - Conferir também com `canonicalPath` que o arquivo final está dentro da pasta do robô.
+  - Testes JVM com `../`, absoluto, vazio e nome normal.
+  - Aplicar a mesma limpeza no nome de `shareProgramsContent` (item 13) e na extensão em
+    `sanitizeFileName` (item 14).
+- **A. Migração de armazenamento (G).**
+  1. Interface de arquivos do robô (listar, ler, gravar, apagar por nome) no `:core:network`,
+     com implementações no `:core:data`:
+     - MediaStore (Android 10+);
+     - SAF (pasta escolhida);
+     - legado `java.io.File` (Android 9, se o `minSdk` continuar 28).
+
+     Uma função só para o nome da pasta do robô, que já estava no plano da 2.0.
+  2. `RobotRepository`, `RobotViewModel.syncRobotBackups`, `KawasakiTerminalManager`
+     (SAVE/LOAD) e `MyRobotsApp` passam a usar a interface. Nenhum `getExternalStorageDirectory`
+     sobra.
+  3. Tela/menu "Pasta dos arquivos": mostra a pasta atual e oferece "Conectar pasta" /
+     "Escolher outra pasta" (SAF).
+  4. Migração do primeiro uso: regrava os backups do banco na pasta nova e oferece importar
+     `/MyRobots` antigo pelo SAF.
+  5. Manifesto: remover `MANAGE_EXTERNAL_STORAGE` e `READ_EXTERNAL_STORAGE`, deixar
+     `WRITE_EXTERNAL_STORAGE` com `maxSdkVersion="28"` (ou nada, se `minSdk` 29), e remover o
+     aviso de permissão da `MainActivity` (ou deixá-lo só para o Android 9, com o fluxo de três
+     estados).
+  6. Botão "Arquivos" do terminal (`RobotDashboardScreen`): abrir a pasta pelo URI do SAF ou
+     do MediaStore em vez do caminho fixo `primary%3AMyRobots`.
+  7. As gravações devolvem sucesso ou erro, e as telas mostram o erro (item 11).
+- **C. Intents, FileProvider e manifesto (M).**
+  - Filtro `VIEW`/`EDIT`: só `content://`, sem `BROWSABLE`.
+  - `handleIntent`:
+    - consultar `OpenableColumns.SIZE` e recusar acima de um limite (sugestão: 20 MB; um SAVE/FULL
+      real é bem menor, confirmar);
+    - ler com limite mesmo sem SIZE;
+    - aceitar só nome terminado em `.as`/`.pg` e texto sem bytes nulos;
+    - avisar o usuário quando recusar.
+  - O mesmo limite vale na importação do histórico.
+  - `onNewIntent`: o intent vira um estado (ex.: `MutableStateFlow<Intent?>`) observado pelo
+    Compose, com a mesma validação.
+  - `file_paths.xml`: só `<cache-path name="shared_files" path="shared_backups/" />`.
+  - Tirar `usesCleartextTraffic`.
+- **D. Codificação dos arquivos AS (P, depois de confirmar com um arquivo real com acento).**
+  Ler e gravar sempre em ISO-8859-1 (o mesmo `charset` do terminal), numa função só da camada
+  de arquivos. Teste JVM com "ç/ã/°".
+- **E. Senha do controlador (M, precisa de decisão, ver Perguntas em aberto).** Recomendação:
+  - cifrar `loginPassword` com uma chave AES-GCM do Android Keystore (a chave não sai do
+    aparelho nem vai para o backup);
+  - excluir do backup na nuvem só o que não faz sentido restaurar;
+  - depois de uma restauração, a senha não decifra e o app pede para digitar de novo.
+
+  Como muda o dado gravado, entra na migração 4→5 da Fase 2.1 ou numa 5→6 própria. Se preferir o
+  mínimo: `data_extraction_rules.xml`/`backup_rules.xml` excluindo o banco do backup na nuvem.
+- **F. Play Console (sem código):** política de privacidade, Data Safety e instruções de acesso
+  (itens 16–18).
+- **GUIDE.md:** seções 2, 3, 4, 5, 13 e uma seção nova "Arquivos e permissões".
+
+**Riscos e testes:**
+- **Migração de armazenamento:**
+  - Testar num Android 9, num 10 e num 13+, instalando **por cima** da versão atual.
+  - Conferir que os backups continuam visíveis e que um SAVE novo cai em
+    `Documentos/MyRobots/<robô>`.
+- **SAF:** conectar a pasta, apagar a pasta pelo gerenciador de arquivos, reabrir o app. Ele
+  precisa pedir a pasta de novo sem travar.
+- **Com os robôs reais:** SAVE e LOAD depois da migração (o arquivo precisa sair idêntico, com
+  `fc /b`) e um LOAD de um arquivo com acento no comentário.
+
+**Estimativa:** A = G. B, D = P. C, E = M.
+
+---
+
+## Fase 0-C: Estrutura de testes (skill testing-setup)
+
+**Objetivo:** ter uma rede de testes para o que protege dados e para a lógica da linguagem AS,
+antes de mexer nos parsers e no armazenamento.
+
+**Diferenças em relação à skill:** a `testing-setup` manda, por padrão, instalar Hilt, testes de
+tela com Robolectric, screenshot e Jacoco. Pelo escopo que você definiu (dados + lógica AS, sem
+testes de tela), fica **só JUnit4 local + `MigrationTestHelper` no aparelho**. Os ViewModels já
+recebem as dependências por factory, e os testes de lógica pura não precisam de injeção de
+dependência. Jacoco fica como opcional para depois.
+
+**Situação atual:** já existem `AsProgramBlocksTest` (11 testes JVM, `:core:common`) e
+`MigrationTest` (v4, `:core:database`, ainda não rodou num aparelho). O resto são os exemplos
+do template no `:app`.
+
+**Passos (um commit cada):**
+
+1. **Rodar o `MigrationTest` num aparelho** (`:core:database:connectedDebugAndroidTest`) e anotar
+   o resultado. Na Fase 2.1, ele ganha o caso 4→5 (e 5→6, se a senha cifrada vier depois).
+2. **Arquivo de exemplo real.** Um SAVE/FULL anonimizado (IPs e nomes trocados) em
+   `core/common/src/test/resources/`, com programas, `.TRANS`, `.REALS`, `.sprdb`, `.ERRLOG`,
+   `.OPELOG` e `.PGM_EDT_LOG`. Serve de base para todos os testes abaixo (e responde a pergunta
+   da BASE).
+3. **Testes de caracterização primeiro, sem mudar comportamento.** Os parsers saem do
+   `RobotDashboardViewModel` e do `RobotRepository` para o `:core:common/ascode`, com o mesmo
+   código, e ganham testes que fixam a saída atual para o arquivo de exemplo:
+   - `PROGRAM_HEADER_REGEX` → `AsProgramBlocks.parseHeader` (data, hora e comentário, cada parte
+     opcional);
+   - `parseLogSection` e `parseErrorLog`/`buildErrorLogEntry` → `AsControllerLogs` (entrada de
+     várias linhas, fim de seção sem `.END` e formatos que não batem com o parser);
+   - `calculateAndApplyMetadata` → `AsBackupStats.count(content)` (`programsCount`,
+     `variablesCount` e as seções de diagnóstico ignoradas por `FileUtil.sanitizeAsContent`);
+   - `FileUtil.sanitizeAsContent` (seções desconhecidas sem `.END`).
+4. **`PointTransform`** (`:feature:codeeditor`, já é Kotlin puro). Adicionar
+   `testImplementation(libs.junit)` e testar:
+   - `applyPointShift` com LMOVE, JMOVE e ambos;
+   - `applyPointMirror` em X, Y e Z;
+   - ponto usado por outro programa, que precisa ser ignorado e reportado;
+   - formatação dos números preservada.
+5. **Nome de arquivo do protocolo e extensão** (item B da 0-B).
+6. **Na Fase 2**, cada peça nova já nasce com teste:
+   - `KawasakiStreamParser` (fluxo partido em todos os pontos);
+   - `LayoutOps`;
+   - `rewriteHeader`/`normalizedBody`;
+   - cada `ProgramRule` com **pelo menos um caso que passa e um que falha** (ex.: INZONE depois
+     de LMOVE passa; INZONE sem movimento antes falha);
+   - `ProjectDao.renameProject` com banco em memória (teste no aparelho).
+
+**Como rodar:** `.\gradlew.bat testDebugUnitTest` (JVM, todos os módulos) e
+`.\gradlew.bat :core:database:connectedDebugAndroidTest` (aparelho).
+
+**Estimativa:** M.
+
+---
+
 ## Fase 1: Navegação centrada no robô
 
 **Objetivo:** tocar no robô leva ao painel dele, com o estado e as ações à vista.
+
+**Situação:** passo 1 (`f45811e`) e passo 2 (`7febb29`) feitos. O passo 3 está em `git stash`
+("Fase 1 passo 3 (WIP)"), editado mas ainda não compilado.
 
 **Módulos afetados:**
 - `:core:model`: recebe o `HeartbeatState`, movido do `:core:network`.
@@ -237,6 +539,23 @@ Nenhuma feature passa a depender de outra.
    - Os atalhos de Programas, Variáveis etc. ficam desabilitados.
    - Na Fase 2.0, esse estado ganha o botão "Fazer backup agora".
 7. **GUIDE.md:** seções 7, 10 e 13 (a observação da rota `robot_list`).
+8. **Edge-to-edge (skill `edge-to-edge`), verificar em todas as telas mexidas nesta fase:**
+   - campo "Enviar comando" do terminal do painel;
+   - Terminal Geral;
+   - barra de ações e `LineEditDialog` do `AsCodeViewer`;
+   - `RobotDialog`;
+   - o estado vazio novo do painel.
+
+   Regras do checklist da skill:
+   - todo campo de texto tem um pai que trata o teclado (`imePadding`, `fitInside` ou
+     `contentWindowInsets` com IME), **sem padding duplo**;
+   - listas usam os insets em `contentPadding`;
+   - FAB fica acima da barra de navegação;
+   - `Dialog` em tela cheia usa `decorFitsSystemWindows = false`.
+
+   Achado estático: `Theme.kt:99` ainda define `window.statusBarColor`, que o Android 15+ ignora
+   com edge-to-edge e é obsoleto. Remover e deixar só `isAppearanceLightStatusBars`. Conferir no
+   aparelho, com teclado aberto e com navegação por gestos e por 3 botões.
 
 **Riscos e testes:**
 - **Empilhamento de painéis** ao voltar do histórico. Testar: lista → R12 → histórico → backup
@@ -263,7 +582,12 @@ cada robô e ações em lote que mostram o resultado robô por robô.
   deixaria o `:feature:terminal` com duas responsabilidades.
 
 A Fase 2 é grande. Por isso está dividida em **2.0 (infraestrutura)**, **2.1 (cabine)** e
-**2.2 (ações)**. Cada parte pode ser entregue e testada sozinha.
+**2.2 (ações)**. Cada parte pode ser entregue e testada sozinha. Antes dela, recomendo o passo
+**2.pre** (rotas tipadas; ver "Navegação: migrar ou não" no fim do plano).
+
+Em toda tela nova (Projeto, ações, comparação) e no Terminal Geral com abas, aplicar o checklist
+de edge-to-edge da Fase 1 (passo 8). As regras de "Verificar erros" nascem com teste unitário
+(um caso que passa e um que falha por regra; ver Fase 0-C).
 
 ### Mudanças de banco (4 → 5, todas na 2.1)
 
@@ -582,8 +906,15 @@ a mensagem e, quando houver, a barra de andamento. Os robôs desconectados apare
 ## Ordem de execução e dependências
 
 ```
-Fase 0 ──► Fase 1 ──► 2.0 ──► 2.1 ──► 2.2 (Backup de todos → Terminal Geral → Buscar → Regras → Copiar programa → Copiar base)
+Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fase 1 ──► 2.pre ──► 2.0 ──► 2.1 ──► 2.2
 ```
+
+- **0-B.B vem primeiro:** é pequeno e fecha a falha de segurança mais grave.
+- **Os testes de caracterização (0-C) vêm antes** da migração de armazenamento e de mexer nos
+  parsers.
+- **A migração de armazenamento (0-B.A) precisa estar pronta antes de publicar**, mas não
+  bloqueia as Fases 1 e 2 no seu uso interno. Se quiser a navegação nova antes, dá para fazer a
+  Fase 1 logo depois da 0-B.B e da 0-C.
 
 - **A Fase 0 vem antes de tudo.** A 2.1 muda o schema, e sem migrações isso apagaria os dados.
   O `AsProgramBlocks` da Fase 0 é a base da 2.0 e da 2.2.
@@ -625,6 +956,11 @@ Fase 0 ──► Fase 1 ──► 2.0 ──► 2.1 ──► 2.2 (Backup de tod
 - **Seção 12:** removida (`:feature:settings`).
 - **Seção nova:** `:feature:project` (cabine, modo de edição, equipamentos, as cinco ações e a
   comparação).
+- **Seção nova "Arquivos e permissões"** (Fase 0-B): onde ficam os arquivos (MediaStore
+  `Documentos/MyRobots` ou pasta SAF), o que acontece ao reinstalar, a política de nomes de
+  arquivo do protocolo, os limites de tamanho e tipo ao abrir arquivo externo, a codificação
+  ISO-8859-1 e como a senha do controlador é guardada.
+- **Seção 0:** "Como testar" (os comandos da Fase 0-C e onde fica o arquivo de exemplo).
 - **Tabela de rotas da seção 13:**
 
 | Rota | Mudança |
@@ -655,8 +991,42 @@ Estas ainda bloqueiam alguma parte:
 3. **LOAD sobre programa existente:** o controlador pede confirmação? Se não souber, é o teste 4
    com os robôs reais, que precisa ser feito antes do Copiar programa.
 4. **Idade de backup "antigo" no Buscar programa:** proponho 7 dias. Serve?
-5. **Alterações locais não commitadas** (`libs.versions.toml` e wrapper do Gradle): entram na
-   branch nova ou ficam de fora?
+5. ~~Alterações locais não commitadas~~: respondida (commit separado `ed78a4a`).
+6. **`minSdk` 28 ou 29?** Subir para 29 (Android 10) tira o caminho legado do Android 9 na
+   migração de armazenamento. Deixa de fora só aparelhos com Android 9. Algum celular de uso na
+   fábrica ainda tem Android 9?
+7. **Senha do controlador (0-B.E):** cifrar com o Android Keystore (recomendado; depois de trocar
+   de celular, a senha precisa ser digitada de novo) ou só tirar o banco do backup na nuvem?
+8. **Arquivo SAVE/FULL de exemplo:** preciso de um real, anonimizado, para os testes da 0-C, para
+   confirmar a codificação dos acentos (0-B.D) e para a pergunta da BASE (item 1).
+
+## Navegação: migrar ou não (antes da Fase 2)
+
+Hoje o app usa Navigation Compose 2.8 com rotas em texto (`"robot_dashboard/{robotId}/{backupId}?feature={feature}"`,
+`URLEncoder` à mão para o nome do projeto, `DashboardFeature.valueOf(texto)`). A Fase 2
+acrescenta pelo menos duas rotas e mexe em outras quatro.
+
+| Opção | Custo | Risco | Ganho |
+|---|---|---|---|
+| Manter rotas em texto | nenhum | médio: erros de digitação só aparecem rodando (o `?feature=Logs` da Fase 0 é um exemplo), e o R8 pode quebrar `DashboardFeature.valueOf` (ver R8 abaixo) | nenhum |
+| **Rotas tipadas do Navigation 2** (`@Serializable` + `composable<Rota>`) | **P/M**: plugin `kotlinx-serialization`, uma classe por rota, trocar os `navigate(...)` da `MainActivity` | baixo: mesma biblioteca, mesmo `NavHost`, dá para migrar rota por rota | argumentos checados na compilação, fim do `URLEncoder` à mão e do enum por texto |
+| Navigation 3 | **G**: reescrever o `NavHost` com a pilha controlada pelo app | médio/alto: API e modelo diferentes, e a Fase 2 ficaria em cima de uma migração recente | cenas adaptativas (lista + detalhe), que só fazem sentido em tablet |
+
+**Recomendação:** passo **2.pre** = migrar para **rotas tipadas do Navigation 2** antes da Fase 2,
+num commit por rota, sem mudar comportamento. **Não** migrar para o Navigation 3 agora. Por
+isso a skill `navigation-3` não precisa ser instalada.
+
+## Antes do APK de release (item do fim)
+
+- **R8 (skill `r8-analyzer`, a instalar quando for gerar o release):** hoje
+  `isMinifyEnabled = false`. Ao ligar:
+  - conferir as regras do Room (vêm com a biblioteca);
+  - conferir a reflexão em `CursorWindow.sCursorWindowSize` (é classe do sistema, o R8 não
+    renomeia, mas testar);
+  - **cuidado com rotas em texto e `enum.valueOf`**: `DashboardFeature.valueOf("Terminal")` com o
+    texto fixo na `MainActivity` quebra se o R8 renomear o enum. O 2.pre resolve.
+  - Gerar o release, instalar e passar pelas telas com um robô real.
+- **Adaptive (tablet):** fora do escopo. Só se decidir usar o app em tablet.
 
 ## Verificação ao final de cada fase
 
