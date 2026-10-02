@@ -77,6 +77,7 @@ internal val ptBR = Locale("pt", "BR")
 @Composable
 fun RobotInfoCard(
     robotName: String,
+    registeredSerial: String?,
     info: RobotInfo,
     health: RobotHealth?,
     backupTimestamp: Long?,
@@ -113,7 +114,8 @@ fun RobotInfoCard(
                 if (info.model != null) {
                     Text(robotName, color = HudText, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                 }
-                info.serialNumber?.let {
+                // série: a cadastrada no robô ("CPF"); sem ela, a do backup
+                (registeredSerial ?: info.serialNumber)?.let {
                     Text("Nº $it", color = HudText.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                 }
             }
@@ -264,6 +266,15 @@ private fun HealthSheet(
                     "Faça um novo SAVE/FULL para o painel mostrar a situação atual."
                 )
             }
+            if (health.foreignBackups.isNotEmpty()) {
+                StatusRow(
+                    Icons.Rounded.Error, StatusAttention,
+                    if (health.foreignBackups.size == 1) "1 arquivo na pasta é de outro robô"
+                    else "${health.foreignBackups.size} arquivos na pasta são de outro robô",
+                    health.foreignBackups.joinToString("\n") { (file, serial) -> "$file (série $serial)" } +
+                        "\nConfira se foram copiados para o robô certo."
+                )
+            }
             health.seriousGroups.forEach { g -> ErrorGroupRow(g, Icons.Rounded.Error, StatusSerious) }
 
             val process = health.errorGroups.filter { it.severity == ErrorSeverity.PROCESS }
@@ -337,7 +348,7 @@ private class InfoItem(
 
 /**
  * Memória de programas do controlador (comando FREE): barra da memória usada, quanto está
- * livre e quando foi lida. "Ler agora" só funciona com o robô conectado. Abaixo de 10%
+ * livre e quando foi lida. Sem conexão, o botão vira "Conectar e ler". Abaixo de 10%
  * livre, o texto avisa.
  */
 @Composable
@@ -364,7 +375,7 @@ private fun MemorySection(
             if (isReading) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
             } else {
-                TextButton(onClick = onRead, enabled = isConnected) { Text("Ler agora") }
+                TextButton(onClick = onRead) { Text(if (isConnected) "Ler agora" else "Conectar e ler") }
             }
         }
         if (memory != null) {

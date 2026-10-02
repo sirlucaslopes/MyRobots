@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import my.robots.core.common.ExternalAsFile
+import my.robots.core.data.ControllerChecks
 import my.robots.core.common.ascode.AsProgramBlocks
 import my.robots.core.model.Manufacturer
 import my.robots.feature.codeeditor.AsCodeViewer
@@ -103,7 +104,7 @@ class MainActivity : ComponentActivity() {
         val app = application as MyRobotsApp
         val repository = app.robotRepository
         val terminalManager = app.terminalManager
-        val memoryReader = app.memoryReader
+        val controllerChecks = app.controllerChecks
 
         // Daqui para baixo é a interface (Jetpack Compose).
         setContent {
@@ -298,7 +299,7 @@ class MainActivity : ComponentActivity() {
                             }
                             
                             val dashboardViewModel: RobotDashboardViewModel = viewModel(
-                                factory = RobotDashboardViewModelFactory(repository, robotId, terminalManager, memoryReader, backupId)
+                                factory = RobotDashboardViewModelFactory(repository, robotId, terminalManager, controllerChecks, backupId)
                             )
                             
                             RobotDashboardScreen(
@@ -567,6 +568,10 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+
+                // Perguntas das checagens do login (relógio errado, série diferente), por cima de
+                // qualquer tela.
+                ControllerCheckDialogs(controllerChecks)
             }
         }
     }
@@ -647,4 +652,52 @@ private fun RobotPickerDialog(
             TextButton(onClick = onDismiss) { Text("Cancelar") }
         }
     )
+}
+
+/**
+ * Perguntas que as checagens do login (`ControllerChecks`) fazem ao usuário, uma de cada vez:
+ * - série do controlador diferente da cadastrada (pode ser o robô errado);
+ * - relógio do robô diferente do celular: corrigir com a hora do celular ou deixar como está.
+ */
+@Composable
+private fun ControllerCheckDialogs(checks: ControllerChecks) {
+    val mismatches by checks.serialMismatches.collectAsState()
+    val clockIssues by checks.clockIssues.collectAsState()
+    val mismatch = mismatches.firstOrNull()
+    val clock = clockIssues.firstOrNull()
+
+    if (mismatch != null) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Série diferente no ${mismatch.robotName}") },
+            text = {
+                Text(
+                    "O controlador em ${mismatch.ip} tem a série ${mismatch.found}, mas o ${mismatch.robotName} " +
+                        "está cadastrado com a série ${mismatch.registered}.\n\nPode ser o robô errado (IP trocado). " +
+                        "Se o controlador foi trocado, atualize o cadastro."
+                )
+            },
+            confirmButton = { TextButton(onClick = { checks.acceptSerial(mismatch) }) { Text("Atualizar para ${mismatch.found}") } },
+            dismissButton = { TextButton(onClick = { checks.dismissSerial(mismatch) }) { Text("Manter ${mismatch.registered}") } }
+        )
+    } else if (clock != null) {
+        val fmt = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss")
+        val minutes = kotlin.math.abs(clock.offsetSeconds) / 60
+        val diff = if (minutes >= 60) "${minutes / 60} h ${minutes % 60} min" else "$minutes min"
+        val direction = if (clock.offsetSeconds > 0) "adiantado" else "atrasado"
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Relógio do ${clock.robotName}") },
+            text = {
+                Text(
+                    (if (clock.fixFailed) "O controlador não aceitou a correção.\n\n" else "") +
+                        "O relógio do robô está $diff $direction.\n\n" +
+                        "Robô: ${clock.robotTime.format(fmt)}\nCelular: ${clock.phoneTime.format(fmt)}\n\n" +
+                        "Corrigir com a hora do celular?"
+                )
+            },
+            confirmButton = { TextButton(onClick = { checks.fixClock(clock) }) { Text(if (clock.fixFailed) "Tentar de novo" else "Corrigir") } },
+            dismissButton = { TextButton(onClick = { checks.dismissClock(clock) }) { Text("Agora não") } }
+        )
+    }
 }

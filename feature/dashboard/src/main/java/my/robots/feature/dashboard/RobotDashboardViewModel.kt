@@ -16,7 +16,8 @@ import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsControllerLogs
 import my.robots.core.common.ascode.AsRobotInfo
 import my.robots.core.common.ascode.ControllerMemory
-import my.robots.core.data.ControllerMemoryReader
+import my.robots.core.data.ControllerChecks
+import my.robots.core.model.HeartbeatState
 import my.robots.core.common.ascode.RobotInfo
 import my.robots.core.common.ascode.DailyUsage
 import my.robots.core.common.ascode.RobotUsageHistory
@@ -89,7 +90,7 @@ class RobotDashboardViewModel(
     private val repository: RobotRepository,
     private val robotId: Int,
     private val terminalManager: KawasakiTerminalManager,
-    private val memoryReader: ControllerMemoryReader,
+    private val checks: ControllerChecks,
     private val initialBackupId: Int? = null
 ) : ViewModel() {
 
@@ -126,6 +127,13 @@ class RobotDashboardViewModel(
      */
     val dailyUsage: StateFlow<List<DailyUsage>> = _dailyUsage.asStateFlow()
     private var usageKey: Pair<Int, Long>? = null
+
+    private val _foreignBackups = MutableStateFlow<List<Pair<String, String>>>(emptyList())
+    /**
+     * Backups da pasta deste robô que são de outro controlador: (arquivo, série). A série de
+     * referência é a cadastrada no robô; sem ela, a do backup mais novo.
+     */
+    val foreignBackups: StateFlow<List<Pair<String, String>>> = _foreignBackups.asStateFlow()
 
     private val _axisMoveHoursLast30 = MutableStateFlow<List<Double>>(emptyList())
     /**
@@ -190,22 +198,81 @@ class RobotDashboardViewModel(
 
     /**
      * Memória de programas do controlador: a última leitura do comando FREE (guardada no
-     * aparelho, aparece mesmo sem conexão). É lida sozinha a cada conexão, depois do login.
+     * aparelho, aparece mesmo sem conexão). O `ControllerChecks` lê sozinho a cada login.
      */
-    val controllerMemory: StateFlow<ControllerMemory?> = memoryReader.lastReading(robotId)
+    val controllerMemory: StateFlow<ControllerMemory?> = checks.lastMemory(robotId)
 
     private val _isReadingMemory = MutableStateFlow(false)
-    /** true enquanto espera a resposta do FREE. */
-    val isReadingMemory: StateFlow<Boolean> = _isReadingMemory.asStateFlow()
+    /** true enquanto conecta ou espera a resposta do FREE (inclusive nas checagens do login). */
+    val isReadingMemory: StateFlow<Boolean> = combine(_isReadingMemory, checks.busy) { reading, busy ->
+        reading || robotId in busy
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-    /** Lê a memória agora (botão "Ler agora"). Só faz algo com o robô conectado. */
+    /**
+     * Botão "Ler agora": se o robô não estiver conectado, conecta primeiro (o login já lê a
+     * memória); se estiver, manda o FREE.
+     */
     fun readMemoryNow() {
         if (_isReadingMemory.value) return
+        val r = _robot.value ?: return
         viewModelScope.launch {
             _isReadingMemory.value = true
-            memoryReader.read(robotId)
+            if (isConnected.value) checks.readMemory(robotId) else checks.connectAndWait(r)
             _isReadingMemory.value = false
         }
+    }
+
+    // ---------- Destino de um envio (lista com os robôs e o LED de cada um) ----------
+
+    private val _connectedIds = MutableStateFlow<Set<Int>>(emptySet())
+    /** Ids dos robôs conectados agora (para a lista de destino do envio). */
+    val connectedIds: StateFlow<Set<Int>> = _connectedIds.asStateFlow()
+
+    private val _heartbeats = MutableStateFlow<Map<Int, HeartbeatState>>(emptyMap())
+    /** Heartbeat de cada robô (para a lista de destino do envio). */
+    val heartbeats: StateFlow<Map<Int, HeartbeatState>> = _heartbeats.asStateFlow()
+
+    private val _connectingTarget = MutableStateFlow<Int?>(null)
+    /** Robô de destino que está sendo conectado agora (mostra o andamento na lista). */
+    val connectingTarget: StateFlow<Int?> = _connectingTarget.asStateFlow()
+
+    private val _failedTarget = MutableStateFlow<Int?>(null)
+    /** Robô de destino que não conectou (a lista mostra o aviso). */
+    val failedTarget: StateFlow<Int?> = _failedTarget.asStateFlow()
+
+    // Ids que já têm um observador de conexão/heartbeat (evita duplicar o coletor).
+    private val watchedIds = mutableSetOf<Int>()
+
+    private fun watchRobot(id: Int) {
+        if (!watchedIds.add(id)) return
+        viewModelScope.launch {
+            terminalManager.getConnectionStatus(id).collect { on ->
+                _connectedIds.update { if (on) it + id else it - id }
+            }
+        }
+        viewModelScope.launch {
+            terminalManager.getHeartbeat(id).collect { hb -> _heartbeats.update { it + (id to hb) } }
+        }
+    }
+
+    /**
+     * Prepara o robô de destino de um envio: se não estiver conectado, conecta e espera o
+     * login e as checagens. Com ele pronto, chama [onReady] (que faz o envio). Se não
+     * conectar, marca [failedTarget] e não envia.
+     */
+    fun prepareTarget(target: Robot, onReady: () -> Unit) {
+        if (_connectingTarget.value != null) return
+        _failedTarget.value = null
+        viewModelScope.launch {
+            _connectingTarget.value = target.id
+            val ok = checks.connectAndWait(target)
+            _connectingTarget.value = null
+            if (ok) onReady() else _failedTarget.value = target.id
+        }
+    }
+
+    fun clearTargetState() {
+        _failedTarget.value = null
     }
 
     private val _isLoading = MutableStateFlow(false)
@@ -236,30 +303,18 @@ class RobotDashboardViewModel(
         loadRobot()
         observeBackup()
         checkPendingTransfers()
-        readMemoryOnConnect()
-    }
-
-    /**
-     * A cada conexão nova, espera o login terminar e lê a memória do controlador.
-     */
-    private fun readMemoryOnConnect() {
         viewModelScope.launch {
-            isConnected.collect { connected ->
-                if (connected && !_isReadingMemory.value) {
-                    _isReadingMemory.value = true
-                    memoryReader.readWhenReady(robotId)
-                    _isReadingMemory.value = false
-                }
-            }
+            repository.allRobots.collect { robots -> robots.forEach { watchRobot(it.id) } }
         }
     }
 
     /**
-     * Busca no banco os dados do robô deste painel.
+     * Observa no banco os dados do robô deste painel (a série, por exemplo, pode ser gravada
+     * pelas checagens do login com o painel aberto).
      */
     private fun loadRobot() {
         viewModelScope.launch {
-            _robot.value = repository.getRobotById(robotId)
+            repository.allRobots.collect { robots -> _robot.value = robots.firstOrNull { it.id == robotId } }
         }
     }
 
@@ -273,18 +328,10 @@ class RobotDashboardViewModel(
             if (pending != null) {
                 _isLoading.value = true
                 
-                // se não estiver conectado, conecta e espera (até 20 x 0,5 s)
-                if (!isConnected.value) {
-                    val r = repository.getRobotById(robotId)
-                    if (r != null) {
-                        terminalManager.connect(r)
-                        var timeout = 0
-                        while (!terminalManager.getConnectionStatus(robotId).value && timeout < 20) {
-                            delay(500)
-                            timeout++
-                        }
-                    }
-                }
+                // conecta se preciso e espera o login e as checagens (ID, relógio, FREE) acabarem,
+                // para o LOAD não se misturar com elas
+                val r = repository.getRobotById(robotId)
+                if (r != null) checks.connectAndWait(r)
                 
                 if (isConnected.value) {
                     // grava o arquivo na pasta do robô de destino e manda o robô carregar
@@ -548,6 +595,10 @@ class RobotDashboardViewModel(
             val snippets = repository.getUsageSnippets(robotId)
             withContext(Dispatchers.Default) {
                 val points = snippets.map { RobotUsageHistory.pointFrom(it.timestamp, it.fileName, it.snippet) }
+                val reference = _robot.value?.serialNumber ?: points.lastOrNull { it.serialNumber != null }?.serialNumber
+                _foreignBackups.value = if (reference == null) emptyList() else snippets.zip(points)
+                    .filter { (_, p) -> p.serialNumber != null && p.serialNumber != reference }
+                    .map { (s, p) -> s.fileName to p.serialNumber!! }
                 _dailyUsage.value = RobotUsageHistory.daily(points)
                 _axisMoveHoursLast30.value = RobotUsageHistory.axisMoveHoursLast(points, 30)
             }
@@ -716,7 +767,13 @@ class RobotDashboardViewModel(
             _programEditLog.value = AsControllerLogs.parseLogSection(allLines, ".PGM_EDT_LOG")
             // lido do texto original: .ROBOTDATA1 e .OPE_INFO1 podem vir depois de uma seção
             // que a visão limpa corta
-            _robotInfo.value = AsRobotInfo.parse(content)
+            val info = AsRobotInfo.parse(content)
+            _robotInfo.value = info
+            // robô ainda sem série: a do backup passa a ser a dele
+            val current = _robot.value
+            if (current != null && current.serialNumber == null && info.serialNumber != null) {
+                repository.setRobotSerialNumber(robotId, info.serialNumber)
+            }
         }
     }
 

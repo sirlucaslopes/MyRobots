@@ -49,6 +49,10 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
+import my.robots.core.designsystem.HeartbeatDot
+import my.robots.core.designsystem.RobotPickerSheet
+import my.robots.core.designsystem.label
+import my.robots.core.model.HeartbeatState
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.RobotErrorLogEntry
 import my.robots.core.common.ascode.RobotErrorLogProgram
@@ -121,12 +125,17 @@ fun RobotDashboardScreen(
     val quickCommandsState = if (viewModel != null) viewModel.quickCommands.collectAsState() else remember { mutableStateOf(emptyList<QuickCommand>()) }
     val lineCountState = if (viewModel != null) viewModel.lineCount.collectAsState() else remember { mutableStateOf(0) }
     val errorLogState = if (viewModel != null) viewModel.errorLog.collectAsState() else remember { mutableStateOf(emptyList<RobotErrorLogEntry>()) }
+    val pickerConnectedState = if (viewModel != null) viewModel.connectedIds.collectAsState() else remember { mutableStateOf(emptySet<Int>()) }
+    val pickerHeartbeatsState = if (viewModel != null) viewModel.heartbeats.collectAsState() else remember { mutableStateOf(emptyMap<Int, HeartbeatState>()) }
+    val connectingTargetState = if (viewModel != null) viewModel.connectingTarget.collectAsState() else remember { mutableStateOf<Int?>(null) }
+    val failedTargetState = if (viewModel != null) viewModel.failedTarget.collectAsState() else remember { mutableStateOf<Int?>(null) }
     val robotInfoState = if (viewModel != null) viewModel.robotInfo.collectAsState() else remember { mutableStateOf(RobotInfo()) }
     val dailyUsageState = if (viewModel != null) viewModel.dailyUsage.collectAsState() else remember { mutableStateOf(emptyList<DailyUsage>()) }
     val axisLast30State = if (viewModel != null) viewModel.axisMoveHoursLast30.collectAsState() else remember { mutableStateOf(emptyList<Double>()) }
     val memoryState = if (viewModel != null) viewModel.controllerMemory.collectAsState() else remember { mutableStateOf<ControllerMemory?>(null) }
     val isReadingMemoryState = if (viewModel != null) viewModel.isReadingMemory.collectAsState() else remember { mutableStateOf(false) }
     val homeConnectedState = if (viewModel != null) viewModel.isConnected.collectAsState() else remember { mutableStateOf(false) }
+    val foreignBackupsState = if (viewModel != null) viewModel.foreignBackups.collectAsState() else remember { mutableStateOf(emptyList<Pair<String, String>>()) }
     val operationLogState = if (viewModel != null) viewModel.operationLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
     val programEditLogState = if (viewModel != null) viewModel.programEditLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
 
@@ -143,11 +152,16 @@ fun RobotDashboardScreen(
     val lineCount by lineCountState
     val errorLog by errorLogState
     val robotInfo by robotInfoState
+    val pickerConnected by pickerConnectedState
+    val pickerHeartbeats by pickerHeartbeatsState
+    val connectingTarget by connectingTargetState
+    val failedTarget by failedTargetState
     val dailyUsage by dailyUsageState
     val axisLast30 by axisLast30State
     val controllerMemory by memoryState
     val isReadingMemory by isReadingMemoryState
     val homeConnected by homeConnectedState
+    val foreignBackups by foreignBackupsState
     val operationLog by operationLogState
     val programEditLog by programEditLogState
 
@@ -392,8 +406,11 @@ fun RobotDashboardScreen(
                             errorLog = errorLog,
                             dailyUsage = dailyUsage,
                             axisMoveHoursLast30 = axisLast30,
+                            foreignBackups = foreignBackups,
                             memory = controllerMemory,
                             isConnected = homeConnected,
+                            heartbeat = pickerHeartbeats[robot?.id ?: -1] ?: HeartbeatState.DISCONNECTED,
+                            onToggleConnection = { viewModel?.toggleConnection() },
                             isReadingMemory = isReadingMemory,
                             onReadMemory = { viewModel?.readMemoryNow() },
                             lineCount = lineCount,
@@ -558,64 +575,83 @@ fun RobotDashboardScreen(
             )
         }
 
-        // janelas para escolher o robô de destino ao enviar um item.
+        // Listas para escolher o robô de destino ao enviar um item (agrupadas por projeto, com
+        // LED). Tocar num robô desconectado conecta e espera o login antes de enviar.
         // Se o destino é este mesmo robô, abre o terminal; se é outro, navega até o painel dele.
         if (programsToUpload != null) {
             val toUpload = programsToUpload!!
-            RobotSelectionDialog(
+            RobotPickerSheet(
                 title = if (toUpload.size == 1) "Enviar Programa para qual Robô?" else "Enviar Programas para qual Robô?",
                 itemName = if (toUpload.size == 1) toUpload[0].name else "${toUpload.size} programas selecionados",
                 robots = allRobots,
-                onSelect = { r ->
-                    viewModel?.sendProgramsToRobot(toUpload, r)
-                    val targetId = r.id
-                    programsToUpload = null
-                    selectedProgramNames = emptySet()
-                    if (targetId == (robot?.id ?: -1)) {
-                        activeFeature = DashboardFeature.Terminal
-                    } else {
-                        onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
+                connectedIds = pickerConnected,
+                heartbeats = pickerHeartbeats,
+                connectingId = connectingTarget,
+                failedId = failedTarget,
+                onPick = { r ->
+                    viewModel?.prepareTarget(r) {
+                        viewModel?.sendProgramsToRobot(toUpload, r)
+                        val targetId = r.id
+                        programsToUpload = null
+                        selectedProgramNames = emptySet()
+                        if (targetId == (robot?.id ?: -1)) {
+                            activeFeature = DashboardFeature.Terminal
+                        } else {
+                            onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
+                        }
                     }
                 },
-                onDismiss = { programsToUpload = null }
+                onDismiss = { programsToUpload = null; viewModel?.clearTargetState() }
             )
         }
 
         if (variableToUpload != null) {
-            RobotSelectionDialog(
+            RobotPickerSheet(
                 title = "Enviar Variável para qual Robô?",
                 itemName = variableToUpload?.name ?: "",
                 robots = allRobots,
-                onSelect = { r ->
-                    viewModel?.sendVariableToRobot(variableToUpload!!, r)
-                    val targetId = r.id
-                    variableToUpload = null
-                    if (targetId == (robot?.id ?: -1)) {
-                        activeFeature = DashboardFeature.Terminal
-                    } else {
-                        onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
+                connectedIds = pickerConnected,
+                heartbeats = pickerHeartbeats,
+                connectingId = connectingTarget,
+                failedId = failedTarget,
+                onPick = { r ->
+                    viewModel?.prepareTarget(r) {
+                        viewModel?.sendVariableToRobot(variableToUpload!!, r)
+                        val targetId = r.id
+                        variableToUpload = null
+                        if (targetId == (robot?.id ?: -1)) {
+                            activeFeature = DashboardFeature.Terminal
+                        } else {
+                            onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
+                        }
                     }
                 },
-                onDismiss = { variableToUpload = null }
+                onDismiss = { variableToUpload = null; viewModel?.clearTargetState() }
             )
         }
 
         if (dataBankToUpload != null) {
-            RobotSelectionDialog(
+            RobotPickerSheet(
                 title = "Enviar Data Bank para qual Robô?",
                 itemName = if (dataBankToUpload!!.size == 1) "DB${dataBankToUpload!![0].num}" else "${dataBankToUpload!!.size} itens selecionados",
                 robots = allRobots,
-                onSelect = { r ->
-                    viewModel?.sendDataBankEntriesToRobot(dataBankToUpload!!, r)
-                    val targetId = r.id
-                    dataBankToUpload = null
-                    if (targetId == (robot?.id ?: -1)) {
-                        activeFeature = DashboardFeature.Terminal
-                    } else {
-                        onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
+                connectedIds = pickerConnected,
+                heartbeats = pickerHeartbeats,
+                connectingId = connectingTarget,
+                failedId = failedTarget,
+                onPick = { r ->
+                    viewModel?.prepareTarget(r) {
+                        viewModel?.sendDataBankEntriesToRobot(dataBankToUpload!!, r)
+                        val targetId = r.id
+                        dataBankToUpload = null
+                        if (targetId == (robot?.id ?: -1)) {
+                            activeFeature = DashboardFeature.Terminal
+                        } else {
+                            onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
+                        }
                     }
                 },
-                onDismiss = { dataBankToUpload = null }
+                onDismiss = { dataBankToUpload = null; viewModel?.clearTargetState() }
             )
         }
     }
@@ -1462,8 +1498,11 @@ fun DashboardHome(
     errorLog: List<RobotErrorLogEntry> = emptyList(),
     dailyUsage: List<DailyUsage> = emptyList(),
     axisMoveHoursLast30: List<Double> = emptyList(),
+    foreignBackups: List<Pair<String, String>> = emptyList(),
     memory: ControllerMemory? = null,
     isConnected: Boolean = false,
+    heartbeat: HeartbeatState = HeartbeatState.DISCONNECTED,
+    onToggleConnection: () -> Unit = {},
     isReadingMemory: Boolean = false,
     onReadMemory: () -> Unit = {},
     lineCount: Int,
@@ -1482,11 +1521,14 @@ fun DashboardHome(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        val health = remember(robotInfo, errorLog, backup?.timestamp) {
-            backup?.let { RobotHealth.evaluate(robotInfo, errorLog, it.timestamp) }
+        val health = remember(robotInfo, errorLog, backup?.timestamp, foreignBackups) {
+            backup?.let { RobotHealth.evaluate(robotInfo, errorLog, it.timestamp, foreignBackups) }
         }
+        ConnectionRow(isConnected = isConnected, heartbeat = heartbeat, onToggle = onToggleConnection)
+
         RobotInfoCard(
             robotName = robot?.name ?: "-",
+            registeredSerial = robot?.serialNumber,
             info = robotInfo,
             health = health,
             backupTimestamp = backup?.timestamp,
@@ -2109,50 +2151,25 @@ private fun shareProgramsContent(context: Context, programs: List<RobotProgram>,
 }
 
 /**
- * Janela para escolher qual robô vai receber o item enviado (lista de todos os robôs).
+ * Linha de conexão no alto da home do painel: LED de heartbeat, estado e o botão
+ * Conectar/Desconectar. Ao conectar, o login dispara as checagens (série, relógio e memória).
  */
 @Composable
-fun RobotSelectionDialog(
-    title: String,
-    itemName: String,
-    robots: List<Robot>,
-    onSelect: (Robot) -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                Text("Escolha o destino para '$itemName'", style = MaterialTheme.typography.bodySmall)
-                Spacer(modifier = Modifier.height(12.dp))
-                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                    items(robots) { r ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                                .clickable { onSelect(r) },
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                        ) {
-                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.SmartToy, null, tint = MaterialTheme.colorScheme.primary)
-                                Spacer(modifier = Modifier.width(16.dp))
-                                Column {
-                                    Text(r.name, fontWeight = FontWeight.Bold)
-                                    Text(r.ip, style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+private fun ConnectionRow(isConnected: Boolean, heartbeat: HeartbeatState, onToggle: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        HeartbeatDot(state = heartbeat)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            if (isConnected) "Conectado · ${heartbeat.label()}" else "Desconectado",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        if (isConnected) {
+            OutlinedButton(onClick = onToggle) { Text("Desconectar") }
+        } else {
+            Button(onClick = onToggle) { Text("Conectar") }
         }
-    )
+    }
 }
 
 /**

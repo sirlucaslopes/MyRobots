@@ -491,7 +491,7 @@ fun RobotItem(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = robot.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                Text(text = "${robot.ip}:${robot.port}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(text = "${robot.ip}:${robot.port}" + (robot.serialNumber?.let { "  ·  Nº $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row {
                 IconButton(onClick = onTerminalClick, modifier = Modifier.size(32.dp)) {

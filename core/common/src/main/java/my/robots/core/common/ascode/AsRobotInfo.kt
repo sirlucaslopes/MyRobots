@@ -219,11 +219,14 @@ object AsErrorSeverity {
  * - errorGroups: os alarmes dos 7 dias antes do backup, agrupados por código (mais grave
  *   primeiro, depois o mais frequente). É o que a tela mostra ao tocar no status.
  * - backupAgeDays: idade do backup em dias, contada de "agora".
+ * - foreignBackups: backups da pasta do robô que são de outro controlador (arquivo, série).
+ *   Qualquer um deles liga o ATTENTION.
  */
 data class RobotHealth(
     val level: Level,
     val errorGroups: List<ErrorGroup>,
-    val backupAgeDays: Long
+    val backupAgeDays: Long,
+    val foreignBackups: List<Pair<String, String>> = emptyList()
 ) {
     enum class Level { OK, ATTENTION, NO_DATA }
 
@@ -239,8 +242,9 @@ data class RobotHealth(
     val seriousGroups: List<ErrorGroup> get() = errorGroups.filter { it.severity == ErrorSeverity.SERIOUS }
     val isBackupStale: Boolean get() = backupAgeDays > STALE_BACKUP_DAYS
 
-    /** Quantos itens precisam de atenção (alarmes graves + backup antigo). */
-    val attentionCount: Int get() = seriousGroups.size + if (isBackupStale) 1 else 0
+    /** Quantos itens precisam de atenção (alarmes graves, backup antigo, backups de outro robô). */
+    val attentionCount: Int get() =
+        seriousGroups.size + (if (isBackupStale) 1 else 0) + (if (foreignBackups.isNotEmpty()) 1 else 0)
 
     companion object {
         const val STALE_BACKUP_DAYS = 30L
@@ -257,6 +261,7 @@ data class RobotHealth(
             info: RobotInfo,
             errors: List<RobotErrorLogEntry>,
             backupTimestamp: Long,
+            foreignBackups: List<Pair<String, String>> = emptyList(),
             now: Long = System.currentTimeMillis(),
             zone: java.time.ZoneId = java.time.ZoneId.systemDefault()
         ): RobotHealth {
@@ -276,7 +281,7 @@ data class RobotHealth(
                 )
             }.sortedWith(compareByDescending<ErrorGroup> { it.severity.ordinal }.thenByDescending { it.count })
 
-            val health = RobotHealth(Level.OK, groups, ageDays)
+            val health = RobotHealth(Level.OK, groups, ageDays, foreignBackups)
             val level = when {
                 info.isEmpty && errors.isEmpty() -> Level.NO_DATA
                 health.attentionCount > 0 -> Level.ATTENTION

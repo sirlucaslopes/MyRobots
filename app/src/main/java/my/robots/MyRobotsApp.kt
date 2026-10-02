@@ -13,7 +13,7 @@ import my.robots.core.network.KawasakiTerminalManager
 import my.robots.core.data.RobotRepository
 import my.robots.core.data.security.KeystoreSecretCipher
 import my.robots.core.data.storage.RobotFilesStorage
-import my.robots.core.data.ControllerMemoryReader
+import my.robots.core.data.ControllerChecks
 
 /**
  * Classe que o Android cria UMA vez quando o app abre (antes de qualquer tela).
@@ -33,9 +33,9 @@ class MyRobotsApp : Application() {
      */
     lateinit var terminalManager: KawasakiTerminalManager
     /**
-     * Lê a memória livre do controlador (comando FREE) e guarda a última leitura.
+     * Checagens depois do login em qualquer robô: série (ID), relógio e memória (FREE).
      */
-    lateinit var memoryReader: ControllerMemoryReader
+    lateinit var controllerChecks: ControllerChecks
     /**
      * Área para tarefas de longa duração ligadas ao app (não a uma tela).
      */
@@ -81,7 +81,8 @@ class MyRobotsApp : Application() {
         )
         
         terminalManager = KawasakiTerminalManager(this, filesStorage)
-        memoryReader = ControllerMemoryReader(this, terminalManager)
+        controllerChecks = ControllerChecks(this, terminalManager, robotRepository, applicationScope)
+        controllerChecks.start()
 
         migrateFilesToNewFolderOnce()
 

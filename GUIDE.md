@@ -65,7 +65,8 @@ para melhorar uma parte sem mexer nas outras.
   login automático). `name` também define o nome da pasta do robô (ver seção 14). No banco,
   `loginPassword` fica **cifrada** (ver seção 14); o `RobotRepository` entrega sempre decifrada.
   `layoutRow`/`layoutCol` são a vaga do robô na cabine do projeto (começam em 0; `null` = fora
-  do layout). Só a tela de Projeto mexe neles.
+  do layout). Só a tela de Projeto mexe neles. `serialNumber` é a série do controlador, o "CPF"
+  do robô: vem do backup SAVE/FULL ou do comando `ID` ao conectar (`null` = ainda não conhecida).
 - **`ProjectLayout`**: tamanho da grade da cabine de um projeto (`rowCount` × `colCount`). O
   projeto é identificado pelo nome (`Robot.project`). Sem linha na tabela, vale o padrão 2×2.
 - **`ProjectEquipment`** / **`EquipmentType`** (`CONVEYOR` = Transportador, `OTHER` = Outro, com
@@ -95,7 +96,7 @@ para melhorar uma parte sem mexer nas outras.
 
 ## 2. `:core:database` — persistência local (Room)
 
-`AppDatabase` (versão 5) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao` e `ProjectDao`.
+`AppDatabase` (versão 6) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao` e `ProjectDao`.
 Guarda robôs, backups, comandos rápidos e o layout da cabine de cada projeto
 (`project_layouts`, `project_equipment`). O `ProjectDao` grava a edição do layout numa transação
 (`saveLayout`), renomeia o projeto em todas as tabelas (`renameProject`) e apaga o layout de um
@@ -111,9 +112,10 @@ projeto que ficou sem robôs (`deleteLayoutIfEmpty`).
   acrescentar o caso no `MigrationTest`.
 - **Migrações:** `MIGRATION_4_5` (v1.2, tela de Projeto) acrescenta `layoutRow`/`layoutCol` em
   `robots` (robôs antigos ficam fora do layout) e cria `project_layouts` e `project_equipment`.
+  `MIGRATION_5_6` acrescenta `serialNumber` em `robots` (nulo até ser descoberto).
 - **Teste de migração:** `MigrationTest` (androidTest, `MigrationTestHelper`) cria o banco v4
-  com dados e confere que eles continuam lá na versão atual, e valida a `MIGRATION_4_5` contra o
-  `5.json` com `runMigrationsAndValidate`. Roda com o celular ligado:
+  com dados e confere que eles continuam lá na versão atual, e valida a `MIGRATION_4_5` (contra o
+  `5.json`) e a `MIGRATION_5_6` (contra o `6.json`) com `runMigrationsAndValidate`. Roda com o celular ligado:
   `.\gradlew.bat :core:database:connectedDebugAndroidTest` (passou em 02/10/2026 num Galaxy S25).
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
@@ -190,6 +192,27 @@ Principais responsabilidades:
 - Não há nenhum dado simulado: `performBackup` (que criava um backup de exemplo quando a API
   de teste falhava), `getRobotLogs` e `getRobotStatus` foram removidos na v1.2.
 
+### Checagens depois do login (`ControllerChecks`)
+
+Criado no `MyRobotsApp` e iniciado uma vez (`start()`). Vigia a conexão de todos os robôs e, a
+cada login (em qualquer tela: painel, Projeto, Terminal Geral), espera o prompt `>` e manda, um
+de cada vez e esperando a resposta de cada um:
+1. **`ID`**: lê o número de série ("Serial No. 2503", `AsControllerReplies`). Robô sem série
+   cadastrada passa a ter essa. Série diferente da cadastrada vira um `SerialMismatch`: a
+   `MainActivity` pergunta se é para atualizar o cadastro (troca de controlador) ou manter (pode
+   ser o robô errado, IP trocado).
+2. **Relógio**: `PRINT $DATE(3)," ",$TIME` (só lê, sem pergunta). Mais de 2 min de diferença
+   para o celular vira um `ClockIssue`, e a `MainActivity` pergunta se deve corrigir. Corrigir
+   manda `TIME aa-mm-dd hh:mm:ss`, responde Enter se o controlador perguntar "Change?" e lê de
+   novo; se ainda estiver errado, avisa que o controlador não aceitou. **No K-ROSET o relógio
+   segue o do PC e não muda; a correção precisa ser conferida num robô real.**
+3. **`FREE`**: memória de programas (`AsFreeMemory`), guardada nas SharedPreferences
+   `controller_memory`.
+
+Enquanto roda, o robô fica em `busy`. `connectAndWait(robot)` conecta (se preciso) e espera o
+login e as checagens; é usado pelo "Conectar e ler", pela escolha do destino de um envio e antes
+do `LOAD` de um envio pendente, para os comandos não se misturarem.
+
 **Pendências / Próximos passos:** um `SAVE` feito pelo terminal grava o arquivo na pasta, mas só
 vira backup no banco quando a lista de robôs abre (sincronização do `RobotViewModel`) ou no
 ícone de sincronizar do histórico. Registrar na hora é a Fase 2.0 de `docs/PLANO_V1_2.md`.
@@ -243,7 +266,7 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   (abre um menu com o status do Wifi, atalho para "Configurar Wifi", que leva para as
   configurações de Wifi **do próprio Android**, e **"Pasta dos arquivos"** — ver abaixo).
 - Botão "+" abre `RobotDialog` para cadastrar um robô novo.
-- Cada robô mostra nome e `ip:porta`, com botões de terminal (abre o dashboard direto na
+- Cada robô mostra nome, `ip:porta` e o número de série (quando conhecido), com botões de terminal (abre o dashboard direto na
   seção Terminal), editar e excluir (com confirmação).
 - Cada projeto tem um ícone (grade) que abre a **tela de Projeto** (seção 15), com a cabine
   e, no menu e no fim da tela, o **Terminal Geral** (seção 11).
@@ -371,18 +394,20 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     `RobotUsageHistory.axisMoveHoursLast`), deslocamento acumulado (`DIST_DJT`, na unidade do
     controlador), menor e maior temperatura do encoder (`.ENCTEMPLOG`, com a data) e os
     alarmes dos 7 dias que citam o eixo ("Jt 5 motor overloaded"; os de rotina ficam de fora).
-    **Memória de programas**, no fim do cartão: o backup não traz essa informação, então o
-    `ControllerMemoryReader` (`:core:data`) manda o comando `FREE` pelo terminal e lê a
-    resposta (`AsFreeMemory`, em `:core:common`): "Total memory, 8192 KBbytes." e "Available
-    memory size 8175 KBbytes.( 99 %)". Lê sozinho a cada conexão, depois do login (espera o
-    prompt `>`), e no botão "Ler agora". A última leitura fica nas SharedPreferences
-    `controller_memory` e aparece mesmo sem conexão, com a data. Abaixo de 10% livre, a barra
-    fica amarela e o texto avisa.
+    **Memória de programas**, no fim do cartão: o backup não traz essa informação; ela vem do
+    comando `FREE`, lido a cada login pelo `ControllerChecks` (seção 4): "Total memory, 8192
+    KBbytes." e "Available memory size 8175 KBbytes.( 99 %)". O botão é "Ler agora" com o robô
+    conectado e "Conectar e ler" sem conexão (conecta, e o login já lê). A última leitura aparece
+    mesmo sem conexão, com a data. Abaixo de 10% livre, a barra fica amarela e o texto avisa.
+    A série mostrada é a cadastrada no robô; sem ela, a do backup (que passa a ser a do robô).
+  - **Linha de conexão**, no alto da home: LED, "Conectado · estado" ou "Desconectado" e o botão
+    Conectar/Desconectar.
   - **Status geral** (`RobotHealth` + `AsErrorSeverity`): selo OK / ATENÇÃO · n / SEM DADOS.
     Os alarmes do `.ERRLOG` dos 7 dias antes do backup são classificados em **rotina**
     (porta da cabine, motor desligado, falta de energia...), **programa/movimento** (fora de
     alcance, singularidade...) e **graves** (encoder, servo, sobrecarga, temperatura, purga,
-    códigos `D` do hardware...). Só os graves e um backup com mais de 30 dias ligam o
+    códigos `D` do hardware...). Só os graves, um backup com mais de 30 dias e **arquivos de
+    outro robô na pasta** (backup com outra série que a do robô, pelo `OPEINFO`) ligam o
     ATENÇÃO; `n` é a quantidade desses itens. Tocar no selo abre a lista: o que precisa de
     atenção, os de programa/movimento e os de rotina, agrupados por código, com quantas
     vezes e a última ocorrência (data convertida de `aa/mm/dd` para `dd/mm/aaaa`), e um
@@ -462,10 +487,14 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     casa com qualquer parte do texto da entrada (no `.ERRLOG` isso inclui código, mensagem,
     operações e poses, já que tudo está junto em `raw`). Sem resultado mostra uma mensagem
     diferente conforme o motivo: log vazio (sem `SAVE/FULL`) ou busca sem resultado.
-- **Enviar para outro robô:** ao enviar um programa, variável ou linhas de Data Bank,
-  `RobotSelectionDialog` pergunta o robô de destino. Se o destino for o próprio robô aberto,
-  a tela muda para a seção Terminal; se for outro robô, `onNavigateToRobot` navega para o
-  dashboard dele (mantendo `robot_list` no topo da pilha de navegação).
+- **Enviar para outro robô:** ao enviar um programa, variável ou linhas de Data Bank, abre a
+  lista `RobotPickerSheet` (`:core:designsystem`), no formato do popup de robôs conectados:
+  agrupada por projeto, com LED, estado e série. Tocar num robô desconectado conecta e espera
+  o login e as checagens (`ControllerChecks.connectAndWait`, "Conectando…") e só então envia;
+  se não conectar, a linha mostra "Não conectou" e nada é enviado. Se o destino for o próprio
+  robô aberto, a tela muda para a seção Terminal; se for outro robô, `onNavigateToRobot` navega
+  para o dashboard dele (mantendo `robot_list` no topo da pilha de navegação), que manda o
+  `LOAD` depois que as checagens terminam.
 
 **Pendências / Próximos passos:** "Compartilhar programa" ainda não está implementado
 (`onShare = { /* ainda não implementado */ }` em `ProgramsPanel`).
@@ -510,7 +539,7 @@ fica reservado para não mudar as referências às seções seguintes.
 
 - **`MyRobotsApp`** (roda uma vez, antes de qualquer tela): aumenta o limite do `CursorWindow`
   (backups FULL grandes), abre o banco Room com as migrações (`ALL_MIGRATIONS`), cria a
-  `RobotFilesStorage`, o `RobotRepository` e o `KawasakiTerminalManager` (vivem o app inteiro)
+  `RobotFilesStorage`, o `RobotRepository`, o `KawasakiTerminalManager` e o `ControllerChecks` (vivem o app inteiro)
   e, na primeira abertura da v1.2, regrava na pasta nova os backups do banco
   (`migrateFilesToNewFolderOnce`, ver seção 14).
 - **`MainActivity`**: **não pede permissão de armazenamento** (desde a v1.2). Trata arquivos
@@ -518,8 +547,9 @@ fica reservado para não mudar as referências às seções seguintes.
   memória e abre no editor; vira backup se o usuário escolher um robô para salvar). A leitura
   passa por `ExternalAsFile` (seção 14); o pedido é guardado num estado (`incomingIntent`)
   preenchido no `onCreate` e no `onNewIntent`, então um segundo arquivo aberto com o app já
-  aberto também é tratado, e girar a tela não reabre o arquivo. Define o mapa de rotas do
-  `NavHost`:
+  aberto também é tratado, e girar a tela não reabre o arquivo. Mostra, por cima de qualquer
+  tela, as perguntas das checagens do login (`ControllerCheckDialogs`: série diferente e relógio
+  errado). Define o mapa de rotas do `NavHost`:
 
 | Rota | Tela | Observação |
 |---|---|---|

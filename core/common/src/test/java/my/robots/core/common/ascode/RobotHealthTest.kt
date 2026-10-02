@@ -59,6 +59,13 @@ class RobotHealthTest {
     }
 
     @Test
+    fun backupDeOutroRoboNaPasta_atencao() {
+        val h = RobotHealth.evaluate(info, emptyList(), backupAt, listOf("R12_full.as" to "2503"), now = backupAt, zone = zone)
+        assertEquals(RobotHealth.Level.ATTENTION, h.level)
+        assertEquals(1, h.attentionCount)
+    }
+
+    @Test
     fun backupSemDadosDoControlador_semDados() {
         val h = RobotHealth.evaluate(RobotInfo(), emptyList(), backupAt, now = backupAt, zone = zone)
         assertEquals(RobotHealth.Level.NO_DATA, h.level)
