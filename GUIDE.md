@@ -342,18 +342,32 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
 `DashboardFeature`:
 
 - **Home:** de cima para baixo:
-  - **Cartão do robô** (`RobotInfoCard.kt`): desenho em linhas de um robô de pintura, estilo
-    tela de controle (só ilustração, não mostra a pose real), com o modelo, a série, o nome
-    e a quantidade de eixos. Embaixo, os dados lidos do backup SAVE/FULL por
-    `AsRobotInfo` (`:core:common`): horímetro (`HOUR_MTR`, ou `CONT_TIM`), servo ligado
-    (`SERV_TIM`), vezes que o motor ligou (`MTON_CNT`), emergências (`ESTP_CNT`), freio
-    acionado (`BRKE_CNT`), eixos e série (`ZROBOT.TYPE`), versão do AS (cabeçalho
-    `.*=== AS GROUP ===`) e IP do controlador (`.NETCONF2`). Backup sem esses dados (só
-    programas) mostra um aviso para fazer SAVE/FULL.
-  - **Status geral** (`RobotHealth`): selo OK / ATENÇÃO / SEM DADOS. ATENÇÃO quando há erro no
-    `.ERRLOG` nos 7 dias antes da data do backup ou quando o backup tem mais de 30 dias.
-    Mostra quantos erros houve nesses 7 dias, o código mais frequente, o último erro (data
-    convertida de `aa/mm/dd` para `dd/mm/aaaa`) e a idade do backup.
+  - **Cartão do robô** (`RobotInfoCard.kt`): faixa baixa com o desenho em linhas de um robô
+    de pintura, estilo tela de controle (só ilustração, não mostra a pose real), o modelo, a
+    série, o nome, a quantidade de eixos e o selo do status. Embaixo, os dados lidos do backup
+    SAVE/FULL por `AsRobotInfo` (`:core:common`): horímetro (`HOUR_MTR`, ou `CONT_TIM`; é o
+    tempo com o controlador ligado), em operação (`SERV_TIM`, servo ligado), vezes que o motor
+    ligou (`MTON_CNT`), emergências (`ESTP_CNT`), freio acionado (`BRKE_CNT`), eixos e série
+    (`ZROBOT.TYPE`), versão do AS (cabeçalho `.*=== AS GROUP ===`) e IP do controlador
+    (`.NETCONF2`). Backup sem esses dados (só programas) mostra um aviso para fazer SAVE/FULL.
+  - **Status geral** (`RobotHealth` + `AsErrorSeverity`): selo OK / ATENÇÃO · n / SEM DADOS.
+    Os alarmes do `.ERRLOG` dos 7 dias antes do backup são classificados em **rotina**
+    (porta da cabine, motor desligado, falta de energia...), **programa/movimento** (fora de
+    alcance, singularidade...) e **graves** (encoder, servo, sobrecarga, temperatura, purga,
+    códigos `D` do hardware...). Só os graves e um backup com mais de 30 dias ligam o
+    ATENÇÃO; `n` é a quantidade desses itens. Tocar no selo abre a lista: o que precisa de
+    atenção, os de programa/movimento e os de rotina, agrupados por código, com quantas
+    vezes e a última ocorrência (data convertida de `aa/mm/dd` para `dd/mm/aaaa`), e um
+    botão para o log de erros. As listas de classificação ficam em `AsErrorSeverity`.
+  - **Uso do robô** (`RobotUsageCard.kt` + `RobotUsageHistory`): gráfico de barras com as
+    horas em operação por dia (30 dias, 90 dias ou tudo) e as médias de horas em operação,
+    horas ligado e vezes que o motor ligou. Vem da diferença dos contadores entre um backup
+    e outro: o `BackupDao.getUsageSnippets` recorta no SQLite só o trecho `.OPE_INFO1` de cada
+    backup, sem carregar o texto inteiro. A hora de cada backup vem do nome do arquivo
+    (`R10_20260919_0810.as`) quando ele segue o padrão do app. Entre backups com mais de 2
+    dias de intervalo, o valor é a média do intervalo, e a barra aparece apagada. Tocar numa
+    barra mostra o dia. Precisa de pelo menos dois backups SAVE/FULL. Programas executados
+    por dia não aparecem: o `.EXECPGLOG` do controlador guarda só os últimos dias.
   - **Backup analisado**: nome, data, total de linhas, aviso quando não é o mais recente e o
     botão "Histórico de backups".
   - **Atalhos em grade**: Programas, Variáveis, Data Bank e os três logs do controlador

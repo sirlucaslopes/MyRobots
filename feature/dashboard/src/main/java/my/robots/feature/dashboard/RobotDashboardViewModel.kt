@@ -16,6 +16,8 @@ import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsControllerLogs
 import my.robots.core.common.ascode.AsRobotInfo
 import my.robots.core.common.ascode.RobotInfo
+import my.robots.core.common.ascode.DailyUsage
+import my.robots.core.common.ascode.RobotUsageHistory
 import my.robots.core.common.ascode.AsProgramBlocks
 import my.robots.core.common.ascode.RobotErrorLogEntry
 import my.robots.core.common.ascode.RobotLogEntry
@@ -113,6 +115,14 @@ class RobotDashboardViewModel(
      * backup só com programas.
      */
     val robotInfo: StateFlow<RobotInfo> = _robotInfo.asStateFlow()
+
+    private val _dailyUsage = MutableStateFlow<List<DailyUsage>>(emptyList())
+    /**
+     * Uso do robô por dia (horas em operação, ligado, motor ligado), montado com os
+     * contadores de todos os backups SAVE/FULL do robô. Vazio com menos de dois backups.
+     */
+    val dailyUsage: StateFlow<List<DailyUsage>> = _dailyUsage.asStateFlow()
+    private var usageKey: Pair<Int, Long>? = null
 
     private val _programs = MutableStateFlow<List<RobotProgram>>(emptyList())
     /**
@@ -450,6 +460,7 @@ class RobotDashboardViewModel(
                 }
                 val newest = summaries.maxByOrNull { it.timestamp }
                 _isShowingNewestBackup.value = targetSummary == null || targetSummary.id == newest?.id
+                loadUsageIfChanged(summaries.size, newest?.timestamp ?: 0L)
 
                 if (targetSummary != null) {
                     val current = _latestBackup.value
@@ -475,6 +486,22 @@ class RobotDashboardViewModel(
                         _isLoading.value = false
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * Refaz o uso por dia quando a lista de backups muda (entrou ou saiu um backup).
+     * A consulta traz só o trecho ".OPE_INFO1" de cada backup, recortado pelo banco.
+     */
+    private fun loadUsageIfChanged(count: Int, newestTimestamp: Long) {
+        val key = count to newestTimestamp
+        if (key == usageKey) return
+        usageKey = key
+        viewModelScope.launch {
+            val snippets = repository.getUsageSnippets(robotId)
+            _dailyUsage.value = withContext(Dispatchers.Default) {
+                RobotUsageHistory.daily(snippets.map { RobotUsageHistory.pointFrom(it.timestamp, it.fileName, it.snippet) })
             }
         }
     }

@@ -93,35 +93,94 @@ object AsRobotInfo {
 }
 
 /**
+ * Gravidade de um alarme do .ERRLOG.
+ * - ROUTINE: faz parte do dia a dia da cabine (porta aberta, motor desligado...). Não muda o status.
+ * - PROCESS: erro de programa ou de movimento (fora de alcance, singularidade...). Aparece
+ *   na lista do status, mas sozinho não liga o "Atenção".
+ * - SERIOUS: falha de equipamento (encoder, servo, sobrecorrente, temperatura...). Liga o "Atenção".
+ */
+enum class ErrorSeverity { ROUTINE, PROCESS, SERIOUS }
+
+/**
+ * Classifica os alarmes pelo código e pela mensagem (em inglês, como vem do controlador).
+ * As listas abaixo são o lugar para ajustar quando um código for mal classificado.
+ */
+object AsErrorSeverity {
+    /** Códigos de rotina conhecidos. */
+    val ROUTINE_CODES = setOf(
+        "E1326", // Safety fence is open.
+        "E1135", // Motor power OFF.
+        "D1561", // [Power sequence board] AC primary power OFF.
+        "E1060"  // Cannot execute in check back mode.
+    )
+
+    private val ROUTINE_WORDS = listOf(
+        "safety fence", "motor power off", "emergency stop", "ac primary power off", "check back mode"
+    )
+
+    private val SERIOUS_WORDS = listOf(
+        "encoder", "servo", "current", "collision", "overload", "overheat", "temperature",
+        "brake", "battery", "communication", "deviation", "amplifier", "power module", "igbt",
+        "fan ", "fuse", "ground fault", "short circuit", "regenerat", "malfunction", "failure",
+        "pressure within enclos"
+    )
+
+    fun classify(code: String, message: String): ErrorSeverity {
+        val msg = message.lowercase()
+        return when {
+            // entrada sem código: o controlador só gravou as operações (reset, emergência...)
+            code.isBlank() -> ErrorSeverity.ROUTINE
+            code in ROUTINE_CODES || ROUTINE_WORDS.any { it in msg } -> ErrorSeverity.ROUTINE
+            SERIOUS_WORDS.any { it in msg } -> ErrorSeverity.SERIOUS
+            // códigos "D" são do hardware do controlador (placas, alimentação, segurança)
+            code.startsWith("D") -> ErrorSeverity.SERIOUS
+            else -> ErrorSeverity.PROCESS
+        }
+    }
+}
+
+/**
  * Situação geral do robô, montada a partir do backup.
  *
- * - level: OK, ATTENTION (houve erro nos 7 dias antes do backup, ou o backup tem mais de
- *   30 dias) ou NO_DATA (backup sem dados do controlador e sem log de erros).
- * - errorsLast7Days: erros do .ERRLOG nos 7 dias antes da data do backup.
- * - lastError: o erro mais recente do .ERRLOG, se houver.
- * - mostFrequentError: o código que mais aparece nos 7 dias (com quantas vezes e a mensagem).
+ * - level: OK, ATTENTION ou NO_DATA (backup sem dados do controlador e sem log de erros).
+ *   ATTENTION quando houve alarme SERIOUS nos 7 dias antes do backup, ou quando o backup
+ *   tem mais de 30 dias. Alarmes de rotina e de processo não mudam o nível.
+ * - errorGroups: os alarmes dos 7 dias antes do backup, agrupados por código (mais grave
+ *   primeiro, depois o mais frequente). É o que a tela mostra ao tocar no status.
  * - backupAgeDays: idade do backup em dias, contada de "agora".
  */
 data class RobotHealth(
     val level: Level,
-    val errorsLast7Days: Int,
-    val lastError: RobotErrorLogEntry?,
-    val backupAgeDays: Long,
-    val mostFrequentError: FrequentError? = null
+    val errorGroups: List<ErrorGroup>,
+    val backupAgeDays: Long
 ) {
-    /** Um código de erro e quantas vezes ele apareceu. */
-    data class FrequentError(val code: String, val message: String, val count: Int)
-
     enum class Level { OK, ATTENTION, NO_DATA }
+
+    /** Um código de alarme com quantas vezes apareceu e quando foi a última. */
+    data class ErrorGroup(
+        val code: String,
+        val message: String,
+        val severity: ErrorSeverity,
+        val count: Int,
+        val lastTimestamp: String
+    )
+
+    val seriousGroups: List<ErrorGroup> get() = errorGroups.filter { it.severity == ErrorSeverity.SERIOUS }
+    val isBackupStale: Boolean get() = backupAgeDays > STALE_BACKUP_DAYS
+
+    /** Quantos itens precisam de atenção (alarmes graves + backup antigo). */
+    val attentionCount: Int get() = seriousGroups.size + if (isBackupStale) 1 else 0
 
     companion object {
         const val STALE_BACKUP_DAYS = 30L
+        const val WINDOW_DAYS = 7L
         private const val DAY_MS = 24L * 60 * 60 * 1000
         private val ERRLOG_DATE = java.time.format.DateTimeFormatter.ofPattern("yy/MM/dd HH:mm:ss")
 
         /**
          * Avalia a situação. As datas do .ERRLOG ("26/09/29 15:03:58", ano com 2 dígitos)
-         * são lidas no fuso [zone]; uma data que não segue o formato é ignorada na contagem.
+         * são lidas no fuso [zone]; uma data que não segue o formato fica fora da janela.
+         * O .ERRLOG vem do mais novo para o mais antigo.
          */
         fun evaluate(
             info: RobotInfo,
@@ -131,21 +190,28 @@ data class RobotHealth(
             zone: java.time.ZoneId = java.time.ZoneId.systemDefault()
         ): RobotHealth {
             val ageDays = ((now - backupTimestamp) / DAY_MS).coerceAtLeast(0)
-            val windowStart = backupTimestamp - 7 * DAY_MS
-            val recentErrors = errors.filter { e ->
+            val windowStart = backupTimestamp - WINDOW_DAYS * DAY_MS
+            val recent = errors.filter { e ->
                 val t = errorTimeMillis(e.timestamp, zone) ?: return@filter false
                 t in windowStart..backupTimestamp
             }
-            val recent = recentErrors.size
-            val frequent = recentErrors.groupBy { it.errorCode }.maxByOrNull { it.value.size }?.let { (code, list) ->
-                FrequentError(code, list.first().errorMessage, list.size)
-            }
+            val groups = recent.groupBy { it.errorCode }.map { (code, list) ->
+                ErrorGroup(
+                    code = code,
+                    message = list.first().errorMessage,
+                    severity = AsErrorSeverity.classify(code, list.first().errorMessage),
+                    count = list.size,
+                    lastTimestamp = list.first().timestamp
+                )
+            }.sortedWith(compareByDescending<ErrorGroup> { it.severity.ordinal }.thenByDescending { it.count })
+
+            val health = RobotHealth(Level.OK, groups, ageDays)
             val level = when {
                 info.isEmpty && errors.isEmpty() -> Level.NO_DATA
-                recent > 0 || ageDays > STALE_BACKUP_DAYS -> Level.ATTENTION
+                health.attentionCount > 0 -> Level.ATTENTION
                 else -> Level.OK
             }
-            return RobotHealth(level, recent, errors.firstOrNull(), ageDays, frequent)
+            return health.copy(level = level)
         }
 
         /**

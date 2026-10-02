@@ -154,6 +154,11 @@ class RobotRepository(
      * Lista os backups de um robô COM o texto completo. Pesado: use só quando precisar.
      */
     fun getBackupsForRobotFull(robotId: Int) = backupDao.getBackupsForRobot(robotId)
+    /**
+     * Trechos ".OPE_INFO1" de todos os backups do robô (mais antigo primeiro), para o
+     * gráfico de uso. Leve: o banco recorta o trecho, o texto completo não é carregado.
+     */
+    suspend fun getUsageSnippets(robotId: Int) = backupDao.getUsageSnippets(robotId)
     
     /**
      * Salva um backup no banco e, se saveToFile for true, também como arquivo na pasta do robô.

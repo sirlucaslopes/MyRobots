@@ -8,12 +8,23 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,13 +36,17 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import my.robots.core.common.ascode.ErrorSeverity
 import my.robots.core.common.ascode.RobotHealth
 import my.robots.core.common.ascode.RobotInfo
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 /** Cores do desenho: fundo escuro de "tela de controle" e linhas ciano, iguais no tema claro e escuro. */
@@ -41,119 +56,250 @@ private val HudLine = Color(0xFF4DD0E1)
 private val HudAccent = Color(0xFF80FFEA)
 private val HudText = Color(0xFFB2EBF2)
 
-private val StatusOk = Color(0xFF2E7D32)
-private val StatusAttention = Color(0xFFF9A825)
-private val StatusNoData = Color(0xFF607D8B)
+/** Cores de status: reservadas para isso, sempre acompanhadas de ícone e texto. */
+internal val StatusOk = Color(0xFF43A047)
+internal val StatusAttention = Color(0xFFF9A825)
+internal val StatusSerious = Color(0xFFE53935)
+private val StatusNoData = Color(0xFF78909C)
 
-private val ptBR = Locale("pt", "BR")
+internal val ptBR = Locale("pt", "BR")
 
 /**
  * Cartão de informações do robô na home do painel.
  *
- * Em cima, o desenho do robô (ver [RobotLineArt]) com o modelo, a série e o status geral.
- * Embaixo, os números lidos do backup SAVE/FULL ([RobotInfo]) e o último erro do .ERRLOG.
- * Um backup sem os dados do controlador mostra só o desenho e um aviso de como obtê-los.
+ * Em cima, uma faixa com o desenho do robô ([RobotLineArt]), o modelo, a série e o selo do
+ * status geral. Tocar no selo abre a lista do que precisa de atenção ([HealthSheet]).
+ * Embaixo, os números lidos do backup SAVE/FULL ([RobotInfo]). Um backup sem os dados do
+ * controlador mostra só o desenho e um aviso de como obtê-los.
  */
 @Composable
 fun RobotInfoCard(
     robotName: String,
     info: RobotInfo,
     health: RobotHealth?,
+    backupTimestamp: Long?,
+    onOpenErrorLog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var showHealth by remember { mutableStateOf(false) }
+
     Card(modifier = modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp)
+                .height(128.dp)
                 .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
                 .background(Brush.verticalGradient(listOf(HudBackgroundTop, HudBackgroundBottom)))
         ) {
             RobotLineArt(modifier = Modifier.fillMaxSize())
 
-            Column(modifier = Modifier.align(Alignment.TopStart).padding(14.dp)) {
+            Column(modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) {
                 Text(
                     text = info.model ?: robotName,
                     color = HudAccent,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                    fontSize = 16.sp
                 )
                 if (info.model != null) {
-                    Text(robotName, color = HudText, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    Text(robotName, color = HudText, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                 }
                 info.serialNumber?.let {
                     Text("Nº $it", color = HudText.copy(alpha = 0.7f), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                 }
             }
 
-            health?.let { HealthChip(it.level, Modifier.align(Alignment.TopEnd).padding(12.dp)) }
-
             info.axes?.let {
                 Text(
                     text = "$it EIXOS",
                     color = HudLine,
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     letterSpacing = 2.sp,
-                    modifier = Modifier.align(Alignment.BottomStart).padding(14.dp)
+                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)
+                )
+            }
+
+            health?.let {
+                HealthChip(
+                    health = it,
+                    onClick = { showHealth = true },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(10.dp)
                 )
             }
         }
 
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (info.isEmpty) {
-                Text(
-                    "Este backup não tem os dados do controlador. Faça um SAVE/FULL no terminal para ver " +
-                        "modelo, eixos, horímetro e o status do robô.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                InfoGrid(
-                    listOf(
-                        "Horímetro" to info.hourMeterHours?.let { formatHours(it) },
-                        "Servo ligado" to info.servoOnHours?.let { formatHours(it) },
-                        "Motor ligado" to info.motorOnCount?.let { "${formatInt(it)} vezes" },
-                        "Emergências" to info.emergencyStopCount?.let { formatInt(it) },
-                        "Eixos" to info.axes?.toString(),
-                        "Freio acionado" to info.brakeCount?.let { "${formatInt(it)} vezes" },
-                        "Versão AS" to info.asVersion,
-                        "IP do controlador" to info.controllerIp
-                    ).filter { it.second != null }.map { it.first to it.second!! }
-                )
-            }
-
-            health?.let { HealthSummary(it) }
+        if (info.isEmpty) {
+            Text(
+                "Este backup não tem os dados do controlador. Faça um SAVE/FULL no terminal para ver " +
+                    "modelo, eixos, horímetro e o status do robô.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp)
+            )
+        } else {
+            InfoGrid(
+                listOf(
+                    "Horímetro" to info.hourMeterHours?.let { formatHours(it) },
+                    "Em operação (servo)" to info.servoOnHours?.let { formatHours(it) },
+                    "Motor ligado" to info.motorOnCount?.let { "${formatInt(it)} vezes" },
+                    "Emergências" to info.emergencyStopCount?.let { formatInt(it) },
+                    "Freio acionado" to info.brakeCount?.let { "${formatInt(it)} vezes" },
+                    "Eixos" to info.axes?.toString(),
+                    "Versão AS" to info.asVersion,
+                    "IP do controlador" to info.controllerIp
+                ).filter { it.second != null }.map { it.first to it.second!! },
+                modifier = Modifier.padding(16.dp)
+            )
         }
+    }
+
+    if (showHealth && health != null) {
+        HealthSheet(
+            health = health,
+            backupTimestamp = backupTimestamp,
+            onOpenErrorLog = { showHealth = false; onOpenErrorLog() },
+            onDismiss = { showHealth = false }
+        )
     }
 }
 
-/** Chip do status geral: verde (OK), amarelo (atenção) ou cinza (sem dados). */
+/**
+ * Selo do status geral, tocável: verde (OK), amarelo com a quantidade de itens (atenção)
+ * ou cinza (sem dados). A seta indica que abre os detalhes.
+ */
 @Composable
-private fun HealthChip(level: RobotHealth.Level, modifier: Modifier = Modifier) {
-    val (text, color) = when (level) {
+private fun HealthChip(health: RobotHealth, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val (text, color) = when (health.level) {
         RobotHealth.Level.OK -> "OK" to StatusOk
-        RobotHealth.Level.ATTENTION -> "ATENÇÃO" to StatusAttention
+        RobotHealth.Level.ATTENTION -> "ATENÇÃO · ${health.attentionCount}" to StatusAttention
         RobotHealth.Level.NO_DATA -> "SEM DADOS" to StatusNoData
     }
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = 0.2f))
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .background(color.copy(alpha = 0.22f))
+            .clickable(onClick = onClick)
+            .padding(start = 10.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(color))
         Spacer(Modifier.width(6.dp))
         Text(text, color = color, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+        Icon(Icons.Rounded.ChevronRight, contentDescription = "Ver status", tint = color, modifier = Modifier.size(18.dp))
     }
+}
+
+/**
+ * Detalhes do status geral (abre ao tocar no selo): primeiro o que precisa de atenção
+ * (alarmes graves e backup antigo), depois os erros de processo e, por último, os de
+ * rotina, que não mudam o status. Período: 7 dias antes do backup.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HealthSheet(
+    health: RobotHealth,
+    backupTimestamp: Long?,
+    onOpenErrorLog: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Status do robô", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            val period = backupTimestamp?.let {
+                SimpleDateFormat("dd/MM/yyyy", ptBR).format(Date(it))
+            }
+            if (period != null) {
+                Text(
+                    "Alarmes dos ${RobotHealth.WINDOW_DAYS} dias antes do backup de $period.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            SectionTitle("Precisa de atenção")
+            if (health.attentionCount == 0) {
+                StatusRow(Icons.Rounded.CheckCircle, StatusOk, "Nada precisa de atenção.", null)
+            }
+            if (health.isBackupStale) {
+                StatusRow(
+                    Icons.Rounded.Schedule, StatusAttention,
+                    "Backup de ${health.backupAgeDays} dias atrás",
+                    "Faça um novo SAVE/FULL para o painel mostrar a situação atual."
+                )
+            }
+            health.seriousGroups.forEach { g -> ErrorGroupRow(g, Icons.Rounded.Error, StatusSerious) }
+
+            val process = health.errorGroups.filter { it.severity == ErrorSeverity.PROCESS }
+            if (process.isNotEmpty()) {
+                SectionTitle("Erros de programa e movimento")
+                process.forEach { g -> ErrorGroupRow(g, Icons.Rounded.Info, MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+
+            val routine = health.errorGroups.filter { it.severity == ErrorSeverity.ROUTINE }
+            if (routine.isNotEmpty()) {
+                SectionTitle("Rotina (não mudam o status)")
+                routine.forEach { g -> ErrorGroupRow(g, null, MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+
+            OutlinedButton(onClick = onOpenErrorLog, modifier = Modifier.fillMaxWidth()) {
+                Text("Abrir o log de erros completo")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 4.dp)
+    )
+}
+
+/** Uma linha do status: ícone colorido, título e detalhe (texto sempre em cores de texto). */
+@Composable
+private fun StatusRow(icon: ImageVector?, iconTint: Color, title: String, detail: String?) {
+    Row(verticalAlignment = Alignment.Top) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+        } else {
+            Spacer(Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            if (detail != null) {
+                Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ErrorGroupRow(group: RobotHealth.ErrorGroup, icon: ImageVector?, iconTint: Color) {
+    val times = if (group.count == 1) "1 vez" else "${formatInt(group.count)} vezes"
+    StatusRow(
+        icon, iconTint,
+        if (group.code.isBlank()) "Alarme sem código no log" else "(${group.code}) ${group.message}",
+        "$times · última em ${RobotHealth.formatErrorTime(group.lastTimestamp)}"
+    )
 }
 
 /** Grade de duas colunas com rótulo pequeno e valor em negrito. */
 @Composable
-private fun InfoGrid(items: List<Pair<String, String>>) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+private fun InfoGrid(items: List<Pair<String, String>>, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 row.forEach { (label, value) ->
@@ -174,53 +320,8 @@ private fun InfoGrid(items: List<Pair<String, String>>) {
     }
 }
 
-/** Linhas do status geral: erros recentes, último erro e idade do backup. */
-@Composable
-private fun HealthSummary(health: RobotHealth) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        HorizontalDivider()
-        Spacer(Modifier.height(4.dp))
-        Text("Status geral", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-        val errorsText = when (health.errorsLast7Days) {
-            0 -> "Nenhum erro nos 7 dias antes do backup."
-            1 -> "1 erro nos 7 dias antes do backup."
-            else -> "${health.errorsLast7Days} erros nos 7 dias antes do backup."
-        }
-        Text(errorsText, style = MaterialTheme.typography.bodySmall)
-        health.mostFrequentError?.takeIf { health.errorsLast7Days > 1 }?.let { f ->
-            Text(
-                "Mais frequente: (${f.code}) ${f.message}  •  ${formatInt(f.count)}×",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        health.lastError?.let { e ->
-            Text(
-                "Último erro: (${e.errorCode}) ${e.errorMessage}  •  ${RobotHealth.formatErrorTime(e.timestamp)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        val ageText = when (health.backupAgeDays) {
-            0L -> "Backup de hoje."
-            1L -> "Backup de ontem."
-            else -> "Backup de ${health.backupAgeDays} dias atrás."
-        }
-        Text(
-            if (health.backupAgeDays > RobotHealth.STALE_BACKUP_DAYS) "$ageText Vale fazer um novo." else ageText,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (health.backupAgeDays > RobotHealth.STALE_BACKUP_DAYS) StatusAttention
-            else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-private fun formatHours(hours: Double) = String.format(ptBR, "%,.0f h", hours)
-private fun formatInt(value: Int) = String.format(ptBR, "%,d", value)
+internal fun formatHours(hours: Double) = String.format(ptBR, "%,.0f h", hours)
+internal fun formatInt(value: Int) = String.format(ptBR, "%,d", value)
 
 /**
  * Desenho em linhas, estilo "tela de controle", de um robô de pintura articulado: base,
@@ -248,8 +349,8 @@ fun RobotLineArt(modifier: Modifier = Modifier) {
         drawFloorGrid(floorY)
         drawCornerBrackets()
 
-        // o robô fica um pouco à direita do centro, para o texto caber à esquerda
-        val baseX = w * 0.55f
+        // o robô fica perto do centro: o texto ocupa o canto esquerdo e o selo, o direito
+        val baseX = w * 0.45f
         val s = h / 200f   // escala: o desenho foi pensado para 200 px de altura
 
         val shoulder = Offset(baseX, floorY - 70 * s)
@@ -339,9 +440,9 @@ private fun DrawScope.drawFloorGrid(floorY: Float) {
         y += gap
         gap *= 1.6f
     }
-    val vanish = Offset(w * 0.55f, floorY - h * 0.4f)
+    val vanish = Offset(w * 0.45f, floorY - h * 0.4f)
     for (i in -6..6) {
-        val bottomX = w * 0.55f + i * w * 0.12f
+        val bottomX = w * 0.45f + i * w * 0.12f
         val t = (floorY - vanish.y) / (h - vanish.y)
         val topX = vanish.x + (bottomX - vanish.x) * t
         drawLine(HudLine.copy(alpha = 0.12f), Offset(topX, floorY), Offset(bottomX, h), 1f)

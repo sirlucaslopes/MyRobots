@@ -4,6 +4,7 @@ import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 import my.robots.core.model.Backup
 import my.robots.core.model.BackupSummary
+import my.robots.core.model.BackupUsageSnippet
 
 /**
  * Consultas da tabela de backups.
@@ -23,6 +24,20 @@ interface BackupDao {
      */
     @Query("SELECT id, robotId, backupName, fileName, programsCount, variablesCount, framesCount, memoryUsage, timestamp FROM backups WHERE robotId = :robotId AND (fileName LIKE '%' || :query || '%' OR backupName LIKE '%' || :query || '%') ORDER BY timestamp DESC")
     fun searchBackupsSummary(robotId: Int, query: String): Flow<List<BackupSummary>>
+
+    /**
+     * Para cada backup do robô, só o trecho da seção ".OPE_INFO1" (1500 caracteres a partir
+     * dela), do mais antigo para o mais novo. O recorte é feito no SQLite, então o texto
+     * completo dos backups não vem para a memória do app.
+     */
+    @Query("""
+        SELECT id, timestamp, fileName,
+               CASE WHEN instr(content, '.OPE_INFO1') > 0
+                    THEN substr(content, instr(content, '.OPE_INFO1'), 1500)
+                    ELSE '' END AS snippet
+        FROM backups WHERE robotId = :robotId ORDER BY timestamp ASC
+    """)
+    suspend fun getUsageSnippets(robotId: Int): List<BackupUsageSnippet>
 
     /**
      * Lista os backups de um robô COM o texto completo. Pesado: use só quando precisar.

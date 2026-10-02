@@ -43,3 +43,15 @@ data class BackupSummary(
     val memoryUsage: Long,
     val timestamp: Long
 )
+
+/**
+ * Trecho da seção ".OPE_INFO1" de um backup (horímetro, servo, contadores), usado no
+ * gráfico de uso do robô. O trecho é recortado pelo próprio banco, para não carregar o
+ * backup inteiro. Vazio quando o backup não é SAVE/FULL.
+ */
+data class BackupUsageSnippet(
+    val id: Int,
+    val timestamp: Long,
+    val fileName: String,
+    val snippet: String
+)

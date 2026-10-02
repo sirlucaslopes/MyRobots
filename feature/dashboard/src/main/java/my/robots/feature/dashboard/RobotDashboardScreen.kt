@@ -52,6 +52,7 @@ import kotlinx.coroutines.launch
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.RobotErrorLogEntry
 import my.robots.core.common.ascode.RobotErrorLogProgram
+import my.robots.core.common.ascode.DailyUsage
 import my.robots.core.common.ascode.RobotHealth
 import my.robots.core.common.ascode.RobotInfo
 import my.robots.core.common.ascode.RobotLogEntry
@@ -120,6 +121,7 @@ fun RobotDashboardScreen(
     val lineCountState = if (viewModel != null) viewModel.lineCount.collectAsState() else remember { mutableStateOf(0) }
     val errorLogState = if (viewModel != null) viewModel.errorLog.collectAsState() else remember { mutableStateOf(emptyList<RobotErrorLogEntry>()) }
     val robotInfoState = if (viewModel != null) viewModel.robotInfo.collectAsState() else remember { mutableStateOf(RobotInfo()) }
+    val dailyUsageState = if (viewModel != null) viewModel.dailyUsage.collectAsState() else remember { mutableStateOf(emptyList<DailyUsage>()) }
     val operationLogState = if (viewModel != null) viewModel.operationLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
     val programEditLogState = if (viewModel != null) viewModel.programEditLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
 
@@ -136,6 +138,7 @@ fun RobotDashboardScreen(
     val lineCount by lineCountState
     val errorLog by errorLogState
     val robotInfo by robotInfoState
+    val dailyUsage by dailyUsageState
     val operationLog by operationLogState
     val programEditLog by programEditLogState
 
@@ -378,6 +381,7 @@ fun RobotDashboardScreen(
                             isNewestBackup = isNewestBackup,
                             robotInfo = robotInfo,
                             errorLog = errorLog,
+                            dailyUsage = dailyUsage,
                             lineCount = lineCount,
                             dataBankCount = dataBankEntries.size,
                             errorLogCount = errorLog.size,
@@ -1426,8 +1430,9 @@ fun VariableDuplicateDialog(
 
 /**
  * Página inicial do painel:
- * - [RobotInfoCard]: desenho do robô, modelo, eixos, horímetro etc. e o status geral, tudo
- *   lido do backup SAVE/FULL (robotInfo + errorLog);
+ * - [RobotInfoCard]: desenho do robô, modelo, eixos, horímetro etc. e o selo do status
+ *   geral (tocar abre o que precisa de atenção), tudo lido do backup SAVE/FULL;
+ * - [RobotUsageCard]: gráfico de horas em operação por dia, com todos os backups do robô;
  * - cartão do backup analisado (nome, data, linhas), com o atalho "Histórico de backups" e o
  *   aviso de quando ele não é o mais recente do robô (isNewestBackup = false);
  * - atalhos: Programas, Variáveis, Data Bank e os três logs do controlador (Erros, Operação,
@@ -1441,6 +1446,7 @@ fun DashboardHome(
     isNewestBackup: Boolean = true,
     robotInfo: RobotInfo = RobotInfo(),
     errorLog: List<RobotErrorLogEntry> = emptyList(),
+    dailyUsage: List<DailyUsage> = emptyList(),
     lineCount: Int,
     dataBankCount: Int,
     errorLogCount: Int,
@@ -1460,7 +1466,14 @@ fun DashboardHome(
         val health = remember(robotInfo, errorLog, backup?.timestamp) {
             backup?.let { RobotHealth.evaluate(robotInfo, errorLog, it.timestamp) }
         }
-        RobotInfoCard(robotName = robot?.name ?: "-", info = robotInfo, health = health)
+        RobotInfoCard(
+            robotName = robot?.name ?: "-",
+            info = robotInfo,
+            health = health,
+            backupTimestamp = backup?.timestamp,
+            onOpenErrorLog = { onFeatureClick(DashboardFeature.ErrorLog) }
+        )
+        RobotUsageCard(days = dailyUsage)
 
         // Backup analisado: menor, abaixo das informações do robô.
         Card(
