@@ -12,7 +12,8 @@ data class UsagePoint(
     val timestamp: Long,
     val poweredHours: Double?,
     val operatingHours: Double?,
-    val motorOnCount: Int?
+    val motorOnCount: Int?,
+    val axisMoveHours: List<Double> = emptyList()
 )
 
 /**
@@ -62,7 +63,23 @@ object RobotUsageHistory {
                 null
             }
         }
-        return UsagePoint(fromName ?: timestamp, info.hourMeterHours, info.servoOnHours, info.motorOnCount)
+        return UsagePoint(fromName ?: timestamp, info.hourMeterHours, info.servoOnHours, info.motorOnCount, info.axisMoveHours)
+    }
+
+    /**
+     * Horas em movimento de cada eixo nos últimos [days] dias: diferença entre o backup mais
+     * novo e o mais antigo dentro do período. Vazio sem dois backups com MOVE_TJT no período;
+     * um eixo cujo contador diminuiu fica com 0.
+     */
+    fun axisMoveHoursLast(points: List<UsagePoint>, days: Long): List<Double> {
+        val withAxes = points.filter { it.axisMoveHours.isNotEmpty() }.sortedBy { it.timestamp }
+        val last = withAxes.lastOrNull() ?: return emptyList()
+        val first = withAxes.firstOrNull { it.timestamp >= last.timestamp - days * DAY_MS } ?: return emptyList()
+        if (first === last) return emptyList()
+        return last.axisMoveHours.mapIndexed { i, now ->
+            val before = first.axisMoveHours.getOrNull(i) ?: return@mapIndexed 0.0
+            (now - before).coerceAtLeast(0.0)
+        }
     }
 
     /**

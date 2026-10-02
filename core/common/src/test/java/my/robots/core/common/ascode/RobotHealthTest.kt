@@ -143,3 +143,61 @@ class RobotUsageHistoryTest {
         assertTrue(RobotUsageHistory.daily(listOf(UsagePoint(0, 1.0, 1.0, 1)), zone).isEmpty())
     }
 }
+
+/**
+ * Dados por eixo: horas em movimento, deslocamento e temperatura do encoder.
+ */
+class AxisInfoTest {
+
+    private val backup = listOf(
+        ".ROBOTDATA1",
+        "ZROBOT.TYPE    35   3   3 3772      -57256   KJ264-B001 ( 2026-04-08 13:53 )",
+        ".END",
+        ".ENCTEMPLOG",
+        "=== MIN(deg C) ===",
+        "  JT1  - [26/05/12 08:00:53]     16.750",
+        "  JT2  - [26/02/13 14:56:52]      0.000",
+        "=== MAX(deg C) ===",
+        "  JT1  - [26/05/08 17:47:40]     50.000",
+        "  JT3  - [26/03/17 15:36:33]     51.000",
+        ".END",
+        ".OPE_INFO1",
+        "MOVE_TJT  82.7 89.4 89.8 0.0 0.0",
+        "DIST_DJT  1555.800 2105.384 2295.800 0.000 0.000",
+        "M_MOVE_TJT  83.5 90.1 90.4 0.0 0.0",
+        ".END"
+    ).joinToString("\n")
+
+    @Test
+    fun parse_listasPorEixoCortadasNosEixosDoRobo() {
+        val info = AsRobotInfo.parse(backup)
+        assertEquals(listOf(82.7, 89.4, 89.8), info.axisMoveHours)
+        assertEquals(listOf(1555.8, 2105.384, 2295.8), info.axisDistance)
+        assertEquals(3, info.encoderTemperatures.size)
+        val jt1 = info.encoderTemperatures[0]
+        assertEquals(16.75, jt1.minCelsius!!, 0.001)
+        assertEquals("26/05/08 17:47:40", jt1.maxAt)
+        assertEquals(null, info.encoderTemperatures[2].minCelsius)   // JT3 só tem máxima
+        assertEquals(51.0, info.encoderTemperatures[2].maxCelsius!!, 0.001)
+    }
+
+    @Test
+    fun axisOf_achaOEixoNaMensagem() {
+        assertEquals(5, AsRobotInfo.axisOf("Jt 5 motor overloaded."))
+        assertEquals(7, AsRobotInfo.axisOf("End point for Jt7 beyond motion range."))
+        assertEquals(null, AsRobotInfo.axisOf("Safety fence is open."))
+    }
+
+    @Test
+    fun axisMoveHoursLast_diferencaNoPeriodo() {
+        val day = 24L * 60 * 60 * 1000
+        val points = listOf(
+            UsagePoint(0, null, 1.0, null, listOf(10.0, 20.0)),
+            UsagePoint(40 * day, null, 1.0, null, listOf(15.0, 21.0)),
+            UsagePoint(60 * day, null, 1.0, null, listOf(18.0, 20.5))
+        )
+        // 30 dias antes do último (dia 60) -> compara com o do dia 40
+        assertEquals(listOf(3.0, 0.0), RobotUsageHistory.axisMoveHoursLast(points, 30))
+        assertTrue(RobotUsageHistory.axisMoveHoursLast(points.take(1), 30).isEmpty())
+    }
+}

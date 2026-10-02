@@ -350,6 +350,12 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     ligou (`MTON_CNT`), emergências (`ESTP_CNT`), freio acionado (`BRKE_CNT`), eixos e série
     (`ZROBOT.TYPE`), versão do AS (cabeçalho `.*=== AS GROUP ===`) e IP do controlador
     (`.NETCONF2`). Backup sem esses dados (só programas) mostra um aviso para fazer SAVE/FULL.
+    O link **"Por eixo"**, abaixo das horas em operação, abre `AxisDetailSheet.kt` com cada
+    servo (JT1, JT2...): horas em movimento (`MOVE_TJT`) com barra proporcional ao eixo mais
+    usado, horas nos últimos 30 dias (diferença entre os backups do período,
+    `RobotUsageHistory.axisMoveHoursLast`), deslocamento acumulado (`DIST_DJT`, na unidade do
+    controlador), menor e maior temperatura do encoder (`.ENCTEMPLOG`, com a data) e os
+    alarmes dos 7 dias que citam o eixo ("Jt 5 motor overloaded"; os de rotina ficam de fora).
   - **Status geral** (`RobotHealth` + `AsErrorSeverity`): selo OK / ATENÇÃO · n / SEM DADOS.
     Os alarmes do `.ERRLOG` dos 7 dias antes do backup são classificados em **rotina**
     (porta da cabine, motor desligado, falta de energia...), **programa/movimento** (fora de

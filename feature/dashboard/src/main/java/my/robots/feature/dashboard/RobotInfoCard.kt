@@ -69,7 +69,8 @@ internal val ptBR = Locale("pt", "BR")
  *
  * Em cima, uma faixa com o desenho do robô ([RobotLineArt]), o modelo, a série e o selo do
  * status geral. Tocar no selo abre a lista do que precisa de atenção ([HealthSheet]).
- * Embaixo, os números lidos do backup SAVE/FULL ([RobotInfo]). Um backup sem os dados do
+ * Embaixo, os números lidos do backup SAVE/FULL ([RobotInfo]). "Por eixo", abaixo das horas
+ * em operação, abre o detalhe de cada servo ([AxisDetailSheet]). Um backup sem os dados do
  * controlador mostra só o desenho e um aviso de como obtê-los.
  */
 @Composable
@@ -78,10 +79,13 @@ fun RobotInfoCard(
     info: RobotInfo,
     health: RobotHealth?,
     backupTimestamp: Long?,
+    axisMoveHoursLast30: List<Double>,
     onOpenErrorLog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showHealth by remember { mutableStateOf(false) }
+    var showAxes by remember { mutableStateOf(false) }
+    val hasAxisData = info.axisMoveHours.isNotEmpty() || info.encoderTemperatures.isNotEmpty()
 
     Card(modifier = modifier.fillMaxWidth()) {
         Box(
@@ -139,19 +143,30 @@ fun RobotInfoCard(
             )
         } else {
             InfoGrid(
-                listOf(
-                    "Horímetro" to info.hourMeterHours?.let { formatHours(it) },
-                    "Em operação (servo)" to info.servoOnHours?.let { formatHours(it) },
-                    "Motor ligado" to info.motorOnCount?.let { "${formatInt(it)} vezes" },
-                    "Emergências" to info.emergencyStopCount?.let { formatInt(it) },
-                    "Freio acionado" to info.brakeCount?.let { "${formatInt(it)} vezes" },
-                    "Eixos" to info.axes?.toString(),
-                    "Versão AS" to info.asVersion,
-                    "IP do controlador" to info.controllerIp
-                ).filter { it.second != null }.map { it.first to it.second!! },
+                listOfNotNull(
+                    info.hourMeterHours?.let { InfoItem("Horímetro", formatHours(it)) },
+                    info.servoOnHours?.let {
+                        InfoItem("Em operação (servo)", formatHours(it), if (hasAxisData) "Por eixo" else null) { showAxes = true }
+                    },
+                    info.motorOnCount?.let { InfoItem("Motor ligado", "${formatInt(it)} vezes") },
+                    info.emergencyStopCount?.let { InfoItem("Emergências", formatInt(it)) },
+                    info.brakeCount?.let { InfoItem("Freio acionado", "${formatInt(it)} vezes") },
+                    info.axes?.let { InfoItem("Eixos", it.toString()) },
+                    info.asVersion?.let { InfoItem("Versão AS", it) },
+                    info.controllerIp?.let { InfoItem("IP do controlador", it) }
+                ),
                 modifier = Modifier.padding(16.dp)
             )
         }
+    }
+
+    if (showAxes) {
+        AxisDetailSheet(
+            info = info,
+            moveHoursLast30 = axisMoveHoursLast30,
+            errorGroups = health?.errorGroups ?: emptyList(),
+            onDismiss = { showAxes = false }
+        )
     }
 
     if (showHealth && health != null) {
@@ -296,22 +311,53 @@ private fun ErrorGroupRow(group: RobotHealth.ErrorGroup, icon: ImageVector?, ico
     )
 }
 
+/**
+ * Um item da grade de informações. Com [action], aparece um link abaixo do valor e o item
+ * inteiro fica tocável.
+ */
+private class InfoItem(
+    val label: String,
+    val value: String,
+    val action: String? = null,
+    val onClick: (() -> Unit)? = null
+)
+
 /** Grade de duas colunas com rótulo pequeno e valor em negrito. */
 @Composable
-private fun InfoGrid(items: List<Pair<String, String>>, modifier: Modifier = Modifier) {
+private fun InfoGrid(items: List<InfoItem>, modifier: Modifier = Modifier) {
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items.chunked(2).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { (label, value) ->
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                row.forEach { item ->
+                    val clickable = item.action != null && item.onClick != null
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .then(if (clickable) Modifier.clickable { item.onClick?.invoke() } else Modifier)
+                    ) {
+                        Text(item.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            value,
+                            item.value,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (clickable) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    item.action!!,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Icon(
+                                    Icons.Rounded.ChevronRight, contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
                 }
                 if (row.size == 1) Spacer(Modifier.weight(1f))

@@ -124,6 +124,13 @@ class RobotDashboardViewModel(
     val dailyUsage: StateFlow<List<DailyUsage>> = _dailyUsage.asStateFlow()
     private var usageKey: Pair<Int, Long>? = null
 
+    private val _axisMoveHoursLast30 = MutableStateFlow<List<Double>>(emptyList())
+    /**
+     * Horas em movimento de cada eixo nos últimos 30 dias (diferença do MOVE_TJT entre os
+     * backups do período). Vazio sem dois backups SAVE/FULL nesse período.
+     */
+    val axisMoveHoursLast30: StateFlow<List<Double>> = _axisMoveHoursLast30.asStateFlow()
+
     private val _programs = MutableStateFlow<List<RobotProgram>>(emptyList())
     /**
      * Programas encontrados no backup.
@@ -500,8 +507,10 @@ class RobotDashboardViewModel(
         usageKey = key
         viewModelScope.launch {
             val snippets = repository.getUsageSnippets(robotId)
-            _dailyUsage.value = withContext(Dispatchers.Default) {
-                RobotUsageHistory.daily(snippets.map { RobotUsageHistory.pointFrom(it.timestamp, it.fileName, it.snippet) })
+            withContext(Dispatchers.Default) {
+                val points = snippets.map { RobotUsageHistory.pointFrom(it.timestamp, it.fileName, it.snippet) }
+                _dailyUsage.value = RobotUsageHistory.daily(points)
+                _axisMoveHoursLast30.value = RobotUsageHistory.axisMoveHoursLast(points, 30)
             }
         }
     }

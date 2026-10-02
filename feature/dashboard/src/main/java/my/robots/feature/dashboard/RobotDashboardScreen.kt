@@ -122,6 +122,7 @@ fun RobotDashboardScreen(
     val errorLogState = if (viewModel != null) viewModel.errorLog.collectAsState() else remember { mutableStateOf(emptyList<RobotErrorLogEntry>()) }
     val robotInfoState = if (viewModel != null) viewModel.robotInfo.collectAsState() else remember { mutableStateOf(RobotInfo()) }
     val dailyUsageState = if (viewModel != null) viewModel.dailyUsage.collectAsState() else remember { mutableStateOf(emptyList<DailyUsage>()) }
+    val axisLast30State = if (viewModel != null) viewModel.axisMoveHoursLast30.collectAsState() else remember { mutableStateOf(emptyList<Double>()) }
     val operationLogState = if (viewModel != null) viewModel.operationLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
     val programEditLogState = if (viewModel != null) viewModel.programEditLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
 
@@ -139,6 +140,7 @@ fun RobotDashboardScreen(
     val errorLog by errorLogState
     val robotInfo by robotInfoState
     val dailyUsage by dailyUsageState
+    val axisLast30 by axisLast30State
     val operationLog by operationLogState
     val programEditLog by programEditLogState
 
@@ -382,6 +384,7 @@ fun RobotDashboardScreen(
                             robotInfo = robotInfo,
                             errorLog = errorLog,
                             dailyUsage = dailyUsage,
+                            axisMoveHoursLast30 = axisLast30,
                             lineCount = lineCount,
                             dataBankCount = dataBankEntries.size,
                             errorLogCount = errorLog.size,
@@ -1447,6 +1450,7 @@ fun DashboardHome(
     robotInfo: RobotInfo = RobotInfo(),
     errorLog: List<RobotErrorLogEntry> = emptyList(),
     dailyUsage: List<DailyUsage> = emptyList(),
+    axisMoveHoursLast30: List<Double> = emptyList(),
     lineCount: Int,
     dataBankCount: Int,
     errorLogCount: Int,
@@ -1471,6 +1475,7 @@ fun DashboardHome(
             info = robotInfo,
             health = health,
             backupTimestamp = backup?.timestamp,
+            axisMoveHoursLast30 = axisMoveHoursLast30,
             onOpenErrorLog = { onFeatureClick(DashboardFeature.ErrorLog) }
         )
         RobotUsageCard(days = dailyUsage)

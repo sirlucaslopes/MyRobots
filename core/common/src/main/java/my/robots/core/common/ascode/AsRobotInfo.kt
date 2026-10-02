@@ -16,6 +16,10 @@ package my.robots.core.common.ascode
  * - asVersion / servoVersion: do cabeçalho de comentários ".*=== AS GROUP ===" e
  *   ".*=== SERVO GROUP ===".
  * - controllerIp: primeiro campo de ".NETCONF2" (a placa de rede usada pelo terminal).
+ * - axisMoveHours: "MOVE_TJT", horas em movimento de cada eixo (JT1, JT2...).
+ * - axisDistance: "DIST_DJT", deslocamento acumulado de cada eixo, na unidade do controlador.
+ * - encoderTemperatures: seção ".ENCTEMPLOG", menor e maior temperatura do encoder de cada eixo.
+ * As listas por eixo vêm cortadas na quantidade de eixos do robô (o controlador grava 18).
  */
 data class RobotInfo(
     val model: String? = null,
@@ -28,11 +32,27 @@ data class RobotInfo(
     val brakeCount: Int? = null,
     val asVersion: String? = null,
     val servoVersion: String? = null,
-    val controllerIp: String? = null
+    val controllerIp: String? = null,
+    val axisMoveHours: List<Double> = emptyList(),
+    val axisDistance: List<Double> = emptyList(),
+    val encoderTemperatures: List<EncoderTemperature> = emptyList()
 ) {
     /** true quando o backup não trouxe nenhum dado do robô (não é SAVE/FULL). */
     val isEmpty: Boolean get() = this == RobotInfo()
 }
+
+/**
+ * Menor e maior temperatura registradas no encoder de um eixo (seção ".ENCTEMPLOG"), com a
+ * data de cada uma no formato do controlador ("26/05/12 08:00:53"). Zero costuma indicar
+ * que o eixo nunca teve leitura.
+ */
+data class EncoderTemperature(
+    val axis: Int,
+    val minCelsius: Double?,
+    val minAt: String?,
+    val maxCelsius: Double?,
+    val maxAt: String?
+)
 
 /**
  * Lê os dados do robô de um backup. O texto não é alterado.
@@ -41,16 +61,41 @@ object AsRobotInfo {
 
     private val ROBOT_TYPE = Regex("""^ZROBOT\.TYPE\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+-?\d+\s+(\S+)""")
     private val VERSION = Regex("""^\.\*===\s*(AS|SERVO) GROUP\s*===\s*:\s*(\S+)""")
+    private val ENC_TEMP = Regex("""^JT(\d+)\s*-\s*\[([^]]*)]\s*(-?[\d.]+)""")
 
     fun parse(content: String): RobotInfo {
         if (content.isBlank()) return RobotInfo()
 
         var info = RobotInfo()
         var contTime: Double? = null
+        var moveHours: List<Double>? = null
+        var distance: List<Double>? = null
+        // ENCTEMPLOG: null = fora da seção, "MIN" ou "MAX" = dentro do bloco
+        var tempBlock: String? = null
+        val tempMin = sortedMapOf<Int, Pair<Double?, String>>()
+        val tempMax = sortedMapOf<Int, Pair<Double?, String>>()
 
         for (line in content.lineSequence()) {
             val trimmed = line.trim()
             if (trimmed.isEmpty()) continue
+
+            if (trimmed.equals(".ENCTEMPLOG", ignoreCase = true)) {
+                tempBlock = ""
+                continue
+            }
+            if (tempBlock != null) {
+                when {
+                    trimmed.startsWith(".") -> tempBlock = null
+                    trimmed.contains("MIN", ignoreCase = true) && trimmed.startsWith("===") -> tempBlock = "MIN"
+                    trimmed.contains("MAX", ignoreCase = true) && trimmed.startsWith("===") -> tempBlock = "MAX"
+                    else -> ENC_TEMP.find(trimmed)?.let { m ->
+                        val entry = m.groupValues[3].toDoubleOrNull() to m.groupValues[2].trim()
+                        val axis = m.groupValues[1].toInt()
+                        if (tempBlock == "MIN") tempMin[axis] = entry else if (tempBlock == "MAX") tempMax[axis] = entry
+                    }
+                }
+                if (tempBlock != null) continue
+            }
 
             ROBOT_TYPE.find(trimmed)?.let { m ->
                 if (info.model == null) {
@@ -82,14 +127,33 @@ object AsRobotInfo {
                 "MTON_CNT" -> info = info.copy(motorOnCount = info.motorOnCount ?: value?.toIntOrNull())
                 "ESTP_CNT" -> info = info.copy(emergencyStopCount = info.emergencyStopCount ?: value?.toIntOrNull())
                 "BRKE_CNT" -> info = info.copy(brakeCount = info.brakeCount ?: value?.toIntOrNull())
+                "MOVE_TJT" -> moveHours = moveHours ?: parts.drop(1).mapNotNull { it.toDoubleOrNull() }
+                "DIST_DJT" -> distance = distance ?: parts.drop(1).mapNotNull { it.toDoubleOrNull() }
                 ".NETCONF2" -> info = info.copy(
                     controllerIp = info.controllerIp ?: value?.substringBefore(',')?.takeIf { it.isNotBlank() }
                 )
             }
         }
 
-        return if (info.hourMeterHours == null) info.copy(hourMeterHours = contTime) else info
+        if (info.hourMeterHours == null) info = info.copy(hourMeterHours = contTime)
+
+        // o controlador grava 18 posições; ficam só as dos eixos que o robô tem
+        val axes = info.axes ?: (tempMin.keys + tempMax.keys).maxOrNull()
+            ?: moveHours?.indexOfLast { it != 0.0 }?.plus(1) ?: 0
+        fun <T> cut(list: List<T>?) = list?.take(axes) ?: emptyList()
+        val temps = (1..axes).mapNotNull { axis ->
+            val min = tempMin[axis]
+            val max = tempMax[axis]
+            if (min == null && max == null) null
+            else EncoderTemperature(axis, min?.first, min?.second, max?.first, max?.second)
+        }
+        return info.copy(axisMoveHours = cut(moveHours), axisDistance = cut(distance), encoderTemperatures = temps)
     }
+
+    /** Número do eixo citado numa mensagem de alarme ("Jt 5 motor overloaded", "Jt7 beyond..."). */
+    private val AXIS_IN_MESSAGE = Regex("""\bJ[Tt]\s*(\d+)""")
+
+    fun axisOf(message: String): Int? = AXIS_IN_MESSAGE.find(message)?.groupValues?.get(1)?.toIntOrNull()
 }
 
 /**
