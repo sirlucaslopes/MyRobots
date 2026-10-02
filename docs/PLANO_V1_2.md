@@ -7,6 +7,8 @@
 > - Fase 0-C: passos 3–5 feitos; 1 (rodar o `MigrationTest`) e 2 (arquivo real) pendentes.
 > - Fase 1: passos 1–2 feitos, passo 3 em `git stash` ("Fase 1 passo 3 (WIP)").
 > - Skills Android em `.claude/skills/` (commit `fc4d670`).
+> - **Fase 1.5 (nova, 01/10):** pasta autossuficiente com `robo.myrobots`/`projetos.myrobots`
+>   para restaurar depois de reinstalar. Ainda não começada.
 
 ## Contexto
 
@@ -581,6 +583,187 @@ Nenhuma feature passa a depender de outra.
 
 ---
 
+## Fase 1.5: Pasta autossuficiente (restaurar depois de reinstalar)
+
+**Objetivo:** a pasta `MyRobots` passa a guardar **tudo** o que o app sabe (robôs, projetos,
+cabines, comandos rápidos e os nomes dos backups), e não só os `.as`. Desinstalar, reinstalar,
+trocar de celular ou passar da versão do Android Studio para a da Play deixa de perder dados: o
+app lê a pasta e reconstrói o banco sozinho.
+
+**Por que agora (antes da Fase 2):** hoje, depois de uma reinstalação, só os `.as` sobram, e eles
+só voltam se a subpasta tiver o mesmo nome do robô (`robotDirName`). Robô renomeado ou excluído,
+projetos, comandos rápidos e nomes de backup se perdem. A Fase 2 cria os layouts de cabine e os
+equipamentos, que também precisam ir para a pasta. Fazer esta fase antes evita refazer a Fase 2.
+
+**Caso real que motivou:** a versão da Play é assinada com outra chave. Para instalar, é preciso
+**desinstalar** a versão do Android Studio, e o banco vai junto.
+
+**Módulos afetados:**
+- `:core:model`: `Robot.uuid` e os modelos do arquivo (`RobotMetadataFile`, `ProjectsMetadataFile`).
+- `:core:database`: coluna `uuid` nova, migração 4→5 e teste de migração.
+- `:core:common`: serialização, checksum e validação dos arquivos (funções puras, testadas na JVM).
+- `:core:data`: `MetadataMirror` (mantém os arquivos iguais ao banco) e `RestoreService` (lê a
+  pasta e importa). Os dois usam o `RobotFileStore`, que já existe.
+- `:feature:robots`: tela de boas-vindas e opção "Restaurar de uma pasta" na janela "Pasta dos arquivos".
+- `:app`: decidir na abertura se mostra a tela de boas-vindas.
+
+### Os arquivos
+
+**Em cada pasta de robô: `<pasta>/<robô>/robo.myrobots`**
+
+```json
+{
+  "format": "myrobots.robot",
+  "formatVersion": 1,
+  "appVersion": "1.2",
+  "savedAt": "2026-10-01T23:10:00-03:00",
+  "robot": {
+    "uuid": "6f1c…",
+    "name": "R12",
+    "ip": "172.20.32.47",
+    "port": 23,
+    "project": "CAT Primer",
+    "manufacturer": "KAWASAKI",
+    "autoLogin": true,
+    "loginUser": "as",
+    "layoutRow": 0,
+    "layoutCol": 1
+  },
+  "quickCommands": [ { "label": "Save full", "command": "SAVE [ROBOT]_[DATA]" } ],
+  "backups": [
+    { "fileName": "r12_20260920_1628.as", "backupName": "Antes da troca de bico", "timestamp": 1790000000000 }
+  ],
+  "sha256": "…"
+}
+```
+
+**Na raiz da pasta: `<pasta>/projetos.myrobots`**
+
+```json
+{
+  "format": "myrobots.projects",
+  "formatVersion": 1,
+  "appVersion": "1.2",
+  "savedAt": "…",
+  "projects": [
+    {
+      "name": "CAT Primer",
+      "layout": { "rowCount": 2, "colCount": 2 },
+      "equipment": [ { "type": "CONVEYOR", "name": "", "position": 1, "flowDirection": 1, "sortOrder": 0 } ]
+    }
+  ],
+  "manufacturerQuickCommands": [ { "manufacturer": "KAWASAKI", "label": "…", "command": "…" } ],
+  "sha256": "…"
+}
+```
+
+Regras:
+- **A senha NÃO vai no arquivo.** Ela está cifrada com uma chave do Keystore que some ao
+  desinstalar (0-B.E). Na restauração, o robô com `autoLogin` volta marcado como "senha pendente".
+- **O conteúdo dos backups não é duplicado.** O texto continua nos `.as`. O arquivo só guarda o
+  nome que o usuário deu, a data e o nome do arquivo. As contagens (`programsCount` etc.) são
+  recalculadas na importação, como já acontece no `insertBackup`.
+- **`sha256`** é calculado sobre o JSON sem o próprio campo. Serve para detectar arquivo
+  corrompido ou editado à mão. Não é segurança: o arquivo é texto legível, e isso é aceitável.
+- **`formatVersion`**: o app lê qualquer versão menor ou igual à dele. Versão maior: recusa com
+  "Este arquivo foi criado por uma versão mais nova do MyRobots".
+- Gravados como `application/octet-stream`, igual aos `.as`, para o sistema não mexer na extensão.
+- O `projetos.myrobots` nasce já com `equipment` e `layout`. Até a Fase 2 existir, esses campos
+  vão vazios ou com o padrão (2×2, sem equipamento).
+
+### O UUID do robô
+
+A importação reconhece o robô **pelo `uuid` do arquivo, não pelo nome da pasta**. Com isso,
+renomear um robô deixa de quebrar a restauração.
+
+```sql
+-- MIGRATION_4_5
+ALTER TABLE robots ADD COLUMN uuid TEXT NOT NULL DEFAULT '';
+UPDATE robots SET uuid = lower(hex(randomblob(16))) WHERE uuid = '';
+CREATE UNIQUE INDEX IF NOT EXISTS index_robots_uuid ON robots(uuid);
+```
+
+- Robô novo recebe `UUID.randomUUID().toString()` no `RobotDialog`/repositório.
+- Conferir o SQL contra o `5.json` exportado e acrescentar o caso 4→5 no `MigrationTest`.
+- **A Fase 2 passa a usar a migração 5→6** (ver "Mudanças de banco" da Fase 2).
+- **Ponto a resolver:** ao renomear um robô, a subpasta também muda de nome (`robotDirName`).
+  Verificar o que acontece hoje com os `.as` da pasta antiga e mover a pasta junto,
+  incluindo o `robo.myrobots`.
+
+### Manter os arquivos iguais ao banco (`MetadataMirror`)
+
+- Um único lugar no `:core:data` observa o banco (robôs, comandos, backups e, na Fase 2,
+  layouts e equipamentos) e regrava **só o arquivo afetado**: mudou o R12, regrava
+  `r12/robo.myrobots`; mudou um layout, regrava `projetos.myrobots`.
+- Agrupar mudanças rápidas (debounce de ~1–2 s) para não regravar a cada tecla.
+- **Nunca deixar um arquivo pela metade:** antes de regravar, renomear o atual para
+  `robo.myrobots.bak`. Na leitura, se o checksum do principal falhar, usar o `.bak`.
+- Robô excluído: apagar o `robo.myrobots` da pasta dele. Os `.as` seguem a regra de exclusão que já existe.
+- Rodar uma vez na primeira abertura da v1.2 (junto do `migrateFilesToNewFolderOnce`), para criar
+  os arquivos de quem já tem dados.
+- **Com o app instalado, o banco manda.** O espelho só escreve, nunca lê. Ler é só na restauração.
+
+### Restaurar (`RestoreService` + telas)
+
+**Primeira abertura com o banco vazio** (instalação nova): tela de boas-vindas com duas opções:
+- **"Começar do zero"**: segue para a lista de robôs vazia, usando a pasta padrão.
+- **"Já usei o MyRobots: restaurar"**: abre o seletor de pastas (`ACTION_OPEN_DOCUMENT_TREE`) já
+  posicionado em `Documentos/MyRobots`, com `EXTRA_INITIAL_URI` (por exemplo
+  `DocumentsContract.buildDocumentUri("com.android.externalstorage.documents", "primary:Documents/MyRobots")`).
+  O usuário só toca em "Usar esta pasta".
+
+**Por que não dá para buscar sozinho:** depois de desinstalar, o MediaStore deixa de mostrar ao
+app os arquivos que ele mesmo tinha criado, e o app não consegue nem saber que eles existem. Um
+toque no seletor é o mínimo que o Android permite.
+
+**Depois de escolher a pasta:**
+1. Ler `projetos.myrobots` e cada `*/robo.myrobots`, validando formato, versão e checksum.
+2. Mostrar um **resumo antes de importar**, por exemplo "3 projetos, 9 robôs, 214 backups", com
+   os problemas encontrados:
+   - arquivo corrompido (checksum) ou de versão mais nova: listado e ignorado;
+   - **subpasta com `.as` mas sem `robo.myrobots`** (pasta da v1.1, por exemplo): oferecer "Criar
+     robô a partir desta pasta", com o nome da pasta e o IP em branco para preencher depois;
+   - dois arquivos com o mesmo `uuid`: importar o mais recente (`savedAt`) e avisar.
+3. Importar numa transação só: robôs (com IDs novos no banco e o mesmo `uuid`), comandos rápidos,
+   projetos, layouts e equipamentos. Os backups vêm dos `.as`, com o nome e a data do `robo.myrobots`.
+   Um `.as` sem entrada no arquivo entra como "Sinc: <arquivo>", como hoje.
+4. A pasta escolhida vira a **pasta ativa (SAF)**. Assim o app continua enxergando tudo nela,
+   inclusive o que ele não criou.
+5. **Senhas:** depois de importar, se houver robôs com "senha pendente", pedir a senha **uma vez
+   por projeto**, com a opção "este robô tem senha diferente".
+
+**Mais tarde, a qualquer momento:** na janela "Pasta dos arquivos", a opção **"Restaurar de uma
+pasta"** faz a mesma leitura em modo **mesclar**: importa só os robôs cujo `uuid` ainda não está
+no banco e não mexe nos que já existem. Serve também para trazer a pasta copiada de outro celular.
+
+### Passos (um commit cada)
+
+1. Modelos do arquivo, serialização JSON, checksum e validação de versão em `:core:common`, com
+   testes JVM: ida e volta, checksum errado, versão maior, campos faltando.
+2. `Robot.uuid` + `MIGRATION_4_5` + `5.json` + caso no `MigrationTest`.
+3. `MetadataMirror` gravando `robo.myrobots` e `projetos.myrobots`, com `.bak`, e a geração
+   inicial para quem já tem dados.
+4. `RestoreService`: leitura, resumo, problemas e importação em transação, com testes usando um
+   `RobotFileStore` falso em memória.
+5. Tela de boas-vindas e o fluxo de restaurar com `EXTRA_INITIAL_URI`.
+6. "Restaurar de uma pasta" (mesclar) na janela "Pasta dos arquivos".
+7. Pedido de senha por projeto depois da restauração.
+8. GUIDE.md (ver "Atualizações do GUIDE.md").
+
+**Riscos e testes no aparelho:**
+- **O teste principal:** usar o app com 2 projetos, robôs, backups com nome e comandos rápidos →
+  **desinstalar** → instalar de novo → "Restaurar" → conferir que tudo voltou, inclusive os nomes
+  dos backups, e que só a senha é pedida.
+- Renomear um robô, reinstalar e restaurar: ele precisa voltar com o nome novo e os backups.
+- Copiar a pasta `MyRobots` para outro celular (pelo PC) e restaurar lá.
+- Editar um `robo.myrobots` à mão: o app precisa recusar esse arquivo e avisar, sem travar.
+- Pasta da v1.1 (só `.as`, sem `.myrobots`): a opção "Criar robô a partir desta pasta" precisa aparecer.
+- Desligar o celular no meio de uma gravação (ou matar o app): o `.bak` precisa salvar a restauração.
+
+**Estimativa:** M/G.
+
+---
+
 ## Fase 2: Tela de Projeto
 
 **Objetivo:** o projeto (cabine) vira uma tela própria, com a cabine desenhada, o estado de
@@ -600,7 +783,10 @@ Em toda tela nova (Projeto, ações, comparação) e no Terminal Geral com abas,
 de edge-to-edge da Fase 1 (passo 8). As regras de "Verificar erros" nascem com teste unitário
 (um caso que passa e um que falha por regra; ver Fase 0-C).
 
-### Mudanças de banco (4 → 5, todas na 2.1)
+### Mudanças de banco (5 → 6, todas na 2.1)
+
+> A 4→5 ficou com a Fase 1.5 (`Robot.uuid`). Os campos e tabelas abaixo também entram no
+> `robo.myrobots`/`projetos.myrobots` (o `MetadataMirror` da Fase 1.5 passa a gravá-los).
 
 ```kotlin
 // Robot: dois campos novos. null = fora do layout.
@@ -633,7 +819,7 @@ própria. Vários equipamentos na mesma faixa aparecem empilhados, na ordem de `
 enums são gravados como TEXT pelo suporte nativo do Room, igual ao `Manufacturer` hoje.
 
 ```sql
--- MIGRATION_4_5
+-- MIGRATION_5_6
 ALTER TABLE robots ADD COLUMN layoutRow INTEGER DEFAULT NULL;
 ALTER TABLE robots ADD COLUMN layoutCol INTEGER DEFAULT NULL;
 CREATE TABLE IF NOT EXISTS project_layouts (
@@ -646,7 +832,7 @@ CREATE TABLE IF NOT EXISTS project_equipment (
 CREATE INDEX IF NOT EXISTS index_project_equipment_projectName ON project_equipment(projectName);
 ```
 
-O SQL final é conferido contra o `5.json` exportado, e o teste de migração valida com
+O SQL final é conferido contra o `6.json` exportado, e o teste de migração valida com
 `runMigrationsAndValidate`. Os robôs antigos chegam com `layoutRow` e `layoutCol` nulos, ou seja,
 todos "fora do layout". É o esperado. Um projeto sem linha em `project_layouts` usa o padrão 2×2,
 e a linha só é criada na primeira edição.
@@ -917,9 +1103,12 @@ a mensagem e, quando houver, a barra de andamento. Os robôs desconectados apare
 ## Ordem de execução e dependências
 
 ```
-Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fase 1 ──► 2.pre ──► 2.0 ──► 2.1 ──► 2.2
+Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fase 1 ──► Fase 1.5 ──► 2.pre ──► 2.0 ──► 2.1 ──► 2.2
 ```
 
+- **A Fase 1.5 vem antes da 2:** ela faz a migração 4→5 (`uuid`) e cria o espelho da pasta, e
+  a Fase 2 só acrescenta layouts e equipamentos nele. Também precisa estar pronta **antes de
+  publicar na Play**, porque trocar a versão do Android Studio pela da loja exige desinstalar.
 - **0-B.B vem primeiro:** é pequeno e fecha a falha de segurança mais grave.
 - **Os testes de caracterização (0-C) vêm antes** da migração de armazenamento e de mexer nos
   parsers.
@@ -972,6 +1161,11 @@ Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fas
   arquivo do protocolo, os limites de tamanho e tipo ao abrir arquivo externo, a codificação
   ISO-8859-1 e como a senha do controlador é guardada.
 - **Seção 0:** "Como testar" (os comandos da Fase 0-C e onde fica o arquivo de exemplo).
+- **Seção nova "Pasta autossuficiente"** (Fase 1.5): formato do `robo.myrobots` e do
+  `projetos.myrobots`, `formatVersion`, checksum e `.bak`, o `MetadataMirror` (o banco manda), o
+  fluxo de restaurar (boas-vindas, `EXTRA_INITIAL_URI`, resumo, mesclar) e o que não vai no
+  arquivo (senha).
+- **Seção 1:** `Robot.uuid`. **Seção 2:** migração 4→5 (`uuid`); a da Fase 2 vira 5→6.
 - **Tabela de rotas da seção 13:**
 
 | Rota | Mudança |
@@ -987,6 +1181,9 @@ Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fas
 ## Perguntas em aberto
 
 Estas ainda bloqueiam alguma parte:
+
+0. **Fase 1.5, senha na restauração:** a proposta é pedir uma vez por projeto, com a opção "este
+   robô tem senha diferente". Os robôs da mesma cabine costumam ter a mesma senha?
 
 1. **Copiar base (bloqueia o passo 5 da 2.2):**
    - **a)** Mande um trecho de um SAVE/FULL real onde a BASE aparece (acho que fica na seção de
