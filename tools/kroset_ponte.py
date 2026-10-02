@@ -23,7 +23,7 @@ import subprocess
 import sys
 import threading
 
-PORTAS_CONHECIDAS = [9105, 9205, 9305, 9405, 23]
+PORTAS_CONHECIDAS = [9105, 9205, 9305, 9405, 9505]
 NOME_REGRA = "MyRobots - ponte K-ROSET"
 
 _trava_log = threading.Lock()
@@ -50,12 +50,25 @@ def ips_da_rede():
     return ips
 
 
-def porta_aberta(host, porta, tempo=0.5):
+def portas_escutando():
+    """
+    Portas TCP em LISTEN no PC, lidas do netstat. Não conecta no K-ROSET: um teste de
+    conexão gasta a sessão de telnet do controlador virtual, que pode parar de escutar.
+    """
     try:
-        with socket.create_connection((host, porta), timeout=tempo):
-            return True
+        saida = subprocess.run(["netstat", "-an", "-p", "TCP"], capture_output=True,
+                               text=True, errors="replace").stdout
     except OSError:
-        return False
+        return set()
+    portas = set()
+    for linha in saida.splitlines():
+        partes = linha.split()
+        if len(partes) >= 4 and partes[0] == "TCP" and partes[3] in ("LISTENING", "ESCUTANDO", "OUVINDO"):
+            try:
+                portas.add(int(partes[1].rsplit(":", 1)[1]))
+            except ValueError:
+                pass
+    return portas
 
 
 def eh_admin():
@@ -151,14 +164,15 @@ def main():
     print("=" * 62)
 
     print(f"\n1) K-ROSET em {a.host_kroset}:")
-    abertas = [porta for porta in PORTAS_CONHECIDAS if porta_aberta(a.host_kroset, porta)]
+    escutando = portas_escutando()
+    abertas = [porta for porta in PORTAS_CONHECIDAS if porta in escutando]
     if a.porta_kroset in abertas:
-        print(f"   OK, porta {a.porta_kroset} respondendo.")
+        print(f"   OK, porta {a.porta_kroset} escutando.")
     elif abertas:
         print(f"   [!] Porta {a.porta_kroset} fechada, mas há algo em: {abertas}.")
         print(f"       Se for o K-ROSET, rode de novo com --porta-kroset {abertas[0]}.")
     else:
-        print(f"   [!] Nada respondendo em {PORTAS_CONHECIDAS}.")
+        print(f"   [!] Nenhuma porta escutando em {PORTAS_CONHECIDAS}.")
         print("       Abra o K-ROSET e ligue o controlador virtual. A ponte sobe mesmo")
         print("       assim e tenta de novo a cada conexão do celular.")
 
