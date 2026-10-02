@@ -164,11 +164,13 @@ class KawasakiTerminalManager(
         state.loginPassword = robot.loginPassword
         state.loginStep = 0
         
-        if (state.isConnected.value) return
+        // já conectado, ou ainda tentando conectar (evita abrir duas sessões no robô)
+        if (state.isConnected.value || state.job?.isActive == true) return
 
         state.job = scope.launch {
+            var s: Socket? = null
             try {
-                val s = Socket()
+                s = Socket()
                 state.socket = s
                 s.connect(InetSocketAddress(robot.ip, robot.port), 5000)
                 state.outputStream = s.getOutputStream()
@@ -188,20 +190,25 @@ class KawasakiTerminalManager(
                     sendCommand(robot.id, "")
                 }
 
-                readLoop(robot.id, inputStream)
+                readLoop(robot.id, s, inputStream)
             } catch (e: Exception) {
-                appendLog(robot.id, "Erro: ${e.message}")
-                state.isConnected.value = false
-                state.heartbeat.value = HeartbeatState.DISCONNECTED
+                // só mexe no estado se esta tentativa ainda for a atual (não houve
+                // disconnect + connect enquanto ela falhava)
+                if (state.socket === s) {
+                    appendLog(robot.id, "Erro: ${e.message}")
+                    state.isConnected.value = false
+                    state.heartbeat.value = HeartbeatState.DISCONNECTED
+                }
             }
         }
     }
 
     /**
      * Fica em loop lendo o que o robô envia e passando para processBytes.
-     * Termina quando a conexão cai ou é fechada; aí marca o robô como desconectado.
+     * Termina quando a conexão cai ou é fechada; aí marca o robô como desconectado,
+     * a não ser que já exista outra conexão no lugar desta (reconectou logo em seguida).
      */
-    private suspend fun readLoop(robotId: Int, inputStream: InputStream) {
+    private suspend fun readLoop(robotId: Int, socket: Socket, inputStream: InputStream) {
         val buffer = ByteArray(8192)
         while (currentCoroutineContext().isActive) {
             try {
@@ -213,6 +220,7 @@ class KawasakiTerminalManager(
             }
         }
         val state = getOrCreateState(robotId)
+        if (state.socket !== socket) return
         state.isConnected.value = false
         state.heartbeat.value = HeartbeatState.DISCONNECTED
         state.heartbeatJob?.cancel()
@@ -695,7 +703,12 @@ class KawasakiTerminalManager(
 
     /**
      * Desconecta do robô: para a leitura, fecha a conexão e o arquivo aberto.
-     * Com clearHistory = true, também apaga o histórico do terminal e esquece o robô.
+     * Com clearHistory = true, também apaga o histórico do terminal.
+     *
+     * O estado do robô nunca sai do mapa `connections`: as telas guardam os fluxos dele
+     * (isConnected, history, heartbeat) uma vez só. Se ele fosse trocado por um novo, a
+     * próxima conexão aconteceria num estado que nenhuma tela observa (o botão não mudava
+     * ao reconectar).
      */
     fun disconnect(robotId: Int, clearHistory: Boolean = false) {
         val state = connections[robotId] ?: return
@@ -704,11 +717,18 @@ class KawasakiTerminalManager(
         try { state.socket?.close(); state.outputStream?.close(); state.saveFileOutputStream?.close() } catch (e: Exception) {}
         state.socket = null
         state.outputStream = null
+        state.job = null
+        state.heartbeatJob = null
+        state.isSaving = false
+        state.saveFileOutputStream = null
+        state.currentFileName = null
+        state.isLoading = false
+        state.loadData = null
+        state.loadOffset = 0
         state.isConnected.value = false
         state.heartbeat.value = HeartbeatState.DISCONNECTED
         if (clearHistory) {
             state.history.value = emptyList()
-            connections.remove(robotId)
         }
     }
 }
