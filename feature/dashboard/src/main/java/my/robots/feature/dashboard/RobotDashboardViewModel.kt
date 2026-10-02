@@ -14,6 +14,8 @@ import my.robots.core.network.KawasakiTerminalManager
 import my.robots.core.data.RobotRepository
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsControllerLogs
+import my.robots.core.common.ascode.AsRobotInfo
+import my.robots.core.common.ascode.RobotInfo
 import my.robots.core.common.ascode.AsProgramBlocks
 import my.robots.core.common.ascode.RobotErrorLogEntry
 import my.robots.core.common.ascode.RobotLogEntry
@@ -104,6 +106,13 @@ class RobotDashboardViewModel(
      * avisa que não é o mais recente).
      */
     val isShowingNewestBackup: StateFlow<Boolean> = _isShowingNewestBackup.asStateFlow()
+
+    private val _robotInfo = MutableStateFlow(RobotInfo())
+    /**
+     * Dados do robô lidos do backup SAVE/FULL (modelo, eixos, horímetro...). Vazio num
+     * backup só com programas.
+     */
+    val robotInfo: StateFlow<RobotInfo> = _robotInfo.asStateFlow()
 
     private val _programs = MutableStateFlow<List<RobotProgram>>(emptyList())
     /**
@@ -630,6 +639,9 @@ class RobotDashboardViewModel(
             _errorLog.value = AsControllerLogs.parseErrorLog(allLines)
             _operationLog.value = AsControllerLogs.parseLogSection(allLines, ".OPELOG")
             _programEditLog.value = AsControllerLogs.parseLogSection(allLines, ".PGM_EDT_LOG")
+            // lido do texto original: .ROBOTDATA1 e .OPE_INFO1 podem vir depois de uma seção
+            // que a visão limpa corta
+            _robotInfo.value = AsRobotInfo.parse(content)
         }
     }
 

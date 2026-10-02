@@ -52,6 +52,8 @@ import kotlinx.coroutines.launch
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.RobotErrorLogEntry
 import my.robots.core.common.ascode.RobotErrorLogProgram
+import my.robots.core.common.ascode.RobotHealth
+import my.robots.core.common.ascode.RobotInfo
 import my.robots.core.common.ascode.RobotLogEntry
 import my.robots.core.model.Backup
 import my.robots.core.model.Manufacturer
@@ -117,6 +119,7 @@ fun RobotDashboardScreen(
     val quickCommandsState = if (viewModel != null) viewModel.quickCommands.collectAsState() else remember { mutableStateOf(emptyList<QuickCommand>()) }
     val lineCountState = if (viewModel != null) viewModel.lineCount.collectAsState() else remember { mutableStateOf(0) }
     val errorLogState = if (viewModel != null) viewModel.errorLog.collectAsState() else remember { mutableStateOf(emptyList<RobotErrorLogEntry>()) }
+    val robotInfoState = if (viewModel != null) viewModel.robotInfo.collectAsState() else remember { mutableStateOf(RobotInfo()) }
     val operationLogState = if (viewModel != null) viewModel.operationLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
     val programEditLogState = if (viewModel != null) viewModel.programEditLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
 
@@ -132,6 +135,7 @@ fun RobotDashboardScreen(
     val quickCommands by quickCommandsState
     val lineCount by lineCountState
     val errorLog by errorLogState
+    val robotInfo by robotInfoState
     val operationLog by operationLogState
     val programEditLog by programEditLogState
 
@@ -240,7 +244,24 @@ fun RobotDashboardScreen(
                         }
                     },
                     actions = {
-                        if (activeFeature == DashboardFeature.Terminal) {
+                        if (activeFeature == null) {
+                            // Itens pouco usados da home ficam escondidos neste menu.
+                            var menuOpen by remember { mutableStateOf(false) }
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Mais opções")
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Ver arquivo completo") },
+                                    leadingIcon = { Icon(DashboardFeature.FullCode.icon, contentDescription = null) },
+                                    enabled = latestBackup != null,
+                                    onClick = {
+                                        menuOpen = false
+                                        latestBackup?.let { onFullCodeClick(it) }
+                                    }
+                                )
+                            }
+                        } else if (activeFeature == DashboardFeature.Terminal) {
                             val isConnected by (viewModel?.isConnected?.collectAsState() ?: remember { mutableStateOf(false) })
                             
                             IconButton(onClick = {
@@ -355,6 +376,8 @@ fun RobotDashboardScreen(
                             robot = robot,
                             backup = latestBackup,
                             isNewestBackup = isNewestBackup,
+                            robotInfo = robotInfo,
+                            errorLog = errorLog,
                             lineCount = lineCount,
                             dataBankCount = dataBankEntries.size,
                             errorLogCount = errorLog.size,
@@ -1402,19 +1425,22 @@ fun VariableDuplicateDialog(
 }
 
 /**
- * Página inicial do painel: cartão com as informações do backup (nome, robô, data e total
- * de linhas) e os atalhos: Programas, Variáveis, Data Bank, Código AS e os três logs do
- * controlador (Erros, Operação, Edição) — esses três só têm registros quando o backup foi
- * feito com SAVE/FULL no robô; sem isso, aparecem zerados.
- *
- * O cartão tem o atalho "Histórico de backups" (onde se troca o backup analisado) e avisa
- * quando o backup mostrado não é o mais recente do robô (isNewestBackup = false).
+ * Página inicial do painel:
+ * - [RobotInfoCard]: desenho do robô, modelo, eixos, horímetro etc. e o status geral, tudo
+ *   lido do backup SAVE/FULL (robotInfo + errorLog);
+ * - cartão do backup analisado (nome, data, linhas), com o atalho "Histórico de backups" e o
+ *   aviso de quando ele não é o mais recente do robô (isNewestBackup = false);
+ * - atalhos: Programas, Variáveis, Data Bank e os três logs do controlador (Erros, Operação,
+ *   Edição), que só têm registros em backup SAVE/FULL.
+ * O arquivo completo (Código AS) fica no menu "⋮" da barra do topo.
  */
 @Composable
 fun DashboardHome(
     robot: Robot?,
     backup: my.robots.core.model.BackupSummary?,
     isNewestBackup: Boolean = true,
+    robotInfo: RobotInfo = RobotInfo(),
+    errorLog: List<RobotErrorLogEntry> = emptyList(),
     lineCount: Int,
     dataBankCount: Int,
     errorLogCount: Int,
@@ -1431,29 +1457,29 @@ fun DashboardHome(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        val health = remember(robotInfo, errorLog, backup?.timestamp) {
+            backup?.let { RobotHealth.evaluate(robotInfo, errorLog, it.timestamp) }
+        }
+        RobotInfoCard(robotName = robot?.name ?: "-", info = robotInfo, health = health)
+
+        // Backup analisado: menor, abaixo das informações do robô.
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-            ),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Informações do Backup", 
+                    text = "Backup analisado",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = backup?.backupName ?: "Arquivo desconhecido",
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f))
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 val date = remember(backup?.timestamp) {
                     if (backup != null) {
@@ -1461,9 +1487,8 @@ fun DashboardHome(
                     } else "-"
                 }
 
-                StatusItem("Robô Origem", robot?.name ?: "-")
-                StatusItem("Data Criação", date)
-                StatusItem("Total de Linhas", lineCount.toString())
+                StatusItem("Data", date)
+                StatusItem("Total de linhas", lineCount.toString())
 
                 if (!isNewestBackup) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1515,9 +1540,6 @@ fun DashboardHome(
                     icon = Icons.Rounded.Storage,
                     onClick = { onFeatureClick(DashboardFeature.DataBank) }
                 )
-            }
-            item {
-                FeatureSquare(feature = DashboardFeature.FullCode) { onFeatureClick(DashboardFeature.FullCode) }
             }
             item {
                 StatSquare(

@@ -19,3 +19,6 @@ local.properties
 
 # Log da ponte do K-ROSET (tools/kroset_ponte.py --log)
 kroset_trafego.log
+
+# Saída do Gradle redirecionada (ver CLAUDE.md)
+build.log

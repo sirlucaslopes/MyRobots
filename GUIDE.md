@@ -341,10 +341,25 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seções alternadas por
 `DashboardFeature`:
 
-- **Home:** cartão com informações do backup atual (nome, robô de origem, data, total de
-  linhas) e sete atalhos em grade: Programas, Variáveis, Data Bank, Código AS (abre o
-  `AsCodeViewer` em tela cheia, fora do dashboard) e os três logs do controlador (Erros,
-  Operação, Edição) — cada atalho mostra a contagem de itens, como nos de Programas/Variáveis.
+- **Home:** de cima para baixo:
+  - **Cartão do robô** (`RobotInfoCard.kt`): desenho em linhas de um robô de pintura, estilo
+    tela de controle (só ilustração, não mostra a pose real), com o modelo, a série, o nome
+    e a quantidade de eixos. Embaixo, os dados lidos do backup SAVE/FULL por
+    `AsRobotInfo` (`:core:common`): horímetro (`HOUR_MTR`, ou `CONT_TIM`), servo ligado
+    (`SERV_TIM`), vezes que o motor ligou (`MTON_CNT`), emergências (`ESTP_CNT`), freio
+    acionado (`BRKE_CNT`), eixos e série (`ZROBOT.TYPE`), versão do AS (cabeçalho
+    `.*=== AS GROUP ===`) e IP do controlador (`.NETCONF2`). Backup sem esses dados (só
+    programas) mostra um aviso para fazer SAVE/FULL.
+  - **Status geral** (`RobotHealth`): selo OK / ATENÇÃO / SEM DADOS. ATENÇÃO quando há erro no
+    `.ERRLOG` nos 7 dias antes da data do backup ou quando o backup tem mais de 30 dias.
+    Mostra quantos erros houve nesses 7 dias, o código mais frequente, o último erro (data
+    convertida de `aa/mm/dd` para `dd/mm/aaaa`) e a idade do backup.
+  - **Backup analisado**: nome, data, total de linhas, aviso quando não é o mais recente e o
+    botão "Histórico de backups".
+  - **Atalhos em grade**: Programas, Variáveis, Data Bank e os três logs do controlador
+    (Erros, Operação, Edição), cada um com a contagem de itens.
+  - O arquivo completo (Código AS, abre o `AsCodeViewer` em tela cheia, fora do dashboard)
+    fica no menu "⋮" da barra do topo, item "Ver arquivo completo".
 - **Terminal (`DashboardFeature.Terminal`)**: terminal de verdade — caixa preta com texto verde (o que o usuário
   digitou aparece em azul-claro). Cada tecla digitada é enviada ao robô na hora (como um
   terminal real); apagar manda backspace; setas ⬆⬇ mandam histórico de comando do robô; o
