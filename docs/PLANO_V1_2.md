@@ -729,8 +729,9 @@ toque no seletor é o mínimo que o Android permite.
    Um `.as` sem entrada no arquivo entra como "Sinc: <arquivo>", como hoje.
 4. A pasta escolhida vira a **pasta ativa (SAF)**. Assim o app continua enxergando tudo nela,
    inclusive o que ele não criou.
-5. **Senhas:** depois de importar, se houver robôs com "senha pendente", pedir a senha **uma vez
-   por projeto**, com a opção "este robô tem senha diferente".
+5. **Senhas:** sem pedido especial (decidido em 01/10). O robô com `autoLogin` volta sem senha,
+   e o usuário preenche ao editar o robô (`RobotDialog`). Pedir a senha por projeto fica para
+   depois, se aparecer uso.
 
 **Mais tarde, a qualquer momento:** na janela "Pasta dos arquivos", a opção **"Restaurar de uma
 pasta"** faz a mesma leitura em modo **mesclar**: importa só os robôs cujo `uuid` ainda não está
@@ -747,13 +748,12 @@ no banco e não mexe nos que já existem. Serve também para trazer a pasta copi
    `RobotFileStore` falso em memória.
 5. Tela de boas-vindas e o fluxo de restaurar com `EXTRA_INITIAL_URI`.
 6. "Restaurar de uma pasta" (mesclar) na janela "Pasta dos arquivos".
-7. Pedido de senha por projeto depois da restauração.
-8. GUIDE.md (ver "Atualizações do GUIDE.md").
+7. GUIDE.md (ver "Atualizações do GUIDE.md").
 
 **Riscos e testes no aparelho:**
 - **O teste principal:** usar o app com 2 projetos, robôs, backups com nome e comandos rápidos →
   **desinstalar** → instalar de novo → "Restaurar" → conferir que tudo voltou, inclusive os nomes
-  dos backups, e que só a senha é pedida.
+  dos backups, e que só falta preencher a senha.
 - Renomear um robô, reinstalar e restaurar: ele precisa voltar com o nome novo e os backups.
 - Copiar a pasta `MyRobots` para outro celular (pelo PC) e restaurar lá.
 - Editar um `robo.myrobots` à mão: o app precisa recusar esse arquivo e avisar, sem travar.
@@ -1181,9 +1181,6 @@ Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fas
 ## Perguntas em aberto
 
 Estas ainda bloqueiam alguma parte:
-
-0. **Fase 1.5, senha na restauração:** a proposta é pedir uma vez por projeto, com a opção "este
-   robô tem senha diferente". Os robôs da mesma cabine costumam ter a mesma senha?
 
 1. **Copiar base (bloqueia o passo 5 da 2.2):**
    - **a)** Mande um trecho de um SAVE/FULL real onde a BASE aparece (acho que fica na seção de
