@@ -34,6 +34,12 @@ interface RobotDao {
     suspend fun updateRobot(robot: Robot)
 
     /**
+     * Grava o número de série do controlador do robô.
+     */
+    @Query("UPDATE robots SET serialNumber = :serial WHERE id = :id")
+    suspend fun setSerialNumber(id: Int, serial: String?)
+
+    /**
      * Apaga um robô do banco.
      */
     @Delete

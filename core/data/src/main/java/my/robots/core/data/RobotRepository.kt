@@ -103,12 +103,12 @@ class RobotRepository(
      */
     suspend fun updateRobot(robot: Robot) {
         val current = robotDao.getRobotById(robot.id)
-        // A posição na cabine é do banco: quem edita o robô (RobotDialog) não a conhece.
-        // Mudou de projeto: o robô cai em "fora do layout" no projeto novo.
+        // A posição na cabine e a série são do banco: quem edita o robô (RobotDialog) não as
+        // conhece. Mudou de projeto: o robô cai em "fora do layout" no projeto novo.
         val positioned = when {
             current == null -> robot
-            current.project != robot.project -> robot.copy(layoutRow = null, layoutCol = null)
-            else -> robot.copy(layoutRow = current.layoutRow, layoutCol = current.layoutCol)
+            current.project != robot.project -> robot.copy(layoutRow = null, layoutCol = null, serialNumber = current.serialNumber)
+            else -> robot.copy(layoutRow = current.layoutRow, layoutCol = current.layoutCol, serialNumber = current.serialNumber)
         }
         robotDao.updateRobot(toDb(positioned))
         if (current != null && current.project != robot.project) projectDao.deleteLayoutIfEmpty(current.project)
@@ -122,6 +122,11 @@ class RobotRepository(
         robotDao.deleteRobot(robot)
         projectDao.deleteLayoutIfEmpty(robot.project)
     }
+    /**
+     * Grava o número de série do controlador do robô ("CPF" do robô).
+     */
+    suspend fun setRobotSerialNumber(robotId: Int, serial: String?) = robotDao.setSerialNumber(robotId, serial)
+
     /**
      * Busca um robô pelo id. Devolve null se não existir.
      */

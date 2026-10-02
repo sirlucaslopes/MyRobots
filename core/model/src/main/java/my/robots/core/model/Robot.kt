@@ -30,6 +30,8 @@ enum class Manufacturer(val displayName: String) {
  *   senha sozinho quando o terminal pede.
  * - layoutRow / layoutCol: posição do robô na grade da cabine do projeto (começam em 0).
  *   null = "fora do layout".
+ * - serialNumber: número de série do controlador, o "CPF" do robô. Vem do backup SAVE/FULL
+ *   ou do comando ID ao conectar. null = ainda não conhecido.
  */
 @Entity(tableName = "robots")
 data class Robot(
@@ -43,5 +45,6 @@ data class Robot(
     val loginUser: String = "as",
     val loginPassword: String = "",
     val layoutRow: Int? = null,
-    val layoutCol: Int? = null
+    val layoutCol: Int? = null,
+    val serialNumber: String? = null
 )

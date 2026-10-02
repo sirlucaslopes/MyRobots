@@ -78,6 +78,8 @@ class MigrationTest {
             assertEquals(null, robot.layoutRow)
             assertEquals(null, robot.layoutCol)
             assertEquals(null, db.projectDao().getLayout("CAT Primer").first())
+            // 5 -> 6: série ainda desconhecida
+            assertEquals(null, robot.serialNumber)
         }
     }
 
@@ -99,6 +101,28 @@ class MigrationTest {
                 c.moveToFirst()
                 assertEquals(true, c.isNull(0))
                 assertEquals(true, c.isNull(1))
+            }
+            close()
+        }
+    }
+
+    /**
+     * 5 -> 6: a coluna serialNumber entra nula, e o schema bate com o 6.json.
+     */
+    @Test
+    fun migracao5Para6ValidaContraOSchema() {
+        helper.createDatabase(dbName, 5).apply {
+            execSQL(
+                "INSERT INTO robots (id, name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword, layoutRow, layoutCol) " +
+                    "VALUES (1, 'R10', '192.168.0.10', 23, 'CAT Primer', 'KAWASAKI', 0, 'as', '', 0, 1)"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 6, true, MIGRATION_5_6).apply {
+            query("SELECT serialNumber, layoutCol FROM robots WHERE id = 1").use { c ->
+                c.moveToFirst()
+                assertEquals(true, c.isNull(0))
+                assertEquals(1, c.getInt(1))
             }
             close()
         }

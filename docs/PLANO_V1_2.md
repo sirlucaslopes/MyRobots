@@ -602,7 +602,7 @@ equipamentos, que também precisam ir para a pasta. Fazer esta fase antes evita 
 
 **Módulos afetados:**
 - `:core:model`: `Robot.uuid` e os modelos do arquivo (`RobotMetadataFile`, `ProjectsMetadataFile`).
-- `:core:database`: coluna `uuid` nova, migração 5→6 e teste de migração.
+- `:core:database`: coluna `uuid` nova, migração 6→7 e teste de migração.
 - `:core:common`: serialização, checksum e validação dos arquivos (funções puras, testadas na JVM).
 - `:core:data`: `MetadataMirror` (mantém os arquivos iguais ao banco) e `RestoreService` (lê a
   pasta e importa). Os dois usam o `RobotFileStore`, que já existe.
@@ -683,16 +683,16 @@ A importação reconhece o robô **pelo `uuid` do arquivo, não pelo nome da pas
 renomear um robô deixa de quebrar a restauração.
 
 ```sql
--- MIGRATION_5_6
+-- MIGRATION_6_7
 ALTER TABLE robots ADD COLUMN uuid TEXT NOT NULL DEFAULT '';
 UPDATE robots SET uuid = lower(hex(randomblob(16))) WHERE uuid = '';
 CREATE UNIQUE INDEX IF NOT EXISTS index_robots_uuid ON robots(uuid);
 ```
 
 - Robô novo recebe `UUID.randomUUID().toString()` no `RobotDialog`/repositório.
-- Conferir o SQL contra o `6.json` exportado e acrescentar o caso 5→6 no `MigrationTest`.
+- Conferir o SQL contra o `7.json` exportado e acrescentar o caso 6→7 no `MigrationTest`.
 - **Atualizado em 02/10:** a tela de Projeto (Fase 2.1) foi feita antes e ficou com a 4→5.
-  Por isso a Fase 1.5 usa a 5→6.
+  Depois, a 5→6 (02/10) guardou o número de série do robô. Por isso a Fase 1.5 usa a 6→7.
 - **Ponto a resolver:** ao renomear um robô, a subpasta também muda de nome (`robotDirName`).
   Verificar o que acontece hoje com os `.as` da pasta antiga e mover a pasta junto,
   incluindo o `robo.myrobots`.
@@ -748,7 +748,7 @@ no banco e não mexe nos que já existem. Serve também para trazer a pasta copi
 
 1. Modelos do arquivo, serialização JSON, checksum e validação de versão em `:core:common`, com
    testes JVM: ida e volta, checksum errado, versão maior, campos faltando.
-2. `Robot.uuid` + `MIGRATION_5_6` + `6.json` + caso no `MigrationTest`.
+2. `Robot.uuid` + `MIGRATION_6_7` + `7.json` + caso no `MigrationTest`.
 3. `MetadataMirror` gravando `robo.myrobots` e `projetos.myrobots`, com `.bak`, e a geração
    inicial para quem já tem dados.
 4. `RestoreService`: leitura, resumo, problemas e importação em transação, com testes usando um
@@ -792,7 +792,7 @@ de edge-to-edge da Fase 1 (passo 8). As regras de "Verificar erros" nascem com t
 
 ### Mudanças de banco (4 → 5, todas na 2.1)
 
-> **Feita em 02/10**, antes da Fase 1.5, que passa a usar a 5→6 (`Robot.uuid`). Os campos e
+> **Feita em 02/10**, antes da Fase 1.5, que passa a usar a 6→7 (`Robot.uuid`; a 5→6 é a série do robô). Os campos e
 > tabelas abaixo também entram no `robo.myrobots`/`projetos.myrobots` quando a Fase 1.5 vier.
 
 ```kotlin
@@ -1114,7 +1114,7 @@ Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fas
 ```
 
 - **Fase 2.1 antes da 1.5 (decidido em 02/10):** a tela de Projeto ficou com a migração 4→5, e a
-  Fase 1.5 faz a 5→6 (`uuid`) e já nasce gravando layouts e equipamentos no espelho da pasta. Também precisa estar pronta **antes de
+  Fase 1.5 faz a 6→7 (`uuid`; a 5→6 guardou a série do robô) e já nasce gravando layouts e equipamentos no espelho da pasta. Também precisa estar pronta **antes de
   publicar na Play**, porque trocar a versão do Android Studio pela da loja exige desinstalar.
 - **0-B.B vem primeiro:** é pequeno e fecha a falha de segurança mais grave.
 - **Os testes de caracterização (0-C) vêm antes** da migração de armazenamento e de mexer nos
@@ -1172,7 +1172,7 @@ Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fas
   `projetos.myrobots`, `formatVersion`, checksum e `.bak`, o `MetadataMirror` (o banco manda), o
   fluxo de restaurar (boas-vindas, `EXTRA_INITIAL_URI`, resumo, mesclar) e o aviso de que a
   senha fica legível no arquivo.
-- **Seção 1:** `Robot.uuid`. **Seção 2:** migração 5→6 (`uuid`); a 4→5 é a da Fase 2.1.
+- **Seção 1:** `Robot.uuid`. **Seção 2:** migração 6→7 (`uuid`); a 4→5 é a da Fase 2.1 e a 5→6 a da série.
 - **Tabela de rotas da seção 13:**
 
 | Rota | Mudança |

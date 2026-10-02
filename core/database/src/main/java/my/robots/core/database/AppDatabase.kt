@@ -12,13 +12,14 @@ import my.robots.core.model.Robot
  * O banco de dados do app (Room / SQLite), guardado no próprio celular.
  *
  * Tabelas: robôs, comandos rápidos, backups e, desde a versão 5, o layout da cabine de cada
- * projeto (project_layouts) e os equipamentos dela (project_equipment).
+ * projeto (project_layouts) e os equipamentos dela (project_equipment). A versão 6 guarda o
+ * número de série de cada robô.
  * O schema de cada versão fica gravado em core/database/schemas/ (exportSchema = true).
  * Ao subir a versão, escreva a migração em DatabaseMigrations.kt: o banco nunca é apagado.
  */
 @Database(
     entities = [Robot::class, QuickCommand::class, Backup::class, ProjectLayout::class, ProjectEquipment::class],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -36,5 +36,15 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
     }
 }
 
+/**
+ * 5 -> 6 (v1.2): número de série do controlador em cada robô. Começa nulo e é preenchido pelo
+ * backup SAVE/FULL ou pelo comando ID ao conectar.
+ */
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE robots ADD COLUMN serialNumber TEXT DEFAULT NULL")
+    }
+}
+
 /** Todas as migrações, na ordem. Fica no fim porque usa as declaradas acima. */
-val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_4_5)
+val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6)
