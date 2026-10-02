@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.DeviceHub
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.SortByAlpha
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.*
@@ -46,7 +47,7 @@ import java.nio.ByteOrder
  *
  * - onRobotClick: tocar no robô (abre o painel dele).
  * - onTerminalClick: ícone de terminal do robô.
- * - onMultiTerminalClick: ícone de terminal do projeto (todos os robôs dele).
+ * - onOpenProject: ícone do projeto (abre a tela de Projeto, com a cabine).
  * - connectedRobotsViewModel: cérebro do popup "Robôs Conectados". Se vier null
  *   (ex.: pré-visualização), o botão do popup some.
  * Os parâmetros onAddRobot/onUpdateRobot/onDeleteRobot/robotsList só são usados
@@ -60,7 +61,7 @@ fun RobotListScreen(
     robotsList: List<Robot> = emptyList(),
     onRobotClick: (Robot) -> Unit = {},
     onTerminalClick: (Robot) -> Unit = {},
-    onMultiTerminalClick: (String) -> Unit = {},
+    onOpenProject: (String) -> Unit = {},
     onDeleteRobot: (Robot) -> Unit = {},
     onAddRobot: (name: String, ip: String, port: Int, project: String, manufacturer: Manufacturer, autoLogin: Boolean, loginUser: String, loginPassword: String) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onUpdateRobot: (Robot) -> Unit = {}
@@ -268,7 +269,7 @@ fun RobotListScreen(
                                         projectName = project,
                                         isExpanded = isProjectExpanded,
                                         onToggle = { expandedSections[projectKey] = !isProjectExpanded },
-                                        onMultiTerminalClick = { onMultiTerminalClick(project) }
+                                        onOpenProject = { onOpenProject(project) }
                                     )
                                 }
 
@@ -416,15 +417,15 @@ fun ManufacturerHeader(
 }
 
 /**
- * Faixa com o nome do projeto. Tocar nela abre ou fecha o grupo;
- * o ícone de terminal abre o Terminal Geral, que fala com todos os robôs do projeto.
+ * Faixa com o nome do projeto. Tocar nela abre ou fecha o grupo; o ícone abre a tela de
+ * Projeto (a cabine), de onde também se chega ao Terminal Geral.
  */
 @Composable
 fun ProjectHeader(
     projectName: String,
     isExpanded: Boolean,
     onToggle: () -> Unit,
-    onMultiTerminalClick: () -> Unit
+    onOpenProject: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -448,10 +449,10 @@ fun ProjectHeader(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f)
             )
-            IconButton(onClick = onMultiTerminalClick, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onOpenProject, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    imageVector = Icons.Rounded.Terminal, 
-                    contentDescription = "Terminal Geral", 
+                    imageVector = Icons.Rounded.GridView,
+                    contentDescription = "Abrir projeto",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
                 )

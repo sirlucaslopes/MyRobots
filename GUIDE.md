@@ -17,8 +17,8 @@ para melhorar uma parte sem mexer nas outras.
 ```
 :app                     MainActivity, MyRobotsApp e o mapa de navegação (liga as telas)
 
-:core:common             FileUtil (nomes de arquivo) e AsProgramBlocks (blocos .PROGRAM do texto AS)
-:core:model              Robot, Backup, QuickCommand, Manufacturer, RobotCommandLibrary
+:core:common             FileUtil (nomes de arquivo), AsProgramBlocks (blocos .PROGRAM) e LayoutOps (grade da cabine)
+:core:model              Robot, Backup, QuickCommand, Manufacturer, ProjectLayout, ProjectEquipment
 :core:database           Room: AppDatabase, os DAOs, as migrações e o schema exportado
 :core:network            KawasakiTerminalManager (terminal TCP/telnet)
 :core:data               RobotRepository (junta banco + arquivos)
@@ -30,6 +30,7 @@ para melhorar uma parte sem mexer nas outras.
 :feature:codeeditor      AsCodeViewer: ver/editar código AS
 :feature:dashboard       Painel do robô: terminal, programas, variáveis, Data Bank
 :feature:terminal        Terminal Geral (vários robôs) e comandos rápidos
+:feature:project         Tela de Projeto: a cabine com os robôs e o editor do layout
 ```
 
 ### Regras de dependência (para manter tudo organizado)
@@ -63,6 +64,14 @@ para melhorar uma parte sem mexer nas outras.
 - **`Robot`**: um robô cadastrado (nome, IP, porta, projeto/célula, fabricante, dados de
   login automático). `name` também define o nome da pasta do robô (ver seção 14). No banco,
   `loginPassword` fica **cifrada** (ver seção 14); o `RobotRepository` entrega sempre decifrada.
+  `layoutRow`/`layoutCol` são a vaga do robô na cabine do projeto (começam em 0; `null` = fora
+  do layout). Só a tela de Projeto mexe neles.
+- **`ProjectLayout`**: tamanho da grade da cabine de um projeto (`rowCount` × `colCount`). O
+  projeto é identificado pelo nome (`Robot.project`). Sem linha na tabela, vale o padrão 2×2.
+- **`ProjectEquipment`** / **`EquipmentType`** (`CONVEYOR` = Transportador, `OTHER` = Outro, com
+  nome obrigatório): faixas desenhadas entre as linhas da cabine. `position` = 0 acima da linha 1
+  ... `rowCount` abaixo da última; `flowDirection` 1 → / -1 ← / 0 sem sentido; `sortOrder` ordena
+  vários na mesma faixa.
 - **`Manufacturer`**: `KAWASAKI` (único com suporte completo hoje: terminal, backups e
   comandos rápidos), `FANUC`, `ABB`, `UNIVERSAL_ROBOTS` (cadastráveis, mas sem função própria ainda).
 - **`Backup`** / **`BackupSummary`**: um backup é o texto completo (`content`) de um arquivo
@@ -86,20 +95,26 @@ para melhorar uma parte sem mexer nas outras.
 
 ## 2. `:core:database` — persistência local (Room)
 
-`AppDatabase` (versão 4) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao`. Guarda robôs,
-backups e comandos rápidos.
+`AppDatabase` (versão 5) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao` e `ProjectDao`.
+Guarda robôs, backups, comandos rápidos e o layout da cabine de cada projeto
+(`project_layouts`, `project_equipment`). O `ProjectDao` grava a edição do layout numa transação
+(`saveLayout`), renomeia o projeto em todas as tabelas (`renameProject`) e apaga o layout de um
+projeto que ficou sem robôs (`deleteLayoutIfEmpty`).
 
 - **Schema exportado:** o plugin Gradle do Room grava o schema de cada versão em
   `core/database/schemas/my.robots.core.database.AppDatabase/<versão>.json` (versionado no git).
 - **Migrações escritas à mão:** o banco **nunca é apagado**. `MyRobotsApp` abre o banco com
-  `addMigrations(*ALL_MIGRATIONS)` (lista em `DatabaseMigrations.kt`, vazia por enquanto). Subir
+  `addMigrations(*ALL_MIGRATIONS)` (lista em `DatabaseMigrations.kt`). Subir
   a versão sem escrever a migração faz o app falhar ao abrir, em vez de apagar os dados.
 - **Para mudar uma entidade:** subir a versão no `AppDatabase`, compilar (gera o `.json` novo),
   escrever o `Migration(antiga, nova)` comparando os dois `.json`, incluir em `ALL_MIGRATIONS` e
   acrescentar o caso no `MigrationTest`.
+- **Migrações:** `MIGRATION_4_5` (v1.2, tela de Projeto) acrescenta `layoutRow`/`layoutCol` em
+  `robots` (robôs antigos ficam fora do layout) e cria `project_layouts` e `project_equipment`.
 - **Teste de migração:** `MigrationTest` (androidTest, `MigrationTestHelper`) cria o banco v4
-  com dados e confere que eles continuam lá na versão atual. Roda com o celular ligado:
-  `.\gradlew.bat :core:database:connectedDebugAndroidTest`.
+  com dados e confere que eles continuam lá na versão atual, e valida a `MIGRATION_4_5` contra o
+  `5.json` com `runMigrationsAndValidate`. Roda com o celular ligado:
+  `.\gradlew.bat :core:database:connectedDebugAndroidTest` (passou em 02/10/2026 num Galaxy S25).
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -230,8 +245,8 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 - Botão "+" abre `RobotDialog` para cadastrar um robô novo.
 - Cada robô mostra nome e `ip:porta`, com botões de terminal (abre o dashboard direto na
   seção Terminal), editar e excluir (com confirmação).
-- Cada projeto tem um ícone de terminal próprio que abre o **Terminal Geral** (fala com
-  todos os robôs do projeto de uma vez — ver seção 11).
+- Cada projeto tem um ícone (grade) que abre a **tela de Projeto** (seção 15), com a cabine
+  e, no menu e no fim da tela, o **Terminal Geral** (seção 11).
 - Tocar num robô abre o **painel** dele, já com o backup mais recente
   (`robot_dashboard/{id}/-1`).
 
@@ -510,7 +525,8 @@ fica reservado para não mudar as referências às seções seguintes.
 |---|---|---|
 | `splash` | `SplashScreen` | início; some do histórico ao terminar |
 | `robot_list` | `RobotListScreen` | lista de robôs; tocar no robô → `robot_dashboard/{id}/-1` |
-| `multi_terminal/{projectName}` | `MultiRobotTerminalScreen` | terminal de todos os robôs do projeto |
+| `project/{projectName}` | `ProjectScreen` | cabine do projeto; segurar um robô → `robot_dashboard/{id}/-1`; renomear troca a rota pelo nome novo |
+| `multi_terminal/{projectName}` | `MultiRobotTerminalScreen` | terminal de todos os robôs do projeto (aberto pela tela de Projeto) |
 | `quick_commands/{manufacturer}/{robotId}` | `QuickCommandScreen` | biblioteca de comandos |
 | `backup_list/{robotId}` | `BackupHistoryScreen` | histórico de backups do robô |
 | `robot_dashboard/{robotId}/{backupId}?feature={feature}` | `RobotDashboardScreen` | `backupId = -1` usa o backup mais recente; `feature` abre direto uma seção (ex.: `?feature=Terminal`) |
@@ -582,3 +598,49 @@ pela rede (telnet), porque é o protocolo do controlador.
   uma pasta, apagar a pasta e reabrir o app.
 - Confirmar que o MediaStore mantém a extensão `.as` no Android 10 (pasta Documentos).
 - Codificação ISO-8859-1 (0-B.D).
+
+---
+
+## 15. `:feature:project` — Tela de Projeto (cabine)
+
+**Arquivos:** `ProjectScreen.kt`, `ProjectViewModel.kt` (com a `ProjectViewModelFactory`). As regras
+da grade ficam em `LayoutOps` (`:core:common`, pacote `layout`, testadas na JVM).
+
+Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`).
+
+### Visualização
+- "N de M conectados", **Conectar todos** e **Desconectar todos**.
+- A grade da cabine: cada robô num cartão com o LED de heartbeat (`HeartbeatDot`), o nome e o
+  estado. **Tocar conecta ou desconecta; segurar abre o painel do robô.** Linhas sem nenhum robô
+  ficam ocultas.
+- Equipamentos como faixas entre as linhas, com setas do sentido do fluxo.
+- **Fora do layout:** robôs sem vaga (todos, antes de montar a cabine), também com LED.
+- **Modo avançado:** cartão (e item do menu) que abre o Terminal Geral do projeto.
+- Conexão e heartbeat são observados com um coletor por robô (`watchedIds`), como no popup de
+  robôs conectados.
+
+### Editar layout (lápis)
+- A edição acontece numa **cópia**; "Salvar" grava tudo de uma vez (`saveProjectLayout`, uma
+  transação) e o "X" descarta.
+- Tocar num robô o seleciona. Com ele selecionado: tocar numa vaga vazia move; tocar em outro
+  robô troca os dois; **Tirar do layout** (ou tocar na área "Fora do layout") tira da grade.
+- **Posicionar todos:** coloca os robôs de fora nas vagas livres, por linha, e cria linhas se
+  precisar.
+- "+" no alto da grade adiciona coluna; **Adicionar linha** embaixo. "−" aparece só em linha ou
+  coluna vazia, e sempre sobra uma. Limites: 1 a 5 linhas, 1 a 6 colunas.
+- **Adicionar equipamento:** Transportador (começa com sentido →) ou Outro (nome obrigatório,
+  sem sentido). Entra abaixo da última linha. Na faixa: tocar alterna o sentido (→ ← nenhum),
+  ↑↓ mudam a faixa e a lixeira exclui.
+- O que vem do banco passa por `LayoutOps.sanitize`: robô fora dos limites ou numa vaga já
+  ocupada vai para fora do layout.
+
+### Regras ligadas ao repositório
+- Editar um robô (`RobotDialog`) **mantém** a vaga dele; se o projeto mudar, ele vai para fora do
+  layout no projeto novo.
+- Projeto que fica sem robôs (robô excluído ou movido) perde o layout e os equipamentos.
+- **Renomear projeto** (menu): muda o nome nos robôs, no layout e nos equipamentos. Se já existir
+  um projeto com o nome novo, os robôs passam para ele, que mantém o próprio layout.
+
+**Pendências / Próximos passos:** as ações em lote do projeto (backup de todos, buscar e copiar
+programa, verificar erros) são a Fase 2.2 do plano e dependem da infraestrutura da 2.0. Arrastar
+robôs na grade pode vir depois, em cima das mesmas funções do `LayoutOps`.

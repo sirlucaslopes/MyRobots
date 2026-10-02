@@ -40,4 +40,5 @@ include(":feature:backup")
 include(":feature:codeeditor")
 include(":feature:dashboard")
 include(":feature:terminal")
+include(":feature:project")
  

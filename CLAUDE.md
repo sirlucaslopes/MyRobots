@@ -32,7 +32,7 @@ Multi-module Gradle project (`settings.gradle.kts`):
 
 - `:app` is a thin shell: `MyRobotsApp` (Application) and `MainActivity` (permissions, external file intents, `NavHost` route map).
 - `:core:model` (plain data), `:core:database` (Room `AppDatabase` + DAOs + migrations), `:core:network` (`KawasakiTerminalManager`, telnet/TCP), `:core:data` (`RobotRepository`), `:core:designsystem` (`MyRobotsTheme` + shared Compose deps), `:core:common` (`FileUtil`, `ascode.AsProgramBlocks`).
-- `:feature:*` holds one area of the app each: splash, robots, backup, codeeditor, dashboard, terminal.
+- `:feature:*` holds one area of the app each: splash, robots, backup, codeeditor, dashboard, terminal, project (the cabin screen).
 
 Dependency rules (from `GUIDE.md`):
 - A feature may depend on `:core:*` but **never on another feature**. Cross-screen wiring happens only in `MainActivity`'s `NavHost`.

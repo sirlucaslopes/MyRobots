@@ -42,6 +42,9 @@ import my.robots.feature.dashboard.DashboardFeature
 import my.robots.feature.dashboard.RobotDashboardScreen
 import my.robots.feature.dashboard.RobotDashboardViewModel
 import my.robots.feature.dashboard.RobotDashboardViewModelFactory
+import my.robots.feature.project.ProjectScreen
+import my.robots.feature.project.ProjectViewModel
+import my.robots.feature.project.ProjectViewModelFactory
 import my.robots.feature.robots.ConnectedRobotsViewModel
 import my.robots.feature.robots.ConnectedRobotsViewModelFactory
 import my.robots.feature.robots.RobotListScreen
@@ -71,6 +74,7 @@ import java.nio.charset.StandardCharsets
  * - variable_viewer/... ... só as variáveis
  * - external_viewer ....... arquivo .as/.pg aberto de fora do app (texto vem da memória;
  *                            salvar pede o robô)
+ * - project/{projeto} ..... tela de Projeto (cabine com os robôs e editor do layout)
  * - multi_terminal/... .... terminal geral de um projeto
  * - quick_commands/... .... biblioteca de comandos rápidos
  */
@@ -153,7 +157,7 @@ class MainActivity : ComponentActivity() {
                         // Tela 2: lista de robôs.
                         // - Tocar no robô -> painel dele, com o backup mais recente (-1).
                         // - Ícone do terminal -> painel do robô já no terminal.
-                        // - Ícone do terminal do projeto -> terminal geral (todos os robôs do projeto).
+                        // - Ícone do projeto -> tela de Projeto (a cabine).
                         composable("robot_list") {
                             val connectedRobotsViewModel: ConnectedRobotsViewModel = viewModel(
                                 factory = ConnectedRobotsViewModelFactory(repository, terminalManager)
@@ -167,9 +171,36 @@ class MainActivity : ComponentActivity() {
                                 onTerminalClick = { robot ->
                                     navController.navigate("robot_dashboard/${robot.id}/-1?feature=Terminal")
                                 },
-                                onMultiTerminalClick = { projectName ->
+                                onOpenProject = { projectName ->
                                     val encodedProject = URLEncoder.encode(projectName, StandardCharsets.UTF_8.toString())
-                                    navController.navigate("multi_terminal/$encodedProject")
+                                    navController.navigate("project/$encodedProject")
+                                }
+                            )
+                        }
+
+                        // Tela de Projeto: a cabine com os robôs.
+                        // - Segurar um robô -> painel dele.
+                        // - "Terminal Geral" / "Modo avançado" -> terminal geral do projeto.
+                        // - Renomear -> troca esta tela pela do nome novo.
+                        composable(
+                            route = "project/{projectName}",
+                            arguments = listOf(navArgument("projectName") { type = NavType.StringType })
+                        ) { backStackEntry ->
+                            val encodedProject = backStackEntry.arguments?.getString("projectName") ?: ""
+                            val projectName = URLDecoder.decode(encodedProject, StandardCharsets.UTF_8.toString())
+                            val projectViewModel: ProjectViewModel = viewModel(
+                                factory = ProjectViewModelFactory(repository, terminalManager, projectName)
+                            )
+                            ProjectScreen(
+                                viewModel = projectViewModel,
+                                onBack = { navController.popBackStack() },
+                                onOpenRobot = { robot -> navController.navigate("robot_dashboard/${robot.id}/-1") },
+                                onOpenTerminal = { navController.navigate("multi_terminal/$encodedProject") },
+                                onRenamed = { newName ->
+                                    val encodedNew = URLEncoder.encode(newName, StandardCharsets.UTF_8.toString())
+                                    navController.navigate("project/$encodedNew") {
+                                        popUpTo("project/{projectName}") { inclusive = true }
+                                    }
                                 }
                             )
                         }
