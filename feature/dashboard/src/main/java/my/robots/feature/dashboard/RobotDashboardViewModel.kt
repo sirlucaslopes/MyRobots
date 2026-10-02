@@ -98,6 +98,13 @@ class RobotDashboardViewModel(
      */
     val latestBackup: StateFlow<my.robots.core.model.BackupSummary?> = _latestBackup.asStateFlow()
 
+    private val _isShowingNewestBackup = MutableStateFlow(true)
+    /**
+     * false quando o painel mostra um backup mais antigo, escolhido no histórico (a home
+     * avisa que não é o mais recente).
+     */
+    val isShowingNewestBackup: StateFlow<Boolean> = _isShowingNewestBackup.asStateFlow()
+
     private val _programs = MutableStateFlow<List<RobotProgram>>(emptyList())
     /**
      * Programas encontrados no backup.
@@ -432,6 +439,8 @@ class RobotDashboardViewModel(
                 } else {
                     summaries.sortedByDescending { it.timestamp }.firstOrNull()
                 }
+                val newest = summaries.maxByOrNull { it.timestamp }
+                _isShowingNewestBackup.value = targetSummary == null || targetSummary.id == newest?.id
 
                 if (targetSummary != null) {
                     val current = _latestBackup.value

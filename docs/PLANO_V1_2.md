@@ -5,7 +5,7 @@
 > - Fase 0-B: B, C, A e E feitas; D (acentos) espera um arquivo real; F (Play Console) é com
 >   você. **Nada disso foi testado num aparelho ainda.**
 > - Fase 0-C: passos 3–5 feitos; 1 (rodar o `MigrationTest`) e 2 (arquivo real) pendentes.
-> - Fase 1: passos 1–2 feitos, passo 3 em `git stash` ("Fase 1 passo 3 (WIP)").
+> - Fase 1: passos 1–3 feitos (o 3 compila, falta testar no aparelho).
 > - Skills Android em `.claude/skills/` (commit `fc4d670`).
 > - **Fase 1.5 (nova, 01/10):** pasta autossuficiente com `robo.myrobots`/`projetos.myrobots`
 >   para restaurar depois de reinstalar. Ainda não começada.
@@ -498,8 +498,8 @@ do template no `:app`.
 
 **Objetivo:** tocar no robô leva ao painel dele, com o estado e as ações à vista.
 
-**Situação:** passo 1 (`f45811e`) e passo 2 (`7febb29`) feitos. O passo 3 está em `git stash`
-("Fase 1 passo 3 (WIP)"), editado mas ainda não compilado.
+**Situação:** passos 1 (`f45811e`), 2 (`7febb29`) e 3 feitos. O passo 3 compila, mas ainda
+não foi testado no aparelho.
 
 **Módulos afetados:**
 - `:core:model`: recebe o `HeartbeatState`, movido do `:core:network`.
