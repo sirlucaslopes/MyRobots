@@ -183,10 +183,13 @@ fun RobotDashboardScreen(
     var selectedProgramNames by remember { mutableStateOf<Set<String>>(emptySet()) }
     var programsToUpload by remember { mutableStateOf<List<RobotProgram>?>(null) }
     var programsToDelete by remember { mutableStateOf<List<RobotProgram>?>(null) }
-    var variableToUpload by remember { mutableStateOf<RobotVariable?>(null) }
+    var variableToUpload by remember { mutableStateOf<List<RobotVariable>?>(null) }
     var dataBankToUpload by remember { mutableStateOf<List<RobotDataBankEntry>?>(null) }
     var programToDuplicate by remember { mutableStateOf<RobotProgram?>(null) }
-    var variableToDelete by remember { mutableStateOf<RobotVariable?>(null) }
+    var variableToDelete by remember { mutableStateOf<List<RobotVariable>?>(null) }
+    // Variáveis: nomes marcados e grupos (tipos) fechados.
+    var selectedVarNames by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var collapsedVarGroups by rememberSaveable { mutableStateOf(listOf<String>()) }
     // Data Bank: números marcados (checkbox de cada cartão) e as janelas de edição em lote/exclusão.
     var selectedDbNums by remember { mutableStateOf<Set<String>>(emptySet()) }
     var dataBankToBulkEdit by remember { mutableStateOf<List<RobotDataBankEntry>?>(null) }
@@ -219,6 +222,9 @@ fun RobotDashboardScreen(
         }
         if (activeFeature != DashboardFeature.DataBank) {
             selectedDbNums = emptySet()
+        }
+        if (activeFeature != DashboardFeature.Variables) {
+            selectedVarNames = emptySet()
         }
         if (!isLogFeature) {
             isLogSearchActive = false
@@ -264,7 +270,7 @@ fun RobotDashboardScreen(
                                     null -> robot?.name ?: "Painel"
                                     DashboardFeature.Terminal -> "Terminal: ${robot?.name ?: ""}"
                                     DashboardFeature.Programs -> "Programas"
-                                    DashboardFeature.Variables -> "Variáveis: ${robot?.name ?: ""}"
+                                    DashboardFeature.Variables -> "Variáveis"
                                     DashboardFeature.DataBank -> "Data Bank"
                                     else -> activeFeature!!.label
                                 },
@@ -392,6 +398,48 @@ fun RobotDashboardScreen(
                                     imageVector = Icons.Default.Delete,
                                     contentDescription = "Excluir Selecionados",
                                     tint = if (hasSelection) MaterialTheme.colorScheme.error else disabledTint
+                                )
+                            }
+                        } else if (activeFeature == DashboardFeature.Variables) {
+                            val allSelected = variables.isNotEmpty() && selectedVarNames.size == variables.size
+                            IconButton(onClick = {
+                                selectedVarNames = if (allSelected) emptySet() else variables.map { it.name }.toSet()
+                            }) {
+                                Icon(
+                                    imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                    contentDescription = if (allSelected) "Desmarcar Todos" else "Selecionar Todos"
+                                )
+                            }
+                            val selectedVars = variables.filter { it.name in selectedVarNames }
+                            val hasVarSelection = selectedVars.isNotEmpty()
+                            val varDisabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            IconButton(onClick = { variableToUpload = selectedVars }, enabled = hasVarSelection) {
+                                Icon(
+                                    Icons.Rounded.CloudUpload, "Enviar Selecionadas",
+                                    tint = if (hasVarSelection) MaterialTheme.colorScheme.primary else varDisabledTint
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    scope.launch {
+                                        val vm = viewModel ?: return@launch
+                                        val content = vm.variablesContent(selectedVars)
+                                        if (content.isNotBlank()) {
+                                            shareTextFile(context, vm.variablesFileName(selectedVars), content, "Compartilhar Variáveis")
+                                        }
+                                    }
+                                },
+                                enabled = hasVarSelection
+                            ) {
+                                Icon(
+                                    Icons.Default.Share, "Compartilhar Selecionadas",
+                                    tint = if (hasVarSelection) MaterialTheme.colorScheme.onSurface else varDisabledTint
+                                )
+                            }
+                            IconButton(onClick = { variableToDelete = selectedVars }, enabled = hasVarSelection) {
+                                Icon(
+                                    Icons.Default.Delete, "Excluir Selecionadas",
+                                    tint = if (hasVarSelection) MaterialTheme.colorScheme.error else varDisabledTint
                                 )
                             }
                         } else if (activeFeature == DashboardFeature.DataBank) {
@@ -525,10 +573,16 @@ fun RobotDashboardScreen(
                         )
                         DashboardFeature.Variables -> VariablesPanel(
                             variables = variables,
+                            selectedNames = selectedVarNames,
+                            onToggleSelect = { name ->
+                                selectedVarNames = if (name in selectedVarNames) selectedVarNames - name else selectedVarNames + name
+                            },
+                            collapsedGroups = collapsedVarGroups.toSet(),
+                            onToggleGroup = { g ->
+                                collapsedVarGroups = if (g in collapsedVarGroups) collapsedVarGroups - g else collapsedVarGroups + g
+                            },
                             listState = variablesListState,
-                            viewModel = viewModel,
-                            onUpload = { v -> variableToUpload = v },
-                            onDelete = { v -> variableToDelete = v }
+                            viewModel = viewModel
                         )
                         DashboardFeature.DataBank -> DataBankPanel(
                             entries = dataBankEntries,
@@ -617,14 +671,21 @@ fun RobotDashboardScreen(
         }
 
         if (variableToDelete != null) {
+            val toDelete = variableToDelete!!
             AlertDialog(
                 onDismissRequest = { variableToDelete = null },
-                title = { Text("Excluir Variável") },
-                text = { Text("Tem certeza que deseja excluir a variável \"${variableToDelete?.name}\"?") },
+                title = { Text("Excluir variáveis") },
+                text = {
+                    Text(
+                        if (toDelete.size == 1) "Tem certeza que deseja excluir a variável \"${toDelete[0].name}\"?"
+                        else "Tem certeza que deseja excluir ${toDelete.size} variáveis (${toDelete.joinToString { it.name }})?"
+                    )
+                },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            variableToDelete?.let { viewModel?.deleteVariable(it) }
+                            viewModel?.deleteVariables(toDelete)
+                            selectedVarNames = selectedVarNames - toDelete.map { it.name }.toSet()
                             variableToDelete = null
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
@@ -696,16 +757,20 @@ fun RobotDashboardScreen(
         }
 
         if (variableToUpload != null) {
-            val variable = variableToUpload!!
+            val toUpload = variableToUpload!!
             RobotPickerSheet(
-                title = "Enviar variável",
-                itemName = variable.name,
+                title = if (toUpload.size == 1) "Enviar variável" else "Enviar variáveis",
+                itemName = if (toUpload.size == 1) toUpload[0].name else "${toUpload.size} variáveis selecionadas",
                 robots = allRobots,
                 connectedIds = pickerConnected,
                 heartbeats = pickerHeartbeats,
                 progress = sendProgress,
-                onSend = { targets -> viewModel?.sendVariableToRobots(variable, targets) },
-                onDismiss = { variableToUpload = null; viewModel?.clearSendProgress() }
+                onSend = { targets -> viewModel?.sendVariablesToRobots(toUpload, targets) },
+                onDismiss = {
+                    variableToUpload = null
+                    selectedVarNames = emptySet()
+                    viewModel?.clearSendProgress()
+                }
             )
         }
 
@@ -1209,97 +1274,106 @@ fun DataBankDuplicateDialog(
     )
 }
 
+/** Nome de cada tipo de variável nos grupos da seção Variáveis. */
+private fun variableGroupName(type: String) = when (type) {
+    "FRAME" -> "Posições (TRANS)"
+    "TRANS" -> "TRANS"
+    "REALS" -> "Reais (REALS)"
+    "STRINGS" -> "Textos (STRINGS)"
+    "INTEGER" -> "Inteiros (INTEGER)"
+    "POS" -> "POS"
+    else -> type
+}
+
 /**
- * Seção Variáveis: tabela com nome à esquerda (fixo) e os valores X, Y, Z, O, A, T, JT7, JT8 rolando de lado.
- * Variáveis de posição (FRAME) mostram um valor por coluna; as outras mostram o valor inteiro numa célula.
- * Nomes que começam com "!" aparecem em amarelo-escuro.
+ * Seção Variáveis: no mesmo estilo de Programas e Data Bank. As variáveis ficam agrupadas por
+ * tipo (Posições, Reais, Textos...), cada grupo abre e fecha, e dentro dele em ordem de nome.
+ *
+ * Cada cartão tem a caixa de seleção, o nome (os que começam com "!" em amarelo-escuro) e o
+ * valor: nas posições, X, Y, Z, O, A, T (e JT7/JT8 quando existem) em grade; nas outras, o valor
+ * inteiro. Botões editar e duplicar; tocar no cartão também edita; "+" cria uma posição nova.
+ * As ações sobre as marcadas (selecionar todas, enviar, compartilhar e excluir) ficam na barra
+ * do topo da tela.
  */
 @Composable
 fun VariablesPanel(
     variables: List<RobotVariable>,
+    selectedNames: Set<String>,
+    onToggleSelect: (String) -> Unit,
+    collapsedGroups: Set<String>,
+    onToggleGroup: (String) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    viewModel: RobotDashboardViewModel?,
-    onUpload: (RobotVariable) -> Unit,
-    onDelete: (RobotVariable) -> Unit
+    viewModel: RobotDashboardViewModel?
 ) {
-    // Variável tocada e estados das janelas de editar/duplicar/criar.
-    var selectedVariable by remember { mutableStateOf<RobotVariable?>(null) }
     var showEditDialog by remember { mutableStateOf<RobotVariable?>(null) }
     var showDuplicateDialog by remember { mutableStateOf<RobotVariable?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
-    var sortAscending by remember { mutableStateOf(true) }
 
-    val sortedVariables = remember(variables, sortAscending) {
-        if (sortAscending) variables.sortedBy { it.name }
-        else variables.sortedByDescending { it.name }
+    val grouped = remember(variables) {
+        variables.groupBy { variableGroupName(it.type) }
+            .mapValues { (_, list) -> list.sortedBy { it.name.lowercase() } }
+            .toSortedMap()
     }
 
-    Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
-        VariableToolbar(
-            selected = selectedVariable,
-            sortAscending = sortAscending,
-            onSortToggle = { sortAscending = !sortAscending },
-            onCreate = { showCreateDialog = true },
-            onEdit = { showEditDialog = selectedVariable },
-            onDuplicate = { showDuplicateDialog = selectedVariable },
-            onUpload = { selectedVariable?.let { onUpload(it) } },
-            onDelete = { selectedVariable?.let { onDelete(it) } }
-        )
-
-        val horizontalScrollState = rememberScrollState()
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                item {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        TableCell(text = "Name", width = 150.dp, isHeader = true, textAlign = TextAlign.Start, 
-                            modifier = Modifier.background(MaterialTheme.colorScheme.surface).zIndex(1f))
-                        
-                        Box(modifier = Modifier.horizontalScroll(horizontalScrollState)) {
-                            Row(modifier = Modifier.width(680.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                                listOf("X", "Y", "Z", "O", "A", "T", "JT7", "JT8").forEach { label ->
-                                    TableCell(text = label, width = 85.dp, isHeader = true)
-                                }
-                            }
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (variables.isEmpty()) {
+            Text(
+                "Nenhuma variável neste backup. Toque em + para criar.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.Center).padding(24.dp)
+            )
+        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            contentPadding = PaddingValues(bottom = 96.dp)
+        ) {
+            grouped.forEach { (group, list) ->
+                item(key = "g_$group") {
+                    val isExpanded = group !in collapsedGroups
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth().clickable { onToggleGroup(group) }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "$group · ${list.size}",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }
-
-                items(sortedVariables) { variable ->
-                    // separa o valor em pedaços (um por coluna: X, Y, Z...)
-                    val values = remember(variable.value) { 
-                        variable.value.split(Regex("\\s+")).filter { it.isNotBlank() } 
-                    }
-                    val isSelected = selectedVariable?.name == variable.name
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { selectedVariable = if (isSelected) null else variable }
-                            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    ) {
-                        TableCell(
-                            text = variable.name,
-                            width = 150.dp,
-                            textAlign = TextAlign.Start,
-                            textColor = if (variable.name.startsWith("!")) Color(0xFFD4AC0D) else Color.Unspecified,
-                            modifier = Modifier.background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface).zIndex(1f)
+                if (group !in collapsedGroups) {
+                    items(list, key = { "v_${it.type}_${it.name}" }) { variable ->
+                        VariableCard(
+                            variable = variable,
+                            isSelected = variable.name in selectedNames,
+                            onToggleSelect = { onToggleSelect(variable.name) },
+                            onEdit = { showEditDialog = variable },
+                            onDuplicate = { showDuplicateDialog = variable }
                         )
-
-                        Box(modifier = Modifier.horizontalScroll(horizontalScrollState)) {
-                            Row(modifier = Modifier.width(680.dp)) {
-                                if (variable.type == "FRAME") {
-                                    repeat(8) { index ->
-                                        TableCell(text = values.getOrNull(index) ?: "0.000", width = 85.dp)
-                                    }
-                                } else {
-                                    TableCell(text = variable.value, width = 680.dp, textAlign = TextAlign.Start)
-                                }
-                            }
-                        }
                     }
                 }
             }
+        }
+        FloatingActionButton(
+            onClick = { showCreateDialog = true },
+            modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp)
+        ) {
+            Icon(Icons.Default.Add, "Nova variável")
         }
     }
 
@@ -1311,11 +1385,9 @@ fun VariablesPanel(
             onSave = { updated ->
                 viewModel?.updateVariable(showEditDialog!!.name, updated)
                 showEditDialog = null
-                selectedVariable = updated
             }
         )
     }
-
     if (showDuplicateDialog != null) {
         VariableDuplicateDialog(
             variable = showDuplicateDialog!!,
@@ -1327,7 +1399,6 @@ fun VariablesPanel(
             }
         )
     }
-    
     if (showCreateDialog) {
         VariableEditDialog(
             variable = RobotVariable(name = "", value = "0 0 0 0 0 0 0 0", type = "FRAME"),
@@ -1342,88 +1413,82 @@ fun VariablesPanel(
     }
 }
 
-/**
- * Barra de ferramentas das variáveis: criar, ordenar, editar, duplicar, enviar e excluir.
- */
+/** Cartão de uma variável: seleção, nome, valor (grade nas posições) e as ações. */
 @Composable
-fun VariableToolbar(
-    selected: RobotVariable?,
-    sortAscending: Boolean,
-    onSortToggle: () -> Unit,
-    onCreate: () -> Unit,
+private fun VariableCard(
+    variable: RobotVariable,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit,
     onEdit: () -> Unit,
-    onDuplicate: () -> Unit,
-    onUpload: () -> Unit,
-    onDelete: () -> Unit
+    onDuplicate: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.fillMaxWidth()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 32.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
+            .clickable(onClick = onEdit),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        )
     ) {
         Row(
-            modifier = Modifier.padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onCreate) {
-                Icon(Icons.Default.Add, "Criar", tint = Color(0xFF2E7D32))
-            }
-            VerticalDivider(modifier = Modifier.height(32.dp).align(Alignment.CenterVertically))
-            
-            IconButton(onClick = onSortToggle) {
-                Icon(
-                    imageVector = if (sortAscending) Icons.Default.SortByAlpha else Icons.Default.VerticalAlignBottom, 
-                    contentDescription = "Ordenar"
+            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect() })
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    variable.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (variable.name.startsWith("!")) Color(0xFFD4AC0D) else Color.Unspecified,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+                if (variable.type == "FRAME") {
+                    val values = remember(variable.value) {
+                        variable.value.split(Regex("\\s+")).filter { it.isNotBlank() }
+                    }
+                    val labels = listOf("X", "Y", "Z", "O", "A", "T", "JT7", "JT8")
+                    // JT7/JT8 só aparecem quando a posição tem esses valores
+                    val shown = labels.indices.filter { it < 6 || it < values.size }
+                    shown.chunked(3).forEach { row ->
+                        Row {
+                            row.forEach { i ->
+                                Column(Modifier.weight(1f)) {
+                                    Text(labels[i], style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        values.getOrNull(i) ?: "0.000",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                } else {
+                    Text(
+                        variable.value,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
-
-            IconButton(onClick = onEdit, enabled = selected != null) {
-                Icon(Icons.Default.Edit, "Editar")
-            }
-            IconButton(onClick = onDuplicate, enabled = selected != null) {
-                Icon(Icons.Default.ContentCopy, "Duplicar")
-            }
-            IconButton(onClick = onUpload, enabled = selected != null) {
-                Icon(Icons.Rounded.CloudUpload, "Enviar", tint = MaterialTheme.colorScheme.primary)
-            }
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onDelete, enabled = selected != null) {
-                Icon(Icons.Default.Delete, "Excluir", tint = MaterialTheme.colorScheme.error)
+            Column {
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Edit, "Editar", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+                IconButton(onClick = onDuplicate, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.ContentCopy, "Duplicar", modifier = Modifier.size(18.dp))
+                }
             }
         }
-    }
-}
-
-/**
- * Uma célula das tabelas: caixa com borda e texto de uma linha em fonte de terminal. O cabeçalho fica em negrito.
- */
-@Composable
-fun TableCell(
-    text: String,
-    width: Dp,
-    modifier: Modifier = Modifier,
-    isHeader: Boolean = false,
-    textAlign: TextAlign = TextAlign.Center,
-    textColor: Color = Color.Unspecified
-) {
-    Box(
-        modifier = modifier
-            .width(width)
-            .height(40.dp)
-            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-            .padding(horizontal = 8.dp),
-        contentAlignment = if (textAlign == TextAlign.Start) Alignment.CenterStart else Alignment.Center
-    ) {
-        Text(
-            text = text,
-            style = if (isHeader) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodySmall,
-            fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal,
-            color = textColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            fontFamily = if (isHeader) FontFamily.Monospace else FontFamily.Monospace,
-            fontSize = if (isHeader) 12.sp else 11.sp,
-            textAlign = textAlign
-        )
     }
 }
 

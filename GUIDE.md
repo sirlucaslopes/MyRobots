@@ -463,11 +463,16 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   (`deletePrograms`), para não perder uma exclusão por causa de outra sendo salva ao mesmo
   tempo. "Duplicar" continua por linha, pois é uma ação de um programa só (copia o bloco com
   `AsProgramBlocks` e troca só o nome no cabeçalho, mantendo parâmetros, data e comentário).
-- **Variáveis**: tabela com nome fixo à esquerda e valores `X, Y, Z, O, A, T, JT7, JT8`
-  rolando para o lado — variáveis do tipo `FRAME` (posição) mostram um valor por coluna, as
-  outras mostram o valor inteiro numa célula só. Nomes que começam com `!` aparecem em
-  amarelo-escuro (indicando alguma marcação especial do robô). Toolbar: criar, ordenar,
-  editar, duplicar, enviar, excluir — todas exigem uma variável selecionada, exceto criar.
+- **Variáveis**: no mesmo estilo de Programas e Data Bank. Agrupadas por tipo (Posições/TRANS,
+  Reais, Textos, Inteiros...), cada grupo abre e fecha e mostra quantas tem; dentro dele, em
+  ordem de nome. Cada cartão (`VariableCard`) tem caixa de seleção, nome (os que começam com `!`
+  em amarelo-escuro) e o valor: nas posições, `X, Y, Z, O, A, T` em grade (e `JT7`/`JT8` quando
+  existem); nas outras, o valor inteiro. Editar e duplicar por cartão (tocar também edita); "+"
+  cria uma posição nova. A barra do topo tem selecionar todas, enviar, compartilhar e excluir
+  as marcadas. Enviar e compartilhar usam `variablesContent`, que tira do backup as linhas das
+  variáveis escolhidas dentro das suas seções (`.TRANS ... .END`, `.REALS ... .END`); excluir
+  várias é uma gravação só (`deleteVariables`) e só mexe nas linhas de dentro das seções de
+  variáveis (antes, uma linha de programa que começasse com o nome também era apagada).
 - **Data Bank**: no mesmo estilo da seção Programas: um cartão por linha da seção `.sprdb`
   (`DataBankCard`), em ordem de número, com caixa de seleção, `DBn`, comentário e os seis
   valores (`FRATE, PATTERN, ATOMIZE, HVOLT, SPEED, JSPEED`) em duas linhas, mais editar e

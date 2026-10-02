@@ -445,53 +445,54 @@ class RobotDashboardViewModel(
     }
 
     /**
-     * Envia uma variável do backup para os robôs escolhidos: arquivo var_<nome>.as só com a
-     * linha da variável dentro da sua seção (.TRANS, .REALS...).
+     * Texto com as variáveis escolhidas, cada uma dentro da sua seção, como no backup
+     * (".TRANS / linhas / .END", ".REALS / linhas / .END"...). Lê o texto do backup: as linhas
+     * saem exatamente como estão lá. Seções sem variável escolhida ficam de fora.
      */
-    fun sendVariableToRobots(variable: RobotVariable, targets: List<Robot>) {
-        viewModelScope.launch {
-            val summary = _latestBackup.value ?: return@launch
-            val fullBackup = repository.getBackupById(summary.id) ?: return@launch
-            val varContent = withContext(Dispatchers.Default) { extractVariable(fullBackup.content, variable) }
-            val fileName = "var_${FileUtil.sanitizeFileName(variable.name).replace(".as", "")}.as"
-            sendFileToRobots(targets, fileName, varContent)
+    suspend fun variablesContent(variables: List<RobotVariable>): String {
+        val summary = _latestBackup.value ?: return ""
+        val fullBackup = repository.getBackupById(summary.id) ?: return ""
+        val names = variables.map { it.name }.toSet()
+        return withContext(Dispatchers.Default) {
+            val out = StringBuilder()
+            var header: String? = null
+            val picked = mutableListOf<String>()
+            for (line in fullBackup.content.lines()) {
+                val trimmed = line.trim()
+                val upper = trimmed.uppercase()
+                if (header == null) {
+                    if (upper in VARIABLE_SECTIONS) {
+                        header = line
+                        picked.clear()
+                    }
+                    continue
+                }
+                if (upper == ".END") {
+                    if (picked.isNotEmpty()) {
+                        out.append(header).append("\n")
+                        picked.forEach { out.append(it).append("\n") }
+                        out.append(line).append("\n")
+                    }
+                    header = null
+                    continue
+                }
+                if (variableNameOf(trimmed) in names) picked.add(line)
+            }
+            out.toString()
         }
     }
 
-    /** Bloco ".SEÇÃO / linha da variável / .END" tirado do texto do backup, ou "" se não achar. */
-    private fun extractVariable(content: String, variable: RobotVariable): String {
-        val sectionHeader = when (variable.type) {
-            "REALS" -> ".REALS"
-            "STRINGS" -> ".STRINGS"
-            "INTEGER" -> ".INTEGER"
-            else -> ".TRANS"
+    /** Nome do arquivo de envio/compartilhamento das variáveis. */
+    fun variablesFileName(variables: List<RobotVariable>) =
+        if (variables.size == 1) "var_${FileUtil.sanitizeFileName(variables[0].name).replace(".as", "")}.as"
+        else "var_batch_${System.currentTimeMillis()}.as"
+
+    /** Envia as variáveis escolhidas para os robôs escolhidos (um arquivo só, com as seções). */
+    fun sendVariablesToRobots(variables: List<RobotVariable>, targets: List<Robot>) {
+        if (variables.isEmpty()) return
+        viewModelScope.launch {
+            sendFileToRobots(targets, variablesFileName(variables), variablesContent(variables))
         }
-        val extracted = StringBuilder()
-        var isReading = false
-        var found = false
-        for (line in content.lines()) {
-            val trimmed = line.trim()
-            if (trimmed.equals(sectionHeader, ignoreCase = true)) {
-                isReading = true
-                extracted.append(line).append("\n")
-                continue
-            }
-            if (isReading) {
-                if (trimmed.startsWith("${variable.name} =", ignoreCase = true) ||
-                    trimmed.startsWith("${variable.name}=", ignoreCase = true) ||
-                    trimmed.startsWith("${variable.name} ", ignoreCase = true)
-                ) {
-                    extracted.append(line).append("\n")
-                    found = true
-                }
-                if (trimmed.equals(".END", ignoreCase = true)) {
-                    extracted.append(line).append("\n")
-                    isReading = false
-                    if (found) break
-                }
-            }
-        }
-        return if (found) extracted.toString() else ""
     }
 
     /** Texto ".sprdb ... .END" com as linhas do Data Bank, no formato do backup. */
@@ -989,37 +990,40 @@ class RobotDashboardViewModel(
     }
 
     /**
-     * Apaga uma variável do texto do backup. Se o terminal estiver conectado, também manda
-     * o robô apagar a variável (DELETE).
+     * Apaga uma ou mais variáveis do texto do backup, numa gravação só. Só mexe nas linhas de
+     * dentro das seções de variáveis (.TRANS, .REALS...). Se o terminal estiver conectado,
+     * também manda o robô apagar cada uma (DELETE).
      */
-    fun deleteVariable(variable: RobotVariable) {
+    fun deleteVariables(variables: List<RobotVariable>) {
+        if (variables.isEmpty()) return
         val summary = _latestBackup.value ?: return
         viewModelScope.launch {
             _isLoading.value = true
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
-
-            // se o robô está conectado, apaga nele também
             if (isConnected.value) {
-                terminalManager.deleteVariable(robotId, variable.name, variable.type)
+                variables.forEach { terminalManager.deleteVariable(robotId, it.name, it.type) }
             }
-
+            val names = variables.map { it.name }.toSet()
             val newContent = withContext(Dispatchers.Default) {
-                val lines = fullBackup.content.lines()
                 val result = StringBuilder()
-                for (line in lines) {
+                var inSection = false
+                for (line in fullBackup.content.lines()) {
                     val trimmed = line.trim()
-                    if (trimmed.startsWith("${variable.name} =") || 
-                        trimmed.startsWith("${variable.name}=") ||
-                        trimmed.startsWith("${variable.name} ")) {
-                        continue
+                    val upper = trimmed.uppercase()
+                    when {
+                        upper in VARIABLE_SECTIONS -> inSection = true
+                        upper == ".END" -> inSection = false
+                        inSection && variableNameOf(trimmed) in names -> continue
                     }
                     result.append(line).append("\n")
                 }
-                result.toString()
+                result.toString().trimEnd('\n')
             }
             saveBackupContent(newContent)
         }
     }
+
+    fun deleteVariable(variable: RobotVariable) = deleteVariables(listOf(variable))
 
     /**
      * Apaga uma linha do Data Bank (pelo número) do texto do backup.
@@ -1165,3 +1169,13 @@ class RobotDashboardViewModel(
 
 /** Marca "manter a linha como está" no [RobotDashboardViewModel.rewriteDataBank]. */
 private const val DataBankKeep = "\u0000keep"
+
+/** Seções do backup que guardam variáveis. */
+private val VARIABLE_SECTIONS = setOf(".TRANS", ".REALS", ".STRINGS", ".INTEGER", ".POS", ".JOINT", ".POINT")
+
+/** Nome da variável numa linha de seção ("a1 0 0 0..." ou "speed = 50"), ou null. */
+private fun variableNameOf(trimmed: String): String? {
+    if (trimmed.isEmpty() || trimmed.startsWith(";")) return null
+    return if (trimmed.contains("=")) trimmed.substringBefore("=").trim()
+    else trimmed.split(Regex("\\s+")).firstOrNull()
+}
