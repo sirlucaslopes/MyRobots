@@ -274,6 +274,8 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   seção Terminal), editar e excluir (com confirmação).
 - Cada projeto tem um ícone (grade) que abre a **tela de Projeto** (seção 15), com a cabine
   e, no menu e no fim da tela, o **Terminal Geral** (seção 11).
+- A lista guarda a posição da rolagem e os grupos fechados (`rememberSaveable`): ao voltar do
+  painel de um robô, ela reaparece igual.
 - Tocar num robô abre o **painel** dele, já com o backup mais recente
   (`robot_dashboard/{id}/-1`).
 
@@ -476,9 +478,10 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   colunas alteradas em todas as linhas marcadas, numa gravação só (`updateDataBankEntries`);
   excluir vários também é uma gravação só (`deleteDataBankEntries`). As duas passam pelo
   `rewriteDataBank`, que percorre a seção `.sprdb` e troca/apaga as linhas pelo número.
-- **Posição da rolagem**: as listas de Programas, Variáveis, Data Bank e dos três logs guardam
-  a posição (`rememberLazyListState` no nível da tela, fora da seção aberta) e os grupos
-  fechados de Programas, então voltam onde estavam ao trocar de seção ou ao voltar do editor.
+- **Posição da rolagem**: a home (cartões) e as listas de Programas, Variáveis, Data Bank e
+  dos três logs guardam a posição (`rememberScrollState`/`rememberLazyListState` no nível da
+  tela, fora da seção aberta) e os grupos fechados de Programas, então voltam onde estavam ao
+  trocar de seção ou ao voltar do editor.
 - **Logs do controlador (Erros/Operação/Edição)**: três seções que só existem quando o
   backup foi feito com `SAVE/FULL` no robô — sem isso, aparecem zerados (contagem 0 e uma
   mensagem explicando o motivo). Lidos direto do backup por `parseLogSection` (função

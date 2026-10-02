@@ -200,6 +200,8 @@ fun RobotDashboardScreen(
     val errorLogListState = rememberLazyListState()
     val operationLogListState = rememberLazyListState()
     val editLogListState = rememberLazyListState()
+    // a home (cartões do robô, uso, backup e atalhos) também volta na mesma altura
+    val homeScrollState = rememberScrollState()
     var collapsedProgramGroups by rememberSaveable { mutableStateOf(listOf<String>()) }
 
     // Busca nos três logs do controlador (Erros, Operação, Edição).
@@ -477,6 +479,7 @@ fun RobotDashboardScreen(
                             isConnected = homeConnected,
                             heartbeat = pickerHeartbeats[robot?.id ?: -1] ?: HeartbeatState.DISCONNECTED,
                             onToggleConnection = { viewModel?.toggleConnection() },
+                            scrollState = homeScrollState,
                             isReadingMemory = isReadingMemory,
                             onReadMemory = { viewModel?.readMemoryNow() },
                             lineCount = lineCount,
@@ -1577,6 +1580,7 @@ fun DashboardHome(
     operationLogCount: Int,
     programEditLogCount: Int,
     onViewBackups: () -> Unit = {},
+    scrollState: androidx.compose.foundation.ScrollState = rememberScrollState(),
     onFeatureClick: (DashboardFeature) -> Unit
 ) {
     Column(
@@ -1584,7 +1588,7 @@ fun DashboardHome(
             .fillMaxSize()
             .navigationBarsPadding()
             .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
+            .verticalScroll(scrollState),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         val health = remember(robotInfo, errorLog, backup?.timestamp, foreignBackups) {

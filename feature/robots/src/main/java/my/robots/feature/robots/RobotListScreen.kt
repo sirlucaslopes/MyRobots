@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.DeviceHub
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.rounded.SortByAlpha
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -83,8 +85,13 @@ fun RobotListScreen(
     val context = LocalContext.current
     val wifiInfo = rememberWifiInfo(context)
 
-    // Guarda quais grupos (fabricante ou projeto) estão abertos. Se não constar, o grupo está aberto.
-    val expandedSections = remember { mutableStateMapOf<String, Boolean>() }
+    // Grupos (fabricante ou projeto) fechados e a posição da lista. Os dois são "saveable": ao
+    // voltar do painel de um robô, a lista reaparece com os mesmos grupos e no mesmo lugar.
+    var collapsedSections by rememberSaveable { mutableStateOf(listOf<String>()) }
+    fun toggleSection(key: String) {
+        collapsedSections = if (key in collapsedSections) collapsedSections - key else collapsedSections + key
+    }
+    val listState = rememberLazyListState()
 
     // Nomes de projeto que já existem, para sugerir no cadastro de um robô novo.
     val existingProjects = remember(robots) {
@@ -244,36 +251,37 @@ fun RobotListScreen(
                 }
 
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
                     groupedRobots.forEach { (manufacturer, projects) ->
                         item {
                             val manufacturerKey = manufacturer.name
-                            val isExpanded = expandedSections[manufacturerKey] ?: true
+                            val isExpanded = manufacturerKey !in collapsedSections
                             
                             ManufacturerHeader(
                                 manufacturer = manufacturer,
                                 isExpanded = isExpanded,
-                                onToggle = { expandedSections[manufacturerKey] = !isExpanded }
+                                onToggle = { toggleSection(manufacturerKey) }
                             )
                         }
 
-                        if (expandedSections[manufacturer.name] ?: true) {
+                        if (manufacturer.name !in collapsedSections) {
                             projects.forEach { (project, robotsInProject) ->
                                 item {
                                     val projectKey = "${manufacturer.name}_$project"
-                                    val isProjectExpanded = expandedSections[projectKey] ?: true
+                                    val isProjectExpanded = projectKey !in collapsedSections
                                     
                                     ProjectHeader(
                                         projectName = project,
                                         isExpanded = isProjectExpanded,
-                                        onToggle = { expandedSections[projectKey] = !isProjectExpanded },
+                                        onToggle = { toggleSection(projectKey) },
                                         onOpenProject = { onOpenProject(project) }
                                     )
                                 }
 
-                                if (expandedSections["${manufacturer.name}_$project"] ?: true) {
+                                if ("${manufacturer.name}_$project" !in collapsedSections) {
                                     items(robotsInProject) { robot ->
                                         RobotItem(
                                             robot = robot,
