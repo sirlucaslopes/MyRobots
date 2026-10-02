@@ -626,6 +626,7 @@ equipamentos, que também precisam ir para a pasta. Fazer esta fase antes evita 
     "manufacturer": "KAWASAKI",
     "autoLogin": true,
     "loginUser": "as",
+    "loginPassword": "…",
     "layoutRow": 0,
     "layoutCol": 1
   },
@@ -658,8 +659,11 @@ equipamentos, que também precisam ir para a pasta. Fazer esta fase antes evita 
 ```
 
 Regras:
-- **A senha NÃO vai no arquivo.** Ela está cifrada com uma chave do Keystore que some ao
-  desinstalar (0-B.E). Na restauração, o robô com `autoLogin` volta marcado como "senha pendente".
+- **A senha vai no arquivo, em texto legível** (decidido em 01/10, para facilitar o uso).
+  No banco ela continua cifrada com o Keystore (0-B.E), mas essa chave some ao desinstalar,
+  então o arquivo precisa da senha aberta para a restauração trazê-la de volta. **Risco
+  aceito por enquanto:** quem tiver acesso à pasta lê a senha do controlador. A segurança será
+  revista depois; no futuro, essas informações podem passar a ser guardadas por usuário do app.
 - **O conteúdo dos backups não é duplicado.** O texto continua nos `.as`. O arquivo só guarda o
   nome que o usuário deu, a data e o nome do arquivo. As contagens (`programsCount` etc.) são
   recalculadas na importação, como já acontece no `insertBackup`.
@@ -729,9 +733,9 @@ toque no seletor é o mínimo que o Android permite.
    Um `.as` sem entrada no arquivo entra como "Sinc: <arquivo>", como hoje.
 4. A pasta escolhida vira a **pasta ativa (SAF)**. Assim o app continua enxergando tudo nela,
    inclusive o que ele não criou.
-5. **Senhas:** sem pedido especial (decidido em 01/10). O robô com `autoLogin` volta sem senha,
-   e o usuário preenche ao editar o robô (`RobotDialog`). Pedir a senha por projeto fica para
-   depois, se aparecer uso.
+5. **Senhas:** voltam do `robo.myrobots` e são cifradas de novo com a chave nova do Keystore
+   ao gravar no banco (o `RobotRepository` já faz isso). Arquivo sem `loginPassword` (feito à mão
+   ou de outra versão): o robô volta sem senha, e o usuário preenche ao editar o robô.
 
 **Mais tarde, a qualquer momento:** na janela "Pasta dos arquivos", a opção **"Restaurar de uma
 pasta"** faz a mesma leitura em modo **mesclar**: importa só os robôs cujo `uuid` ainda não está
@@ -753,7 +757,7 @@ no banco e não mexe nos que já existem. Serve também para trazer a pasta copi
 **Riscos e testes no aparelho:**
 - **O teste principal:** usar o app com 2 projetos, robôs, backups com nome e comandos rápidos →
   **desinstalar** → instalar de novo → "Restaurar" → conferir que tudo voltou, inclusive os nomes
-  dos backups, e que só falta preencher a senha.
+  dos backups e a senha (conectar com `autoLogin` sem digitar nada).
 - Renomear um robô, reinstalar e restaurar: ele precisa voltar com o nome novo e os backups.
 - Copiar a pasta `MyRobots` para outro celular (pelo PC) e restaurar lá.
 - Editar um `robo.myrobots` à mão: o app precisa recusar esse arquivo e avisar, sem travar.
@@ -1163,8 +1167,8 @@ Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fas
 - **Seção 0:** "Como testar" (os comandos da Fase 0-C e onde fica o arquivo de exemplo).
 - **Seção nova "Pasta autossuficiente"** (Fase 1.5): formato do `robo.myrobots` e do
   `projetos.myrobots`, `formatVersion`, checksum e `.bak`, o `MetadataMirror` (o banco manda), o
-  fluxo de restaurar (boas-vindas, `EXTRA_INITIAL_URI`, resumo, mesclar) e o que não vai no
-  arquivo (senha).
+  fluxo de restaurar (boas-vindas, `EXTRA_INITIAL_URI`, resumo, mesclar) e o aviso de que a
+  senha fica legível no arquivo.
 - **Seção 1:** `Robot.uuid`. **Seção 2:** migração 4→5 (`uuid`); a da Fase 2 vira 5→6.
 - **Tabela de rotas da seção 13:**
 
@@ -1201,6 +1205,8 @@ Estas ainda bloqueiam alguma parte:
    (0-B.A) não tem caminho legado e não declara nenhuma permissão de armazenamento.
 7. ~~Senha do controlador~~: respondida em 26/09: **cifrar com o Android Keystore** (0-B.E).
    Depois de restaurar o backup ou trocar de celular, o app pede a senha de novo.
+   **Atualizado em 01/10:** na Fase 1.5 a senha também vai aberta no `robo.myrobots`, para a
+   restauração trazê-la de volta. Rever a segurança depois (talvez com usuários do app).
 8. **Arquivo SAVE/FULL de exemplo:** preciso de um real, anonimizado, para os testes da 0-C, para
    confirmar a codificação dos acentos (0-B.D) e para a pergunta da BASE (item 1).
 
@@ -1221,6 +1227,9 @@ num commit por rota, sem mudar comportamento. **Não** migrar para o Navigation 
 isso a skill `navigation-3` não precisa ser instalada.
 
 ## Antes do APK de release (item do fim)
+
+- **Senha aberta no `robo.myrobots` (Fase 1.5):** decidir se continua assim na versão
+  distribuída ou se passa a ser cifrada com uma senha do usuário / conta do app.
 
 - **R8 (skill `r8-analyzer`, a instalar quando for gerar o release):** hoje
   `isMinifyEnabled = false`. Ao ligar:
