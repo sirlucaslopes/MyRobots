@@ -759,10 +759,10 @@ fun TerminalPanel(
                     imeAction = ImeAction.Send
                 ),
                 keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = {
-                    if (commandText.isNotBlank()) {
-                        viewModel?.sendCommand("") // só o Enter: o texto já foi enviado letra por letra
-                        commandText = ""
-                    }
+                    // só o Enter: o texto já foi enviado letra por letra. Com o campo vazio, manda um
+                    // Enter em branco (responde perguntas como "Change? (If not, Press RETURN only.)")
+                    viewModel?.sendCommand("")
+                    commandText = ""
                 }),
                 shape = MaterialTheme.shapes.medium
             )
@@ -782,7 +782,7 @@ fun TerminalPanel(
                         viewModel?.sendCommand("")
                         commandText = ""
                     },
-                    enabled = commandText.isNotBlank(),
+                    // vazio também envia: Enter em branco
                     modifier = Modifier.size(40.dp)
                 ) {
                     Icon(Icons.AutoMirrored.Rounded.Send, null, tint = MaterialTheme.colorScheme.primary)

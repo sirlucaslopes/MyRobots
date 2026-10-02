@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MyRobots is an Android app (Kotlin, Jetpack Compose, Material 3, Room) for managing industrial robots — mainly Kawasaki paint robots (AS language) over telnet: robot registry, telnet/TCP terminal, backups of `.as`/`.pg` files, and an editor for AS code. `KAWASAKI` is the only manufacturer with real functionality; FANUC/ABB/UR can be registered but do nothing yet.
 
+**Kawasaki manuals** (AS Language Reference, E-controller troubleshooting/error codes, K-ROSET, KJ series) are in `Arquivos_Kawasaki/` at the repo root. The folder is git-ignored (large, copyrighted); read the relevant PDF with the `pages` parameter when you need command syntax or error-code meanings.
+
 **`GUIDE.md` is the source of truth for behavior.** It documents every module and screen in detail (in Portuguese), including the navigation route table and a "Pendências / Próximos passos" section per module. When you change how a screen or module behaves, update its section in `GUIDE.md` as well as the code. **`docs/PLANO_V1_2.md`** is the approved roadmap for v1.2 (phases 0, 1, 2.0–2.2); work is done one phase at a time on branch `melhorias/v1.2` with small commits. `.agent/plan.md` is an older generated plan, not authoritative.
 
 ## Build and test (Windows)

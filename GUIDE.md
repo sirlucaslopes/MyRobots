@@ -201,11 +201,14 @@ de cada vez e esperando a resposta de cada um:
    cadastrada passa a ter essa. Série diferente da cadastrada vira um `SerialMismatch`: a
    `MainActivity` pergunta se é para atualizar o cadastro (troca de controlador) ou manter (pode
    ser o robô errado, IP trocado).
-2. **Relógio**: `PRINT $DATE(3)," ",$TIME` (só lê, sem pergunta). Mais de 2 min de diferença
-   para o celular vira um `ClockIssue`, e a `MainActivity` pergunta se deve corrigir. Corrigir
-   manda `TIME aa-mm-dd hh:mm:ss`, responde Enter se o controlador perguntar "Change?" e lê de
-   novo; se ainda estiver errado, avisa que o controlador não aceitou. **No K-ROSET o relógio
-   segue o do PC e não muda; a correção precisa ser conferida num robô real.**
+2. **Relógio** (AS Language Reference Manual, 5-57): manda `TIME`; o controlador mostra
+   "TIME 26-10-03(Sat) 08:03:28" e pergunta "Change? (If not, Press RETURN only.)", e o app sai
+   com Enter em branco. Mais de 2 min de diferença para o celular vira um `ClockIssue`, e a
+   `MainActivity` pergunta se deve corrigir. Corrigir manda `TIME aa-mm-dd hh:mm:ss` (digitado
+   letra por letra) com a hora do celular; o controlador grava, mostra a hora gravada e pergunta
+   de novo, o app sai com Enter e compara. Se ainda estiver errado, avisa que não aceitou.
+   **O K-ROSET mostra sempre 12 h a mais do que foi gravado**, então lá a checagem sempre acusa
+   ~12 h; num robô real isso não deve acontecer.
 3. **`FREE`**: memória de programas (`AsFreeMemory`), guardada nas SharedPreferences
    `controller_memory`.
 
@@ -429,7 +432,9 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     (Erros, Operação, Edição), cada um com a contagem de itens.
   - O arquivo completo (Código AS, abre o `AsCodeViewer` em tela cheia, fora do dashboard)
     fica no menu "⋮" da barra do topo, item "Ver arquivo completo".
-- **Terminal (`DashboardFeature.Terminal`)**: terminal de verdade — caixa preta com texto verde (o que o usuário
+- **Terminal (`DashboardFeature.Terminal`)**: com o campo vazio, Enviar (ou o Enter do teclado)
+  manda um Enter em branco, para responder perguntas do controlador como "Change? (If not, Press
+  RETURN only.)". Terminal de verdade — caixa preta com texto verde (o que o usuário
   digitou aparece em azul-claro). Cada tecla digitada é enviada ao robô na hora (como um
   terminal real); apagar manda backspace; setas ⬆⬇ mandam histórico de comando do robô; o
   raio abre a biblioteca de comandos rápidos (`:feature:terminal`); um botão abre o gerenciador

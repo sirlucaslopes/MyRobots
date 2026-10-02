@@ -22,3 +22,6 @@ kroset_trafego.log
 
 # Saída do Gradle redirecionada (ver CLAUDE.md)
 build.log
+
+# Manuais e arquivos de referência da Kawasaki (grandes e com direitos autorais; ficam só no PC)
+Arquivos_Kawasaki/

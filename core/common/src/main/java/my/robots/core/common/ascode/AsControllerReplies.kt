@@ -13,32 +13,36 @@ object AsControllerReplies {
     val SERIAL = Regex("""Serial No\.\s*(\d+)""", RegexOption.IGNORE_CASE)
 
     /**
-     * Comando que lê a data e a hora do controlador sem pedir nada. A resposta é uma linha
-     * "2026/10/03 07:45:47" ([CLOCK]).
+     * Relógio (AS Language Reference Manual, E Series, 5-57: "TIME year-month-day
+     * hour:minute:second"). Só "TIME" mostra a data e a hora e pergunta se quer mudar:
+     * ```
+     * TIME      26-10-03(Sat) 08:03:28
+     * Change? (If not, Press RETURN only.)
+     * ```
+     * "TIME aa-mm-dd hh:mm:ss" ([setClockCommand]) grava a hora, mostra o valor gravado e faz a
+     * mesma pergunta. Enter em branco sai da pergunta sem mudar nada. (Também funciona responder
+     * a pergunta com "aa/mm/dd hh:mm:ss".) O K-ROSET mostra sempre 12 h a mais que o gravado.
      */
-    const val READ_CLOCK_COMMAND = "PRINT \$DATE(3),\" \",\$TIME"
-    val CLOCK = Regex("""(\d{4})/(\d{2})/(\d{2}) (\d{2}):(\d{2}):(\d{2})""")
+    const val CLOCK_COMMAND = "TIME"
+    val CLOCK_REPLY = Regex("""TIME\s+(\d{2})-(\d{2})-(\d{2})\(\w+\)\s+(\d{2}):(\d{2}):(\d{2})""")
+    val CHANGE_PROMPT = Regex("""Change\?""", RegexOption.IGNORE_CASE)
 
     private val SET_FORMAT = DateTimeFormatter.ofPattern("yy-MM-dd HH:mm:ss")
 
     /** Série da última resposta do ID no texto, ou null. */
     fun parseSerial(text: String): String? = SERIAL.findAll(text).lastOrNull()?.groupValues?.get(1)
 
-    /** Data e hora da última resposta do [READ_CLOCK_COMMAND] no texto, ou null. */
+    /** Data e hora da última resposta do TIME no texto (ano com 2 dígitos = 20aa), ou null. */
     fun parseClock(text: String): LocalDateTime? {
-        val m = CLOCK.findAll(text).lastOrNull() ?: return null
+        val m = CLOCK_REPLY.findAll(text).lastOrNull() ?: return null
         val (y, mo, d, h, mi, s) = m.destructured
         return try {
-            LocalDateTime.of(y.toInt(), mo.toInt(), d.toInt(), h.toInt(), mi.toInt(), s.toInt())
+            LocalDateTime.of(2000 + y.toInt(), mo.toInt(), d.toInt(), h.toInt(), mi.toInt(), s.toInt())
         } catch (e: java.time.DateTimeException) {
             null
         }
     }
 
-    /**
-     * Comando que acerta o relógio: "TIME aa-mm-dd hh:mm:ss". O controlador pode responder
-     * mostrando a hora e perguntando "Change? (If not, Press RETURN only.)"; quem manda o
-     * comando responde com um Enter vazio e confere de novo com [READ_CLOCK_COMMAND].
-     */
+    /** Comando que grava o relógio, como no manual: "TIME aa-mm-dd hh:mm:ss". */
     fun setClockCommand(time: LocalDateTime): String = "TIME " + time.format(SET_FORMAT)
 }

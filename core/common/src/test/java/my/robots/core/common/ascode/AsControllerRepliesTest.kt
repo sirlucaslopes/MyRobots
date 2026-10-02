@@ -2,11 +2,12 @@ package my.robots.core.common.ascode
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDateTime
 
 /**
- * Respostas reais do K-ROSET ao ID e ao comando de relógio.
+ * Respostas reais do K-ROSET ao ID e ao TIME.
  */
 class AsControllerRepliesTest {
 
@@ -18,14 +19,17 @@ class AsControllerRepliesTest {
     }
 
     @Test
-    fun parseClock_respostaDoPrint() {
-        val text = "> PRINT \$DATE(3),\" \",\$TIME\nPRINT \$DATE(3),\" \",\$TIME\n2026/10/03 07:45:47\n>"
-        assertEquals(LocalDateTime.of(2026, 10, 3, 7, 45, 47), AsControllerReplies.parseClock(text))
-        assertNull(AsControllerReplies.parseClock("2026/13/40 99:99:99"))
+    fun parseClock_respostaDoTime_pegaAUltima() {
+        val text = ">time\nTIME      26-10-03(Sat) 08:03:28\nChange? (If not, Press RETURN only.)\n" +
+            "26/10/03 20:04:00\nTIME      26-10-04(Sun) 08:04:00\nChange? (If not, Press RETURN only.)"
+        assertEquals(LocalDateTime.of(2026, 10, 4, 8, 4, 0), AsControllerReplies.parseClock(text))
+        assertTrue(AsControllerReplies.CHANGE_PROMPT.containsMatchIn(text))
+        assertEquals(2, AsControllerReplies.CLOCK_REPLY.findAll(text).count())
+        assertNull(AsControllerReplies.parseClock("TIME      26-13-40(Sat) 99:99:99"))
     }
 
     @Test
-    fun setClockCommand_formatoDoTime() {
+    fun setClockCommand_formatoDoManual() {
         assertEquals("TIME 26-10-02 19:45:07", AsControllerReplies.setClockCommand(LocalDateTime.of(2026, 10, 2, 19, 45, 7)))
     }
 }

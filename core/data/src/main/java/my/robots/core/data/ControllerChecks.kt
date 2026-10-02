@@ -50,8 +50,11 @@ data class SerialMismatch(
  *
  * 1. **ID**: lê o número de série. Robô sem série cadastrada passa a ter essa; série diferente
  *    da cadastrada vira um [SerialMismatch] (a tela pergunta o que fazer).
- * 2. **Relógio**: lê data e hora (`PRINT $DATE(3)," ",$TIME`). Diferença maior que
- *    [CLOCK_TOLERANCE_SECONDS] vira um [ClockIssue], e a tela pergunta se deve corrigir.
+ * 2. **Relógio**: manda `TIME`; o controlador mostra a data e a hora e pergunta "Change?". O app
+ *    responde com Enter em branco (não muda nada) e, se a diferença passar de
+ *    [CLOCK_TOLERANCE_SECONDS], cria um [ClockIssue] e a tela pergunta se deve corrigir.
+ *    Corrigir: `TIME aa-mm-dd hh:mm:ss` com a hora do celular (forma do manual); o controlador
+ *    mostra a hora gravada e pergunta "Change?" de novo, e o app sai com Enter em branco.
  * 3. **FREE**: memória de programas, guardada no aparelho (SharedPreferences
  *    "controller_memory") para aparecer mesmo sem conexão.
  *
@@ -166,15 +169,7 @@ class ControllerChecks(
         scope.launch {
             lock(issue.robotId).withLock {
                 if (!terminal.getConnectionStatus(issue.robotId).value) return@withLock
-                val history = terminal.getHistory(issue.robotId)
-                terminal.sendCommand(issue.robotId, AsControllerReplies.setClockCommand(LocalDateTime.now()))
-                delay(1500)
-                // o controlador pode perguntar "Change?": Enter vazio sai da pergunta
-                if (history.value.takeLast(3).any { it.contains("Change?", ignoreCase = true) }) {
-                    terminal.sendCommand(issue.robotId, "", isManualFinalize = true)
-                    delay(500)
-                }
-                checkClock(issue.robotId, afterFix = true)
+                checkClock(issue.robotId, setTo = { LocalDateTime.now().withNano(0) })
             }
         }
     }
@@ -209,9 +204,30 @@ class ControllerChecks(
         }
     }
 
-    private suspend fun checkClock(robotId: Int, afterFix: Boolean = false) {
-        val match = sendAndAwait(robotId, AsControllerReplies.READ_CLOCK_COMMAND, AsControllerReplies.CLOCK) ?: return
-        val robotTime = AsControllerReplies.parseClock(match.value) ?: return
+    /**
+     * Lê a hora do controlador com TIME. Sem [setTo], manda só "TIME"; com [setTo], manda
+     * "TIME aa-mm-dd hh:mm:ss" (digitado letra por letra), que grava e mostra a hora gravada.
+     * Nos dois casos o controlador pergunta "Change?" e o app sai com Enter em branco. Se a hora
+     * ficar fora da tolerância, cria o [ClockIssue] (fixFailed = true depois de uma correção).
+     */
+    private suspend fun checkClock(robotId: Int, setTo: (() -> LocalDateTime)? = null) {
+        val history = terminal.getHistory(robotId)
+        fun prompts() = AsControllerReplies.CHANGE_PROMPT.findAll(history.value.joinToString("\n")).count()
+
+        val before = prompts()
+        if (setTo == null) {
+            terminal.sendCommand(robotId, AsControllerReplies.CLOCK_COMMAND)
+        } else {
+            typeLine(robotId, AsControllerReplies.setClockCommand(setTo()))
+        }
+        if (!awaitCount(robotId, before) { prompts() }) return
+        val robotTime = AsControllerReplies.parseClock(history.value.joinToString("\n"))
+        // sai da pergunta "Change?" sem mudar nada
+        terminal.sendCommand(robotId, "")
+        awaitPrompt(robotId, 3_000)
+        robotTime ?: return
+
+        val afterFix = setTo != null
         val phoneTime = LocalDateTime.now().withNano(0)
         val offset = Duration.between(phoneTime, robotTime).seconds
         if (kotlin.math.abs(offset) <= CLOCK_TOLERANCE_SECONDS) return
@@ -249,6 +265,31 @@ class ControllerChecks(
             }
         }
         return null
+    }
+
+    /** Espera [count] passar de [before] (uma resposta nova chegou), até [timeoutMs]. */
+    private suspend fun awaitCount(robotId: Int, before: Int, timeoutMs: Long = 5_000, count: () -> Int): Boolean {
+        var waited = 0L
+        while (waited < timeoutMs) {
+            if (!terminal.getConnectionStatus(robotId).value) return false
+            if (count() > before) return true
+            delay(200)
+            waited += 200
+        }
+        return false
+    }
+
+    /**
+     * Digita o texto letra por letra (o controlador perde letras se recebe tudo de uma vez) e
+     * manda Enter. Usado no TIME que grava a hora, onde uma letra perdida muda a data.
+     */
+    private suspend fun typeLine(robotId: Int, text: String) {
+        text.forEach { c ->
+            terminal.sendChar(robotId, c.toString())
+            delay(50)
+        }
+        delay(100)
+        terminal.sendCommand(robotId, "")
     }
 
     /** Espera a última linha do terminal ser o prompt ">" (login feito, comando terminado). */
