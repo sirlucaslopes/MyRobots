@@ -73,6 +73,34 @@ class MigrationTest {
 
             val commands = db.quickCommandDao().getQuickCommandsForRobot(1).first()
             assertEquals(listOf("SAVE/FULL [ROBOT][DATA]"), commands.map { it.command })
+
+            // 4 -> 5: robô antigo fica fora do layout, e o projeto ainda não tem layout
+            assertEquals(null, robot.layoutRow)
+            assertEquals(null, robot.layoutCol)
+            assertEquals(null, db.projectDao().getLayout("CAT Primer").first())
+        }
+    }
+
+    /**
+     * 4 -> 5: o schema gerado pela MIGRATION_4_5 tem que ser igual ao 5.json que o Room
+     * exportou (colunas, tipos, índice). runMigrationsAndValidate falha se não for.
+     */
+    @Test
+    fun migracao4Para5ValidaContraOSchema() {
+        helper.createDatabase(dbName, 4).apply {
+            execSQL(
+                "INSERT INTO robots (id, name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword) " +
+                    "VALUES (1, 'R10', '192.168.0.10', 23, 'CAT Primer', 'KAWASAKI', 0, 'as', '')"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 5, true, MIGRATION_4_5).apply {
+            query("SELECT layoutRow, layoutCol FROM robots WHERE id = 1").use { c ->
+                c.moveToFirst()
+                assertEquals(true, c.isNull(0))
+                assertEquals(true, c.isNull(1))
+            }
+            close()
         }
     }
 }

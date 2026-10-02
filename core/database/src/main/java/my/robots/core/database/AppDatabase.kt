@@ -3,17 +3,24 @@ package my.robots.core.database
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import my.robots.core.model.Backup
+import my.robots.core.model.ProjectEquipment
+import my.robots.core.model.ProjectLayout
 import my.robots.core.model.QuickCommand
 import my.robots.core.model.Robot
 
 /**
  * O banco de dados do app (Room / SQLite), guardado no próprio celular.
  *
- * Tem 3 tabelas: robôs, comandos rápidos e backups.
+ * Tabelas: robôs, comandos rápidos, backups e, desde a versão 5, o layout da cabine de cada
+ * projeto (project_layouts) e os equipamentos dela (project_equipment).
  * O schema de cada versão fica gravado em core/database/schemas/ (exportSchema = true).
  * Ao subir a versão, escreva a migração em DatabaseMigrations.kt: o banco nunca é apagado.
  */
-@Database(entities = [Robot::class, QuickCommand::class, Backup::class], version = 4, exportSchema = true)
+@Database(
+    entities = [Robot::class, QuickCommand::class, Backup::class, ProjectLayout::class, ProjectEquipment::class],
+    version = 5,
+    exportSchema = true
+)
 abstract class AppDatabase : RoomDatabase() {
     /**
      * Acesso à tabela de robôs.
@@ -27,4 +34,8 @@ abstract class AppDatabase : RoomDatabase() {
      * Acesso à tabela de backups.
      */
     abstract fun backupDao(): BackupDao
+    /**
+     * Acesso ao layout da cabine e aos equipamentos dos projetos.
+     */
+    abstract fun projectDao(): ProjectDao
 }

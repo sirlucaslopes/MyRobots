@@ -600,7 +600,7 @@ equipamentos, que também precisam ir para a pasta. Fazer esta fase antes evita 
 
 **Módulos afetados:**
 - `:core:model`: `Robot.uuid` e os modelos do arquivo (`RobotMetadataFile`, `ProjectsMetadataFile`).
-- `:core:database`: coluna `uuid` nova, migração 4→5 e teste de migração.
+- `:core:database`: coluna `uuid` nova, migração 5→6 e teste de migração.
 - `:core:common`: serialização, checksum e validação dos arquivos (funções puras, testadas na JVM).
 - `:core:data`: `MetadataMirror` (mantém os arquivos iguais ao banco) e `RestoreService` (lê a
   pasta e importa). Os dois usam o `RobotFileStore`, que já existe.
@@ -681,15 +681,16 @@ A importação reconhece o robô **pelo `uuid` do arquivo, não pelo nome da pas
 renomear um robô deixa de quebrar a restauração.
 
 ```sql
--- MIGRATION_4_5
+-- MIGRATION_5_6
 ALTER TABLE robots ADD COLUMN uuid TEXT NOT NULL DEFAULT '';
 UPDATE robots SET uuid = lower(hex(randomblob(16))) WHERE uuid = '';
 CREATE UNIQUE INDEX IF NOT EXISTS index_robots_uuid ON robots(uuid);
 ```
 
 - Robô novo recebe `UUID.randomUUID().toString()` no `RobotDialog`/repositório.
-- Conferir o SQL contra o `5.json` exportado e acrescentar o caso 4→5 no `MigrationTest`.
-- **A Fase 2 passa a usar a migração 5→6** (ver "Mudanças de banco" da Fase 2).
+- Conferir o SQL contra o `6.json` exportado e acrescentar o caso 5→6 no `MigrationTest`.
+- **Atualizado em 02/10:** a tela de Projeto (Fase 2.1) foi feita antes e ficou com a 4→5.
+  Por isso a Fase 1.5 usa a 5→6.
 - **Ponto a resolver:** ao renomear um robô, a subpasta também muda de nome (`robotDirName`).
   Verificar o que acontece hoje com os `.as` da pasta antiga e mover a pasta junto,
   incluindo o `robo.myrobots`.
@@ -745,7 +746,7 @@ no banco e não mexe nos que já existem. Serve também para trazer a pasta copi
 
 1. Modelos do arquivo, serialização JSON, checksum e validação de versão em `:core:common`, com
    testes JVM: ida e volta, checksum errado, versão maior, campos faltando.
-2. `Robot.uuid` + `MIGRATION_4_5` + `5.json` + caso no `MigrationTest`.
+2. `Robot.uuid` + `MIGRATION_5_6` + `6.json` + caso no `MigrationTest`.
 3. `MetadataMirror` gravando `robo.myrobots` e `projetos.myrobots`, com `.bak`, e a geração
    inicial para quem já tem dados.
 4. `RestoreService`: leitura, resumo, problemas e importação em transação, com testes usando um
@@ -787,10 +788,10 @@ Em toda tela nova (Projeto, ações, comparação) e no Terminal Geral com abas,
 de edge-to-edge da Fase 1 (passo 8). As regras de "Verificar erros" nascem com teste unitário
 (um caso que passa e um que falha por regra; ver Fase 0-C).
 
-### Mudanças de banco (5 → 6, todas na 2.1)
+### Mudanças de banco (4 → 5, todas na 2.1)
 
-> A 4→5 ficou com a Fase 1.5 (`Robot.uuid`). Os campos e tabelas abaixo também entram no
-> `robo.myrobots`/`projetos.myrobots` (o `MetadataMirror` da Fase 1.5 passa a gravá-los).
+> **Feita em 02/10**, antes da Fase 1.5, que passa a usar a 5→6 (`Robot.uuid`). Os campos e
+> tabelas abaixo também entram no `robo.myrobots`/`projetos.myrobots` quando a Fase 1.5 vier.
 
 ```kotlin
 // Robot: dois campos novos. null = fora do layout.
@@ -823,7 +824,7 @@ própria. Vários equipamentos na mesma faixa aparecem empilhados, na ordem de `
 enums são gravados como TEXT pelo suporte nativo do Room, igual ao `Manufacturer` hoje.
 
 ```sql
--- MIGRATION_5_6
+-- MIGRATION_4_5
 ALTER TABLE robots ADD COLUMN layoutRow INTEGER DEFAULT NULL;
 ALTER TABLE robots ADD COLUMN layoutCol INTEGER DEFAULT NULL;
 CREATE TABLE IF NOT EXISTS project_layouts (
@@ -836,7 +837,7 @@ CREATE TABLE IF NOT EXISTS project_equipment (
 CREATE INDEX IF NOT EXISTS index_project_equipment_projectName ON project_equipment(projectName);
 ```
 
-O SQL final é conferido contra o `6.json` exportado, e o teste de migração valida com
+O SQL final é conferido contra o `5.json` exportado, e o teste de migração valida com
 `runMigrationsAndValidate`. Os robôs antigos chegam com `layoutRow` e `layoutCol` nulos, ou seja,
 todos "fora do layout". É o esperado. Um projeto sem linha em `project_layouts` usa o padrão 2×2,
 e a linha só é criada na primeira edição.
@@ -1110,8 +1111,8 @@ a mensagem e, quando houver, a barra de andamento. Os robôs desconectados apare
 Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fase 1 ──► Fase 1.5 ──► 2.pre ──► 2.0 ──► 2.1 ──► 2.2
 ```
 
-- **A Fase 1.5 vem antes da 2:** ela faz a migração 4→5 (`uuid`) e cria o espelho da pasta, e
-  a Fase 2 só acrescenta layouts e equipamentos nele. Também precisa estar pronta **antes de
+- **Fase 2.1 antes da 1.5 (decidido em 02/10):** a tela de Projeto ficou com a migração 4→5, e a
+  Fase 1.5 faz a 5→6 (`uuid`) e já nasce gravando layouts e equipamentos no espelho da pasta. Também precisa estar pronta **antes de
   publicar na Play**, porque trocar a versão do Android Studio pela da loja exige desinstalar.
 - **0-B.B vem primeiro:** é pequeno e fecha a falha de segurança mais grave.
 - **Os testes de caracterização (0-C) vêm antes** da migração de armazenamento e de mexer nos
@@ -1169,7 +1170,7 @@ Fase 0 (feita) ──► 0-B.B ──► 0-C ──► 0-B.A/C/D/E ──► Fas
   `projetos.myrobots`, `formatVersion`, checksum e `.bak`, o `MetadataMirror` (o banco manda), o
   fluxo de restaurar (boas-vindas, `EXTRA_INITIAL_URI`, resumo, mesclar) e o aviso de que a
   senha fica legível no arquivo.
-- **Seção 1:** `Robot.uuid`. **Seção 2:** migração 4→5 (`uuid`); a da Fase 2 vira 5→6.
+- **Seção 1:** `Robot.uuid`. **Seção 2:** migração 5→6 (`uuid`); a 4→5 é a da Fase 2.1.
 - **Tabela de rotas da seção 13:**
 
 | Rota | Mudança |

@@ -28,6 +28,8 @@ enum class Manufacturer(val displayName: String) {
  * - manufacturer: marca do robô.
  * - autoLogin / loginUser / loginPassword: se ligado, o app digita usuário e
  *   senha sozinho quando o terminal pede.
+ * - layoutRow / layoutCol: posição do robô na grade da cabine do projeto (começam em 0).
+ *   null = "fora do layout".
  */
 @Entity(tableName = "robots")
 data class Robot(
@@ -39,5 +41,7 @@ data class Robot(
     val manufacturer: Manufacturer = Manufacturer.KAWASAKI,
     val autoLogin: Boolean = false,
     val loginUser: String = "as",
-    val loginPassword: String = ""
+    val loginPassword: String = "",
+    val layoutRow: Int? = null,
+    val layoutCol: Int? = null
 )
