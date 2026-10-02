@@ -15,6 +15,8 @@ import my.robots.core.data.RobotRepository
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsControllerLogs
 import my.robots.core.common.ascode.AsRobotInfo
+import my.robots.core.common.ascode.ControllerMemory
+import my.robots.core.data.ControllerMemoryReader
 import my.robots.core.common.ascode.RobotInfo
 import my.robots.core.common.ascode.DailyUsage
 import my.robots.core.common.ascode.RobotUsageHistory
@@ -87,6 +89,7 @@ class RobotDashboardViewModel(
     private val repository: RobotRepository,
     private val robotId: Int,
     private val terminalManager: KawasakiTerminalManager,
+    private val memoryReader: ControllerMemoryReader,
     private val initialBackupId: Int? = null
 ) : ViewModel() {
 
@@ -185,6 +188,26 @@ class RobotDashboardViewModel(
      */
     val isConnected: StateFlow<Boolean> = terminalManager.getConnectionStatus(robotId)
 
+    /**
+     * Memória de programas do controlador: a última leitura do comando FREE (guardada no
+     * aparelho, aparece mesmo sem conexão). É lida sozinha a cada conexão, depois do login.
+     */
+    val controllerMemory: StateFlow<ControllerMemory?> = memoryReader.lastReading(robotId)
+
+    private val _isReadingMemory = MutableStateFlow(false)
+    /** true enquanto espera a resposta do FREE. */
+    val isReadingMemory: StateFlow<Boolean> = _isReadingMemory.asStateFlow()
+
+    /** Lê a memória agora (botão "Ler agora"). Só faz algo com o robô conectado. */
+    fun readMemoryNow() {
+        if (_isReadingMemory.value) return
+        viewModelScope.launch {
+            _isReadingMemory.value = true
+            memoryReader.read(robotId)
+            _isReadingMemory.value = false
+        }
+    }
+
     private val _isLoading = MutableStateFlow(false)
     /**
      * true enquanto uma operação demorada está em andamento (mostra o círculo de carregando).
@@ -213,6 +236,22 @@ class RobotDashboardViewModel(
         loadRobot()
         observeBackup()
         checkPendingTransfers()
+        readMemoryOnConnect()
+    }
+
+    /**
+     * A cada conexão nova, espera o login terminar e lê a memória do controlador.
+     */
+    private fun readMemoryOnConnect() {
+        viewModelScope.launch {
+            isConnected.collect { connected ->
+                if (connected && !_isReadingMemory.value) {
+                    _isReadingMemory.value = true
+                    memoryReader.readWhenReady(robotId)
+                    _isReadingMemory.value = false
+                }
+            }
+        }
     }
 
     /**

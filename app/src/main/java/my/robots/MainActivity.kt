@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
         val app = application as MyRobotsApp
         val repository = app.robotRepository
         val terminalManager = app.terminalManager
+        val memoryReader = app.memoryReader
 
         // Daqui para baixo é a interface (Jetpack Compose).
         setContent {
@@ -266,7 +267,7 @@ class MainActivity : ComponentActivity() {
                             }
                             
                             val dashboardViewModel: RobotDashboardViewModel = viewModel(
-                                factory = RobotDashboardViewModelFactory(repository, robotId, terminalManager, backupId)
+                                factory = RobotDashboardViewModelFactory(repository, robotId, terminalManager, memoryReader, backupId)
                             )
                             
                             RobotDashboardScreen(

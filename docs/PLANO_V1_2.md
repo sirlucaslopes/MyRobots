@@ -1226,6 +1226,21 @@ acrescenta pelo menos duas rotas e mexe em outras quatro.
 num commit por rota, sem mudar comportamento. **Não** migrar para o Navigation 3 agora. Por
 isso a skill `navigation-3` não precisa ser instalada.
 
+## Programa PC de contadores (pendente, combinado em 02/10)
+
+O controlador não guarda tempo de pistola aberta nem quantos programas rodaram. Para o
+gráfico de uso ter esses indicadores, um programa de fundo no robô vai acumulá-los em
+variáveis, que entram em todo SAVE/FULL:
+
+- **Tempo com a saída 1 ligada** (gatilho da pistola, `sig_fluid = 1` no R10) e quantas vezes
+  ela abriu.
+- **Quantidade de programas executados em modo automático** (repeat).
+
+Pontos a decidir antes de escrever: o slot (no R10, `AUTOSTART3.PC` e `AUTOSTART4.PC` estão
+desligados), se a saída 1 é a pistola em todos os robôs e testar antes no K-ROSET. O app passa
+a ler essas variáveis de cada backup e mostra no gráfico do "Uso do robô" como mais uma medida
+(um gráfico por medida, sem dois eixos). O histórico só começa a partir da instalação.
+
 ## Antes do APK de release (item do fim)
 
 - **Senha aberta no `robo.myrobots` (Fase 1.5):** decidir se continua assim na versão

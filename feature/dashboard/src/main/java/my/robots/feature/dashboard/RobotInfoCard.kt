@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import my.robots.core.common.ascode.ControllerMemory
 import my.robots.core.common.ascode.ErrorSeverity
 import my.robots.core.common.ascode.RobotHealth
 import my.robots.core.common.ascode.RobotInfo
@@ -80,6 +81,10 @@ fun RobotInfoCard(
     health: RobotHealth?,
     backupTimestamp: Long?,
     axisMoveHoursLast30: List<Double>,
+    memory: ControllerMemory?,
+    isConnected: Boolean,
+    isReadingMemory: Boolean,
+    onReadMemory: () -> Unit,
     onOpenErrorLog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -158,6 +163,14 @@ fun RobotInfoCard(
                 modifier = Modifier.padding(16.dp)
             )
         }
+
+        MemorySection(
+            memory = memory,
+            isConnected = isConnected,
+            isReading = isReadingMemory,
+            onRead = onReadMemory,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
+        )
     }
 
     if (showAxes) {
@@ -321,6 +334,72 @@ private class InfoItem(
     val action: String? = null,
     val onClick: (() -> Unit)? = null
 )
+
+/**
+ * Memória de programas do controlador (comando FREE): barra da memória usada, quanto está
+ * livre e quando foi lida. "Ler agora" só funciona com o robô conectado. Abaixo de 10%
+ * livre, o texto avisa.
+ */
+@Composable
+private fun MemorySection(
+    memory: ControllerMemory?,
+    isConnected: Boolean,
+    isReading: Boolean,
+    onRead: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        HorizontalDivider()
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Memória de programas", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    if (memory != null) String.format(
+                        ptBR, "%,d KB livres de %,d KB (%d%%)", memory.freeKb, memory.totalKb, memory.freePercent
+                    ) else "Ainda não lida",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            if (isReading) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                TextButton(onClick = onRead, enabled = isConnected) { Text("Ler agora") }
+            }
+        }
+        if (memory != null) {
+            val used = 1f - memory.freePercent / 100f
+            val low = memory.freePercent < 10
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(used.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (low) StatusAttention else MaterialTheme.colorScheme.primary)
+                )
+            }
+            val readAt = SimpleDateFormat("dd/MM/yyyy HH:mm", ptBR).format(Date(memory.readAt))
+            Text(
+                (if (low) "Pouca memória livre. " else "") + "Lida em $readAt (comando FREE).",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Text(
+                if (isConnected) "Toque em \"Ler agora\"." else "É lida sozinha ao conectar no robô (comando FREE).",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 /** Grade de duas colunas com rótulo pequeno e valor em negrito. */
 @Composable

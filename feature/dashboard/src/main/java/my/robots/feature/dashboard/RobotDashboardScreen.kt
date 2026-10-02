@@ -52,6 +52,7 @@ import kotlinx.coroutines.launch
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.RobotErrorLogEntry
 import my.robots.core.common.ascode.RobotErrorLogProgram
+import my.robots.core.common.ascode.ControllerMemory
 import my.robots.core.common.ascode.DailyUsage
 import my.robots.core.common.ascode.RobotHealth
 import my.robots.core.common.ascode.RobotInfo
@@ -123,6 +124,9 @@ fun RobotDashboardScreen(
     val robotInfoState = if (viewModel != null) viewModel.robotInfo.collectAsState() else remember { mutableStateOf(RobotInfo()) }
     val dailyUsageState = if (viewModel != null) viewModel.dailyUsage.collectAsState() else remember { mutableStateOf(emptyList<DailyUsage>()) }
     val axisLast30State = if (viewModel != null) viewModel.axisMoveHoursLast30.collectAsState() else remember { mutableStateOf(emptyList<Double>()) }
+    val memoryState = if (viewModel != null) viewModel.controllerMemory.collectAsState() else remember { mutableStateOf<ControllerMemory?>(null) }
+    val isReadingMemoryState = if (viewModel != null) viewModel.isReadingMemory.collectAsState() else remember { mutableStateOf(false) }
+    val homeConnectedState = if (viewModel != null) viewModel.isConnected.collectAsState() else remember { mutableStateOf(false) }
     val operationLogState = if (viewModel != null) viewModel.operationLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
     val programEditLogState = if (viewModel != null) viewModel.programEditLog.collectAsState() else remember { mutableStateOf(emptyList<RobotLogEntry>()) }
 
@@ -141,6 +145,9 @@ fun RobotDashboardScreen(
     val robotInfo by robotInfoState
     val dailyUsage by dailyUsageState
     val axisLast30 by axisLast30State
+    val controllerMemory by memoryState
+    val isReadingMemory by isReadingMemoryState
+    val homeConnected by homeConnectedState
     val operationLog by operationLogState
     val programEditLog by programEditLogState
 
@@ -385,6 +392,10 @@ fun RobotDashboardScreen(
                             errorLog = errorLog,
                             dailyUsage = dailyUsage,
                             axisMoveHoursLast30 = axisLast30,
+                            memory = controllerMemory,
+                            isConnected = homeConnected,
+                            isReadingMemory = isReadingMemory,
+                            onReadMemory = { viewModel?.readMemoryNow() },
                             lineCount = lineCount,
                             dataBankCount = dataBankEntries.size,
                             errorLogCount = errorLog.size,
@@ -1451,6 +1462,10 @@ fun DashboardHome(
     errorLog: List<RobotErrorLogEntry> = emptyList(),
     dailyUsage: List<DailyUsage> = emptyList(),
     axisMoveHoursLast30: List<Double> = emptyList(),
+    memory: ControllerMemory? = null,
+    isConnected: Boolean = false,
+    isReadingMemory: Boolean = false,
+    onReadMemory: () -> Unit = {},
     lineCount: Int,
     dataBankCount: Int,
     errorLogCount: Int,
@@ -1476,6 +1491,10 @@ fun DashboardHome(
             health = health,
             backupTimestamp = backup?.timestamp,
             axisMoveHoursLast30 = axisMoveHoursLast30,
+            memory = memory,
+            isConnected = isConnected,
+            isReadingMemory = isReadingMemory,
+            onReadMemory = onReadMemory,
             onOpenErrorLog = { onFeatureClick(DashboardFeature.ErrorLog) }
         )
         RobotUsageCard(days = dailyUsage)

@@ -356,6 +356,13 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     `RobotUsageHistory.axisMoveHoursLast`), deslocamento acumulado (`DIST_DJT`, na unidade do
     controlador), menor e maior temperatura do encoder (`.ENCTEMPLOG`, com a data) e os
     alarmes dos 7 dias que citam o eixo ("Jt 5 motor overloaded"; os de rotina ficam de fora).
+    **Memória de programas**, no fim do cartão: o backup não traz essa informação, então o
+    `ControllerMemoryReader` (`:core:data`) manda o comando `FREE` pelo terminal e lê a
+    resposta (`AsFreeMemory`, em `:core:common`): "Total memory, 8192 KBbytes." e "Available
+    memory size 8175 KBbytes.( 99 %)". Lê sozinho a cada conexão, depois do login (espera o
+    prompt `>`), e no botão "Ler agora". A última leitura fica nas SharedPreferences
+    `controller_memory` e aparece mesmo sem conexão, com a data. Abaixo de 10% livre, a barra
+    fica amarela e o texto avisa.
   - **Status geral** (`RobotHealth` + `AsErrorSeverity`): selo OK / ATENÇÃO · n / SEM DADOS.
     Os alarmes do `.ERRLOG` dos 7 dias antes do backup são classificados em **rotina**
     (porta da cabine, motor desligado, falta de energia...), **programa/movimento** (fora de
@@ -372,7 +379,9 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     backup, sem carregar o texto inteiro. A hora de cada backup vem do nome do arquivo
     (`R10_20260919_0810.as`) quando ele segue o padrão do app. Entre backups com mais de 2
     dias de intervalo, o valor é a média do intervalo, e a barra aparece apagada. Tocar numa
-    barra mostra o dia. Precisa de pelo menos dois backups SAVE/FULL. Programas executados
+    barra mostra o dia. Precisa de pelo menos dois backups SAVE/FULL. Só entram backups do
+    mesmo controlador (série do `OPEINFO`) do backup mais novo, e um intervalo com mais horas
+    do que o tempo que passou (por exemplo, um backup do K-ROSET com a mesma série) é descartado. Programas executados
     por dia não aparecem: o `.EXECPGLOG` do controlador guarda só os últimos dias.
   - **Backup analisado**: nome, data, total de linhas, aviso quando não é o mais recente e o
     botão "Histórico de backups".

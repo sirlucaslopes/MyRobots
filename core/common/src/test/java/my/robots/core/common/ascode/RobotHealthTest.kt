@@ -201,3 +201,36 @@ class AxisInfoTest {
         assertTrue(RobotUsageHistory.axisMoveHoursLast(points.take(1), 30).isEmpty())
     }
 }
+
+/**
+ * Backups de outro controlador na mesma pasta não entram no gráfico.
+ */
+class UsageSameControllerTest {
+    @Test
+    fun daily_ignoraBackupDeOutroControlador_eIntervaloImpossivel() {
+        val points = listOf(
+            UsagePoint(at("2026-09-01T12:00:00"), 5000.0, 500.0, 100, serialNumber = "3772"),
+            UsagePoint(at("2026-09-02T00:00:00"), 1.0, 1.0, 1, serialNumber = "2503"),   // simulador
+            UsagePoint(at("2026-09-02T12:00:00"), 5024.0, 502.0, 110, serialNumber = "3772")
+        )
+        val days = RobotUsageHistory.daily(points, zone)
+        assertEquals(1.0, days[0].operatingHours, 0.001)   // 2 h em 24 h, metade no primeiro dia
+        assertEquals(24.0, days.sumOf { it.poweredHours }, 0.001)
+    }
+
+    @Test
+    fun daily_maisHorasQueOTempo_ignorado() {
+        val points = listOf(
+            UsagePoint(at("2026-09-01T00:00:00"), 1.0, 1.0, 0),
+            UsagePoint(at("2026-09-02T00:00:00"), 5000.0, 500.0, 10)
+        )
+        val days = RobotUsageHistory.daily(points, zone)
+        assertEquals(0.0, days.sumOf { it.poweredHours + it.operatingHours }, 0.001)
+    }
+
+    @Test
+    fun pointFrom_serieDoOpeinfo() {
+        val p = RobotUsageHistory.pointFrom(0, "x.as", ".OPE_INFO1\nOPEINFO  35 3 7 3772  1740052448  ;(25/2/20) KJ264\nSERV_TIM  1.0\n.END", zone)
+        assertEquals("3772", p.serialNumber)
+    }
+}

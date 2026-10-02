@@ -13,7 +13,8 @@ data class UsagePoint(
     val poweredHours: Double?,
     val operatingHours: Double?,
     val motorOnCount: Int?,
-    val axisMoveHours: List<Double> = emptyList()
+    val axisMoveHours: List<Double> = emptyList(),
+    val serialNumber: String? = null
 )
 
 /**
@@ -39,6 +40,10 @@ data class DailyUsage(
  * ligado). A diferença entre dois backups é o uso naquele intervalo, e ela é dividida
  * entre os dias do intervalo de forma proporcional ao tempo de cada dia. Com backups
  * diários, o resultado é o uso real de cada dia; com backups espaçados, é uma média.
+ *
+ * Só entram backups do mesmo controlador (número de série) do backup mais novo: a pasta de
+ * um robô pode ter backups de outro controlador (cópia, simulador), e a diferença entre
+ * contadores de controladores diferentes não significa nada.
  */
 object RobotUsageHistory {
     private const val DAY_MS = 24L * 60 * 60 * 1000
@@ -63,7 +68,7 @@ object RobotUsageHistory {
                 null
             }
         }
-        return UsagePoint(fromName ?: timestamp, info.hourMeterHours, info.servoOnHours, info.motorOnCount, info.axisMoveHours)
+        return UsagePoint(fromName ?: timestamp, info.hourMeterHours, info.servoOnHours, info.motorOnCount, info.axisMoveHours, info.serialNumber)
     }
 
     /**
@@ -72,7 +77,7 @@ object RobotUsageHistory {
      * um eixo cujo contador diminuiu fica com 0.
      */
     fun axisMoveHoursLast(points: List<UsagePoint>, days: Long): List<Double> {
-        val withAxes = points.filter { it.axisMoveHours.isNotEmpty() }.sortedBy { it.timestamp }
+        val withAxes = sameController(points).filter { it.axisMoveHours.isNotEmpty() }.sortedBy { it.timestamp }
         val last = withAxes.lastOrNull() ?: return emptyList()
         val first = withAxes.firstOrNull { it.timestamp >= last.timestamp - days * DAY_MS } ?: return emptyList()
         if (first === last) return emptyList()
@@ -88,7 +93,7 @@ object RobotUsageHistory {
      * para aquele contador.
      */
     fun daily(points: List<UsagePoint>, zone: ZoneId = ZoneId.systemDefault()): List<DailyUsage> {
-        val valid = points.filter { it.operatingHours != null || it.poweredHours != null }
+        val valid = sameController(points.filter { it.operatingHours != null || it.poweredHours != null })
             .sortedBy { it.timestamp }
             .distinctBy { it.timestamp }
         if (valid.size < 2) return emptyList()
@@ -101,6 +106,10 @@ object RobotUsageHistory {
             val dOp = delta(a.operatingHours, b.operatingHours)
             val dPw = delta(a.poweredHours, b.poweredHours)
             val dMt = delta(a.motorOnCount?.toDouble(), b.motorOnCount?.toDouble())
+            // mais horas do que o tempo que passou: contador de outro controlador (simulador com a
+            // mesma série) ou data errada. O intervalo inteiro fica de fora, sem criar dias.
+            val spanHours = span / 3_600_000.0 * 1.05 + 0.1
+            if (dOp > spanHours || dPw > spanHours) return@zipWithNext
             val estimated = b.timestamp - a.timestamp > ESTIMATED_AFTER_MS
 
             var start = a.timestamp
@@ -119,6 +128,12 @@ object RobotUsageHistory {
         }
 
         return days.map { (date, acc) -> DailyUsage(date, acc.op, acc.pw, acc.mt, acc.est) }
+    }
+
+    /** Só os pontos do controlador do ponto mais novo (pontos sem série ficam). */
+    private fun sameController(points: List<UsagePoint>): List<UsagePoint> {
+        val serial = points.maxByOrNull { it.timestamp }?.serialNumber ?: return points
+        return points.filter { it.serialNumber == null || it.serialNumber == serial }
     }
 
     private fun delta(from: Double?, to: Double?): Double =

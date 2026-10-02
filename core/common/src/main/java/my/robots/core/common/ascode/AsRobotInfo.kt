@@ -8,7 +8,8 @@ package my.robots.core.common.ascode
  *
  * - model / serialNumber / axes: da linha "ZROBOT.TYPE" (seção .ROBOTDATA1), por exemplo
  *   `ZROBOT.TYPE    35   3   7 3772   -57256   KJ264-B001 ( 2026-04-08 13:53 )`
- *   -> eixos 7, série 3772, modelo KJ264-B001.
+ *   -> eixos 7, série 3772, modelo KJ264-B001. Sem essa linha (só o trecho .OPE_INFO1), a
+ *   série vem de "OPEINFO  35 3 7 3772 ...".
  * - hourMeterHours: "HOUR_MTR" (horímetro do controlador, em horas). Sem ela, usa "CONT_TIM".
  * - servoOnHours: "SERV_TIM", em horas.
  * - motorOnCount / emergencyStopCount / brakeCount: "MTON_CNT", "ESTP_CNT" e "BRKE_CNT"
@@ -61,6 +62,7 @@ object AsRobotInfo {
 
     private val ROBOT_TYPE = Regex("""^ZROBOT\.TYPE\s+\d+\s+\d+\s+(\d+)\s+(\d+)\s+-?\d+\s+(\S+)""")
     private val VERSION = Regex("""^\.\*===\s*(AS|SERVO) GROUP\s*===\s*:\s*(\S+)""")
+    private val OPEINFO_SERIAL = Regex("""^OPEINFO\s+\d+\s+\d+\s+\d+\s+(\d+)\s""")
     private val ENC_TEMP = Regex("""^JT(\d+)\s*-\s*\[([^]]*)]\s*(-?[\d.]+)""")
 
     fun parse(content: String): RobotInfo {
@@ -105,6 +107,11 @@ object AsRobotInfo {
                         model = m.groupValues[3]
                     )
                 }
+                continue
+            }
+
+            OPEINFO_SERIAL.find(trimmed)?.let { m ->
+                if (info.serialNumber == null) info = info.copy(serialNumber = m.groupValues[1])
                 continue
             }
 
