@@ -29,6 +29,19 @@ object AsControllerReplies {
 
     private val SET_FORMAT = DateTimeFormatter.ofPattern("yy-MM-dd HH:mm:ss")
 
+    /**
+     * Fim de um LOAD, como no K-ROSET:
+     * ```
+     * Loading...(db_1.as)
+     * SPRAY DATABANK
+     * File load completed. (0 errors)
+     * ```
+     */
+    val LOAD_RESULT = Regex("""File load completed\.\s*\((\d+)\s*errors?\)""", RegexOption.IGNORE_CASE)
+
+    /** Quantidade de erros do último "File load completed. (N errors)" no texto, ou null. */
+    fun parseLoadErrors(text: String): Int? = LOAD_RESULT.findAll(text).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()
+
     /** Série da última resposta do ID no texto, ou null. */
     fun parseSerial(text: String): String? = SERIAL.findAll(text).lastOrNull()?.groupValues?.get(1)
 

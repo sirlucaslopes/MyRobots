@@ -143,10 +143,34 @@ class ControllerChecks(
      * Devolve false se não conectar ou não logar em [timeoutMs].
      */
     suspend fun connectAndWait(robot: Robot, timeoutMs: Long = 20_000): Boolean {
-        if (!terminal.getConnectionStatus(robot.id).value) terminal.connect(robot)
+        if (!terminal.getConnectionStatus(robot.id).value) {
+            terminal.connect(robot)
+            // o socket abre em segundo plano: espera conectar antes de procurar o prompt
+            var waited = 0L
+            while (!terminal.getConnectionStatus(robot.id).value) {
+                if (waited >= 8_000) return false
+                delay(200)
+                waited += 200
+            }
+        }
         if (!awaitPrompt(robot.id, timeoutMs)) return false
         return awaitReady(robot.id, timeoutMs)
     }
+
+    /**
+     * Manda um comando (por exemplo "LOAD arquivo.as") e espera o controlador voltar ao prompt
+     * ">", o que indica que ele terminou. Usa a mesma trava das checagens, para não misturar.
+     * Devolve false se o robô cair ou o prompt não voltar em [timeoutMs] (o controlador pode
+     * ter feito uma pergunta: ver o terminal).
+     */
+    suspend fun sendAndAwaitPrompt(robotId: Int, command: String, timeoutMs: Long = 60_000): Boolean =
+        lock(robotId).withLock {
+            val history = terminal.getHistory(robotId)
+            fun prompts() = history.value.count { it.trim() == ">" }
+            val before = prompts()
+            terminal.sendCommand(robotId, command)
+            awaitCount(robotId, before, timeoutMs) { prompts() }
+        }
 
     /** Espera as checagens do robô terminarem (até [timeoutMs]). */
     suspend fun awaitReady(robotId: Int, timeoutMs: Long = 20_000): Boolean {

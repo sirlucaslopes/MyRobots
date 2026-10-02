@@ -293,7 +293,8 @@ class RobotRepository(
     /**
      * Traz para o banco os arquivos .as da pasta do robô que ainda não estão nele (ex.: um SAVE
      * feito pelo terminal, ou um arquivo copiado pelo PC para a pasta escolhida). Devolve
-     * quantos backups novos entraram.
+     * quantos backups novos entraram. Os arquivos que o app grava só para enviar ao robô
+     * (`FileUtil.isTransferFile`: transfer_*, var_*, db_*) ficam de fora: não são backups.
      *
      * NUNCA apaga backup do banco por causa de arquivo ausente: o banco guarda o texto
      * completo e é a fonte da verdade. (Até a v1.1 apagava, o que com a pasta nova — que
@@ -305,7 +306,7 @@ class RobotRepository(
             .map { it.fileName.lowercase() }.toSet()
         var imported = 0
         files.list(robot.name).forEach { info ->
-            if (info.name.lowercase() in known) return@forEach
+            if (info.name.lowercase() in known || FileUtil.isTransferFile(info.name)) return@forEach
             val bytes = files.read(robot.name, info.name) ?: return@forEach
             insertBackup(
                 Backup(

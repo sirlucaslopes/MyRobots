@@ -181,7 +181,8 @@ Principais responsabilidades:
 - `saveBackupToFile`/`saveFileToRobotFolder`: gravam o texto na pasta do robô e devolvem
   `true`/`false` (o erro não é mais engolido).
 - `deleteBackupAndFile`: apaga o backup do banco e o arquivo da pasta.
-- `syncRobotFolder`/`syncAllRobotFolders`: trazem para o banco os `.as` da pasta que ainda não
+- `syncRobotFolder`/`syncAllRobotFolders`: ignoram os arquivos de envio (`FileUtil.isTransferFile`:
+  `transfer_*`, `var_*`, `db_*`), que não são backups, e trazem para o banco os `.as` da pasta que ainda não
   estão nele ("Sinc: <arquivo>"). **Só importam, nunca apagam backup do banco** — até a v1.1
   um arquivo ausente apagava o backup, o que com a pasta nova (que pode não enxergar arquivos
   antigos depois de reinstalar, ou perder a permissão) apagaria tudo.
@@ -382,6 +383,8 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seções alternadas por
 `DashboardFeature`:
 
+- **Backup mostrado:** sem um backup pedido, o painel usa o mais recente que não seja arquivo de
+  envio (até a v1.2 a sincronização importava `transfer_pg635.as` etc. como backup).
 - **Home:** de cima para baixo:
   - **Cartão do robô** (`RobotInfoCard.kt`): faixa baixa com o desenho em linhas de um robô
     de pintura, estilo tela de controle (só ilustração, não mostra a pose real), o modelo, a
@@ -463,9 +466,19 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   outras mostram o valor inteiro numa célula só. Nomes que começam com `!` aparecem em
   amarelo-escuro (indicando alguma marcação especial do robô). Toolbar: criar, ordenar,
   editar, duplicar, enviar, excluir — todas exigem uma variável selecionada, exceto criar.
-- **Data Bank**: tabela parecida (linhas da seção `.sprdb`), mas com checkbox por linha para
-  selecionar várias de uma vez e enviar em lote (`onUploadSelected`). Colunas fixas: número e
-  comentário; roláveis: `FRATE, PATTERN, ATOMIZE, HVOLT, SPEED, JSPEED`.
+- **Data Bank**: no mesmo estilo da seção Programas: um cartão por linha da seção `.sprdb`
+  (`DataBankCard`), em ordem de número, com caixa de seleção, `DBn`, comentário e os seis
+  valores (`FRATE, PATTERN, ATOMIZE, HVOLT, SPEED, JSPEED`) em duas linhas, mais editar e
+  duplicar. Tocar no cartão também edita; o "+" (botão flutuante) cria uma linha nova. A barra
+  do topo tem as mesmas ações de Programas sobre os marcados: selecionar todos, **editar
+  selecionados**, enviar, compartilhar e excluir. "Editar selecionados" (`DataBankBulkEditDialog`)
+  abre os campos com o valor comum às linhas (vazio, "vários", quando diferem) e aplica só as
+  colunas alteradas em todas as linhas marcadas, numa gravação só (`updateDataBankEntries`);
+  excluir vários também é uma gravação só (`deleteDataBankEntries`). As duas passam pelo
+  `rewriteDataBank`, que percorre a seção `.sprdb` e troca/apaga as linhas pelo número.
+- **Posição da rolagem**: as listas de Programas, Variáveis, Data Bank e dos três logs guardam
+  a posição (`rememberLazyListState` no nível da tela, fora da seção aberta) e os grupos
+  fechados de Programas, então voltam onde estavam ao trocar de seção ou ao voltar do editor.
 - **Logs do controlador (Erros/Operação/Edição)**: três seções que só existem quando o
   backup foi feito com `SAVE/FULL` no robô — sem isso, aparecem zerados (contagem 0 e uma
   mensagem explicando o motivo). Lidos direto do backup por `parseLogSection` (função
@@ -492,14 +505,17 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     casa com qualquer parte do texto da entrada (no `.ERRLOG` isso inclui código, mensagem,
     operações e poses, já que tudo está junto em `raw`). Sem resultado mostra uma mensagem
     diferente conforme o motivo: log vazio (sem `SAVE/FULL`) ou busca sem resultado.
-- **Enviar para outro robô:** ao enviar um programa, variável ou linhas de Data Bank, abre a
-  lista `RobotPickerSheet` (`:core:designsystem`), no formato do popup de robôs conectados:
-  agrupada por projeto, com LED, estado e série. Tocar num robô desconectado conecta e espera
-  o login e as checagens (`ControllerChecks.connectAndWait`, "Conectando…") e só então envia;
-  se não conectar, a linha mostra "Não conectou" e nada é enviado. Se o destino for o próprio
-  robô aberto, a tela muda para a seção Terminal; se for outro robô, `onNavigateToRobot` navega
-  para o dashboard dele (mantendo `robot_list` no topo da pilha de navegação), que manda o
-  `LOAD` depois que as checagens terminam.
+- **Enviar para robôs:** ao enviar programas, uma variável ou linhas de Data Bank, abre a lista
+  `RobotPickerSheet` (`:core:designsystem`), no formato do popup de robôs conectados: agrupada
+  por projeto ("Marcar todos" por projeto), com LED, estado e série. **Marcam-se um ou mais
+  robôs** e "Enviar para N robôs". Para cada robô, ao mesmo tempo (`sendFileToRobots`):
+  conecta se preciso e espera o login e as checagens (`ControllerChecks.connectAndWait`), grava
+  o arquivo na pasta dele (`transfer_<nome>.as`, `var_<nome>.as`, `db_<n>.as`...), manda `LOAD`
+  e espera o prompt voltar (`ControllerChecks.sendAndAwaitPrompt`). O resultado vem da linha
+  "File load completed. (N errors)": 0 erros = "LOAD sem erros"; mais = falha com a contagem.
+  Cada linha mostra o andamento (Conectando…, Enviando…, ✓ ou ✗ com o motivo) e no fim
+  aparece "N de M enviados". Um robô que falha não para os outros. O envio fica no painel
+  aberto (não navega para outro robô).
 
 **Pendências / Próximos passos:** "Compartilhar programa" ainda não está implementado
 (`onShare = { /* ainda não implementado */ }` em `ProgramsPanel`).

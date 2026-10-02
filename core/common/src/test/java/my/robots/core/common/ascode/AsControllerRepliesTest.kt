@@ -29,6 +29,14 @@ class AsControllerRepliesTest {
     }
 
     @Test
+    fun parseLoadErrors_respostaDoLoad() {
+        val ok = "> LOAD db_1.as\nLoading...(db_1.as)\nSPRAY DATABANK\nFile load completed. (0 errors)\n>"
+        assertEquals(0, AsControllerReplies.parseLoadErrors(ok))
+        assertEquals(2, AsControllerReplies.parseLoadErrors("File load completed. (2 errors)"))
+        assertNull(AsControllerReplies.parseLoadErrors("> LOAD x.as\n>"))
+    }
+
+    @Test
     fun setClockCommand_formatoDoManual() {
         assertEquals("TIME 26-10-02 19:45:07", AsControllerReplies.setClockCommand(LocalDateTime.of(2026, 10, 2, 19, 45, 7)))
     }

@@ -51,6 +51,7 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import my.robots.core.designsystem.HeartbeatDot
 import my.robots.core.designsystem.RobotPickerSheet
+import my.robots.core.designsystem.SendProgress
 import my.robots.core.designsystem.label
 import my.robots.core.model.HeartbeatState
 import my.robots.core.common.FileUtil
@@ -127,8 +128,7 @@ fun RobotDashboardScreen(
     val errorLogState = if (viewModel != null) viewModel.errorLog.collectAsState() else remember { mutableStateOf(emptyList<RobotErrorLogEntry>()) }
     val pickerConnectedState = if (viewModel != null) viewModel.connectedIds.collectAsState() else remember { mutableStateOf(emptySet<Int>()) }
     val pickerHeartbeatsState = if (viewModel != null) viewModel.heartbeats.collectAsState() else remember { mutableStateOf(emptyMap<Int, HeartbeatState>()) }
-    val connectingTargetState = if (viewModel != null) viewModel.connectingTarget.collectAsState() else remember { mutableStateOf<Int?>(null) }
-    val failedTargetState = if (viewModel != null) viewModel.failedTarget.collectAsState() else remember { mutableStateOf<Int?>(null) }
+    val sendProgressState = if (viewModel != null) viewModel.sendProgress.collectAsState() else remember { mutableStateOf(emptyMap<Int, SendProgress>()) }
     val robotInfoState = if (viewModel != null) viewModel.robotInfo.collectAsState() else remember { mutableStateOf(RobotInfo()) }
     val dailyUsageState = if (viewModel != null) viewModel.dailyUsage.collectAsState() else remember { mutableStateOf(emptyList<DailyUsage>()) }
     val axisLast30State = if (viewModel != null) viewModel.axisMoveHoursLast30.collectAsState() else remember { mutableStateOf(emptyList<Double>()) }
@@ -154,8 +154,7 @@ fun RobotDashboardScreen(
     val robotInfo by robotInfoState
     val pickerConnected by pickerConnectedState
     val pickerHeartbeats by pickerHeartbeatsState
-    val connectingTarget by connectingTargetState
-    val failedTarget by failedTargetState
+    val sendProgress by sendProgressState
     val dailyUsage by dailyUsageState
     val axisLast30 by axisLast30State
     val controllerMemory by memoryState
@@ -188,7 +187,20 @@ fun RobotDashboardScreen(
     var dataBankToUpload by remember { mutableStateOf<List<RobotDataBankEntry>?>(null) }
     var programToDuplicate by remember { mutableStateOf<RobotProgram?>(null) }
     var variableToDelete by remember { mutableStateOf<RobotVariable?>(null) }
-    var dataBankToDelete by remember { mutableStateOf<RobotDataBankEntry?>(null) }
+    // Data Bank: números marcados (checkbox de cada cartão) e as janelas de edição em lote/exclusão.
+    var selectedDbNums by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var dataBankToBulkEdit by remember { mutableStateOf<List<RobotDataBankEntry>?>(null) }
+    var dataBankToDelete by remember { mutableStateOf<List<RobotDataBankEntry>?>(null) }
+
+    // Posição de rolagem de cada lista. Fica aqui (fora da seção aberta) e é "saveable", então
+    // volta onde estava ao trocar de seção ou ao voltar do editor.
+    val programsListState = rememberLazyListState()
+    val variablesListState = rememberLazyListState()
+    val dataBankListState = rememberLazyListState()
+    val errorLogListState = rememberLazyListState()
+    val operationLogListState = rememberLazyListState()
+    val editLogListState = rememberLazyListState()
+    var collapsedProgramGroups by rememberSaveable { mutableStateOf(listOf<String>()) }
 
     // Busca nos três logs do controlador (Erros, Operação, Edição).
     var isLogSearchActive by remember { mutableStateOf(false) }
@@ -197,11 +209,14 @@ fun RobotDashboardScreen(
         activeFeature == DashboardFeature.OperationLog ||
         activeFeature == DashboardFeature.ProgramEditLog
 
-    // Sai da seção Programas -> esquece a seleção, para não reaparecer marcada da próxima vez.
+    // Sai da seção Programas ou Data Bank -> esquece a seleção, para não reaparecer marcada.
     // Sai de um dos logs -> fecha e limpa a busca.
     LaunchedEffect(activeFeature) {
         if (activeFeature != DashboardFeature.Programs) {
             selectedProgramNames = emptySet()
+        }
+        if (activeFeature != DashboardFeature.DataBank) {
+            selectedDbNums = emptySet()
         }
         if (!isLogFeature) {
             isLogSearchActive = false
@@ -246,12 +261,15 @@ fun RobotDashboardScreen(
                                 text = when (activeFeature) {
                                     null -> robot?.name ?: "Painel"
                                     DashboardFeature.Terminal -> "Terminal: ${robot?.name ?: ""}"
-                                    DashboardFeature.Programs -> "Programas: ${robot?.name ?: ""}"
+                                    DashboardFeature.Programs -> "Programas"
                                     DashboardFeature.Variables -> "Variáveis: ${robot?.name ?: ""}"
-                                    DashboardFeature.DataBank -> "Data Bank: ${robot?.name ?: ""}"
+                                    DashboardFeature.DataBank -> "Data Bank"
                                     else -> activeFeature!!.label
                                 },
-                                style = MaterialTheme.typography.titleLarge
+                                style = MaterialTheme.typography.titleLarge,
+                                // uma linha só: as seções com muitas ações na barra deixam pouco espaço
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
                     },
@@ -352,7 +370,9 @@ fun RobotDashboardScreen(
                                     scope.launch {
                                         val content = viewModel?.packProgramsContent(selectedPrograms) ?: ""
                                         if (content.isNotBlank()) {
-                                            shareProgramsContent(context, selectedPrograms, content)
+                                            val name = if (selectedPrograms.size == 1) "${selectedPrograms[0].name}.as"
+                                                else "programas_${System.currentTimeMillis()}.as"
+                                            shareTextFile(context, name, content, "Compartilhar Programas")
                                         }
                                     }
                                 },
@@ -370,6 +390,52 @@ fun RobotDashboardScreen(
                                     imageVector = Icons.Default.Delete,
                                     contentDescription = "Excluir Selecionados",
                                     tint = if (hasSelection) MaterialTheme.colorScheme.error else disabledTint
+                                )
+                            }
+                        } else if (activeFeature == DashboardFeature.DataBank) {
+                            val allSelected = dataBankEntries.isNotEmpty() && selectedDbNums.size == dataBankEntries.size
+                            IconButton(onClick = {
+                                selectedDbNums = if (allSelected) emptySet() else dataBankEntries.map { it.num }.toSet()
+                            }) {
+                                Icon(
+                                    imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                    contentDescription = if (allSelected) "Desmarcar Todos" else "Selecionar Todos"
+                                )
+                            }
+                            val selectedDb = dataBankEntries.filter { it.num in selectedDbNums }.sortedBy { it.num.toIntOrNull() ?: 0 }
+                            val hasDbSelection = selectedDb.isNotEmpty()
+                            val dbDisabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+
+                            // muda as colunas escolhidas em todas as linhas marcadas de uma vez
+                            IconButton(onClick = { dataBankToBulkEdit = selectedDb }, enabled = hasDbSelection) {
+                                Icon(
+                                    Icons.Default.EditNote, "Editar Selecionados",
+                                    tint = if (hasDbSelection) MaterialTheme.colorScheme.onSurface else dbDisabledTint
+                                )
+                            }
+                            IconButton(onClick = { dataBankToUpload = selectedDb }, enabled = hasDbSelection) {
+                                Icon(
+                                    Icons.Rounded.CloudUpload, "Enviar Selecionados",
+                                    tint = if (hasDbSelection) MaterialTheme.colorScheme.primary else dbDisabledTint
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    viewModel?.let { vm ->
+                                        shareTextFile(context, vm.dataBankFileName(selectedDb), vm.dataBankContent(selectedDb), "Compartilhar Data Bank")
+                                    }
+                                },
+                                enabled = hasDbSelection
+                            ) {
+                                Icon(
+                                    Icons.Default.Share, "Compartilhar Selecionados",
+                                    tint = if (hasDbSelection) MaterialTheme.colorScheme.onSurface else dbDisabledTint
+                                )
+                            }
+                            IconButton(onClick = { dataBankToDelete = selectedDb }, enabled = hasDbSelection) {
+                                Icon(
+                                    Icons.Default.Delete, "Excluir Selecionados",
+                                    tint = if (hasDbSelection) MaterialTheme.colorScheme.error else dbDisabledTint
                                 )
                             }
                         } else if (isLogFeature) {
@@ -436,6 +502,11 @@ fun RobotDashboardScreen(
                         )
                         DashboardFeature.Programs -> ProgramsPanel(
                             programs = programs,
+                            listState = programsListState,
+                            collapsedGroups = collapsedProgramGroups.toSet(),
+                            onToggleGroup = { g ->
+                                collapsedProgramGroups = if (g in collapsedProgramGroups) collapsedProgramGroups - g else collapsedProgramGroups + g
+                            },
                             selectedNames = selectedProgramNames,
                             onToggleSelect = { name ->
                                 selectedProgramNames = if (name in selectedProgramNames) {
@@ -450,20 +521,25 @@ fun RobotDashboardScreen(
                             onDuplicate = { prog -> programToDuplicate = prog }
                         )
                         DashboardFeature.Variables -> VariablesPanel(
-                            variables = variables, 
+                            variables = variables,
+                            listState = variablesListState,
                             viewModel = viewModel,
                             onUpload = { v -> variableToUpload = v },
                             onDelete = { v -> variableToDelete = v }
                         )
                         DashboardFeature.DataBank -> DataBankPanel(
                             entries = dataBankEntries,
-                            viewModel = viewModel,
-                            onUploadSelected = { selected -> dataBankToUpload = selected },
-                            onDelete = { e -> dataBankToDelete = e }
+                            selectedNums = selectedDbNums,
+                            onToggleSelect = { num ->
+                                selectedDbNums = if (num in selectedDbNums) selectedDbNums - num else selectedDbNums + num
+                            },
+                            listState = dataBankListState,
+                            viewModel = viewModel
                         )
                         DashboardFeature.FullCode -> { /* já tratado em onFeatureClick: abre o editor em outra tela */ }
                         DashboardFeature.ErrorLog -> ErrorLogPanel(
                             entries = filteredErrorLog,
+                            listState = errorLogListState,
                             emptyHint = if (errorLog.isEmpty()) {
                                 "Nenhum erro registrado. Esse log só existe em backups feitos com SAVE/FULL no robô."
                             } else {
@@ -472,6 +548,7 @@ fun RobotDashboardScreen(
                         )
                         DashboardFeature.OperationLog -> LogPanel(
                             entries = filteredOperationLog,
+                            listState = operationLogListState,
                             emptyHint = if (operationLog.isEmpty()) {
                                 "Nenhum registro de operação. Esse log só existe em backups feitos com SAVE/FULL no robô."
                             } else {
@@ -480,6 +557,7 @@ fun RobotDashboardScreen(
                         )
                         DashboardFeature.ProgramEditLog -> LogPanel(
                             entries = filteredProgramEditLog,
+                            listState = editLogListState,
                             emptyHint = if (programEditLog.isEmpty()) {
                                 "Nenhum registro de edição. Esse log só existe em backups feitos com SAVE/FULL no robô."
                             } else {
@@ -556,14 +634,21 @@ fun RobotDashboardScreen(
         }
 
         if (dataBankToDelete != null) {
+            val toDelete = dataBankToDelete!!
             AlertDialog(
                 onDismissRequest = { dataBankToDelete = null },
                 title = { Text("Excluir Data Bank") },
-                text = { Text("Tem certeza que deseja excluir o registro \"${dataBankToDelete?.num}\"?") },
+                text = {
+                    Text(
+                        if (toDelete.size == 1) "Tem certeza que deseja excluir o registro DB${toDelete[0].num}?"
+                        else "Tem certeza que deseja excluir ${toDelete.size} registros (${toDelete.joinToString { "DB" + it.num }})?"
+                    )
+                },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            dataBankToDelete?.let { viewModel?.deleteDataBankEntry(it) }
+                            viewModel?.deleteDataBankEntries(toDelete)
+                            selectedDbNums = selectedDbNums - toDelete.map { it.num }.toSet()
                             dataBankToDelete = null
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
@@ -575,83 +660,67 @@ fun RobotDashboardScreen(
             )
         }
 
-        // Listas para escolher o robô de destino ao enviar um item (agrupadas por projeto, com
-        // LED). Tocar num robô desconectado conecta e espera o login antes de enviar.
-        // Se o destino é este mesmo robô, abre o terminal; se é outro, navega até o painel dele.
+        if (dataBankToBulkEdit != null) {
+            DataBankBulkEditDialog(
+                entries = dataBankToBulkEdit!!,
+                onDismiss = { dataBankToBulkEdit = null },
+                onApply = { updated ->
+                    viewModel?.updateDataBankEntries(updated)
+                    dataBankToBulkEdit = null
+                }
+            )
+        }
+
+        // Listas para escolher os robôs de destino de um envio (agrupadas por projeto, com LED).
+        // Marcam-se um ou mais robôs; cada um é conectado (se preciso), espera o login e recebe
+        // o arquivo + LOAD. O andamento aparece robô por robô na própria lista.
         if (programsToUpload != null) {
             val toUpload = programsToUpload!!
             RobotPickerSheet(
-                title = if (toUpload.size == 1) "Enviar Programa para qual Robô?" else "Enviar Programas para qual Robô?",
+                title = if (toUpload.size == 1) "Enviar programa" else "Enviar programas",
                 itemName = if (toUpload.size == 1) toUpload[0].name else "${toUpload.size} programas selecionados",
                 robots = allRobots,
                 connectedIds = pickerConnected,
                 heartbeats = pickerHeartbeats,
-                connectingId = connectingTarget,
-                failedId = failedTarget,
-                onPick = { r ->
-                    viewModel?.prepareTarget(r) {
-                        viewModel?.sendProgramsToRobot(toUpload, r)
-                        val targetId = r.id
-                        programsToUpload = null
-                        selectedProgramNames = emptySet()
-                        if (targetId == (robot?.id ?: -1)) {
-                            activeFeature = DashboardFeature.Terminal
-                        } else {
-                            onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
-                        }
-                    }
-                },
-                onDismiss = { programsToUpload = null; viewModel?.clearTargetState() }
+                progress = sendProgress,
+                onSend = { targets -> viewModel?.sendProgramsToRobots(toUpload, targets) },
+                onDismiss = {
+                    programsToUpload = null
+                    selectedProgramNames = emptySet()
+                    viewModel?.clearSendProgress()
+                }
             )
         }
 
         if (variableToUpload != null) {
+            val variable = variableToUpload!!
             RobotPickerSheet(
-                title = "Enviar Variável para qual Robô?",
-                itemName = variableToUpload?.name ?: "",
+                title = "Enviar variável",
+                itemName = variable.name,
                 robots = allRobots,
                 connectedIds = pickerConnected,
                 heartbeats = pickerHeartbeats,
-                connectingId = connectingTarget,
-                failedId = failedTarget,
-                onPick = { r ->
-                    viewModel?.prepareTarget(r) {
-                        viewModel?.sendVariableToRobot(variableToUpload!!, r)
-                        val targetId = r.id
-                        variableToUpload = null
-                        if (targetId == (robot?.id ?: -1)) {
-                            activeFeature = DashboardFeature.Terminal
-                        } else {
-                            onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
-                        }
-                    }
-                },
-                onDismiss = { variableToUpload = null; viewModel?.clearTargetState() }
+                progress = sendProgress,
+                onSend = { targets -> viewModel?.sendVariableToRobots(variable, targets) },
+                onDismiss = { variableToUpload = null; viewModel?.clearSendProgress() }
             )
         }
 
         if (dataBankToUpload != null) {
+            val toUpload = dataBankToUpload!!
             RobotPickerSheet(
-                title = "Enviar Data Bank para qual Robô?",
-                itemName = if (dataBankToUpload!!.size == 1) "DB${dataBankToUpload!![0].num}" else "${dataBankToUpload!!.size} itens selecionados",
+                title = "Enviar Data Bank",
+                itemName = if (toUpload.size == 1) "DB${toUpload[0].num}" else "${toUpload.size} registros selecionados",
                 robots = allRobots,
                 connectedIds = pickerConnected,
                 heartbeats = pickerHeartbeats,
-                connectingId = connectingTarget,
-                failedId = failedTarget,
-                onPick = { r ->
-                    viewModel?.prepareTarget(r) {
-                        viewModel?.sendDataBankEntriesToRobot(dataBankToUpload!!, r)
-                        val targetId = r.id
-                        dataBankToUpload = null
-                        if (targetId == (robot?.id ?: -1)) {
-                            activeFeature = DashboardFeature.Terminal
-                        } else {
-                            onNavigateToRobot(targetId, -1, DashboardFeature.Terminal)
-                        }
-                    }
-                },
-                onDismiss = { dataBankToUpload = null; viewModel?.clearTargetState() }
+                progress = sendProgress,
+                onSend = { targets -> viewModel?.sendDataBankEntriesToRobots(toUpload, targets) },
+                onDismiss = {
+                    dataBankToUpload = null
+                    selectedDbNums = emptySet()
+                    viewModel?.clearSendProgress()
+                }
             )
         }
     }
@@ -800,142 +869,61 @@ fun TerminalPanel(
 }
 
 /**
- * Seção Data Bank: tabela com as linhas da seção .sprdb do backup.
+ * Seção Data Bank: um cartão por linha da seção .sprdb, no mesmo estilo da seção Programas.
  *
- * A tabela tem uma coluna fixa à esquerda (checkbox, número e comentário) e as outras
- * colunas rolam para o lado. Dá para marcar várias linhas para enviar de uma vez.
- * A barra de cima tem: criar, ordenar, editar, duplicar, enviar e excluir.
+ * Cada cartão tem a caixa de seleção, o número (DBn), o comentário e os seis valores (FRATE,
+ * PATTERN, ATOMIZE, HVOLT, SPEED, JSPEED) em duas linhas, mais os botões editar e duplicar.
+ * Tocar no cartão também abre a edição. As ações sobre os marcados (selecionar todos, editar
+ * selecionados, enviar, compartilhar e excluir) ficam na barra do topo da tela. O "+" cria uma
+ * linha nova. A lista vem em ordem de número.
  */
 @Composable
 fun DataBankPanel(
     entries: List<RobotDataBankEntry>,
-    viewModel: RobotDashboardViewModel?,
-    onUploadSelected: (List<RobotDataBankEntry>) -> Unit,
-    onDelete: (RobotDataBankEntry) -> Unit
+    selectedNums: Set<String>,
+    onToggleSelect: (String) -> Unit,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    viewModel: RobotDashboardViewModel?
 ) {
-    // Linha tocada (para editar/duplicar/excluir) e linhas marcadas com o checkbox (para enviar em lote).
-    var selectedEntry by remember { mutableStateOf<RobotDataBankEntry?>(null) }
-    val selectedEntries = remember { mutableStateListOf<String>() }
-    
     var showEditDialog by remember { mutableStateOf<RobotDataBankEntry?>(null) }
     var showDuplicateDialog by remember { mutableStateOf<RobotDataBankEntry?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
-    var sortAscending by remember { mutableStateOf(true) }
 
-    // Lista ordenada pelo número (crescente ou decrescente).
-    val sortedEntries = remember(entries, sortAscending) {
-        if (sortAscending) entries.sortedBy { it.num.toIntOrNull() ?: 0 }
-        else entries.sortedByDescending { it.num.toIntOrNull() ?: 0 }
-    }
+    val sortedEntries = remember(entries) { entries.sortedBy { it.num.toIntOrNull() ?: 0 } }
 
-    Column(modifier = Modifier.fillMaxSize().navigationBarsPadding()) {
-        DataBankToolbar(
-            selected = selectedEntry,
-            hasSelection = selectedEntries.isNotEmpty(),
-            sortAscending = sortAscending,
-            onSortToggle = { sortAscending = !sortAscending },
-            onCreate = { showCreateDialog = true },
-            onEdit = { showEditDialog = selectedEntry },
-            onDuplicate = { showDuplicateDialog = selectedEntry },
-            onUpload = { 
-                if (selectedEntries.isNotEmpty()) {
-                    val batch = entries.filter { it.num in selectedEntries }
-                    onUploadSelected(batch)
-                } else {
-                    selectedEntry?.let { onUploadSelected(listOf(it)) }
-                }
-            },
-            onDelete = { selectedEntry?.let { onDelete(it) } }
-        )
-
-        val horizontalScrollState = rememberScrollState()
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item {
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        Box(
-                            modifier = Modifier
-                                .width(50.dp)
-                                .height(40.dp)
-                                .background(MaterialTheme.colorScheme.surface)
-                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                                .zIndex(2f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Checkbox(
-                                checked = selectedEntries.size == entries.size && entries.isNotEmpty(),
-                                onCheckedChange = { checked ->
-                                    selectedEntries.clear()
-                                    if (checked) {
-                                        selectedEntries.addAll(entries.map { it.num })
-                                    }
-                                }
-                            )
-                        }
-
-                        TableCell(text = "Num.", width = 50.dp, isHeader = true, modifier = Modifier.background(MaterialTheme.colorScheme.surface).zIndex(1f))
-                        TableCell(text = "Comment", width = 120.dp, isHeader = true, modifier = Modifier.background(MaterialTheme.colorScheme.surface).zIndex(1f))
-                        
-                        Box(modifier = Modifier.horizontalScroll(horizontalScrollState)) {
-                            Row(modifier = Modifier.width(600.dp).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                                listOf("FRATE", "PATTERN", "ATOMIZE", "HVOLT", "SPEED", "JSPEED").forEach { label ->
-                                    TableCell(text = label, width = 100.dp, isHeader = true)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                items(sortedEntries) { entry ->
-                    val isRowSelected = selectedEntry?.num == entry.num
-                    val isChecked = entry.num in selectedEntries
-                    
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { selectedEntry = if (isRowSelected) null else entry }
-                            .background(if (isRowSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(50.dp)
-                                .height(40.dp)
-                                .background(if (isRowSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface)
-                                .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-                                .zIndex(2f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Checkbox(
-                                checked = isChecked,
-                                onCheckedChange = { checked ->
-                                    if (checked) selectedEntries.add(entry.num)
-                                    else selectedEntries.remove(entry.num)
-                                }
-                            )
-                        }
-
-                        TableCell(text = entry.num, width = 50.dp, modifier = Modifier.background(if (isRowSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface).zIndex(1f))
-                        TableCell(text = entry.comment, width = 120.dp, textAlign = TextAlign.Start, modifier = Modifier.background(if (isRowSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface).zIndex(1f))
-
-                        Box(modifier = Modifier.horizontalScroll(horizontalScrollState)) {
-                            Row(modifier = Modifier.width(600.dp)) {
-                                TableCell(text = entry.frate, width = 100.dp)
-                                TableCell(text = entry.pattern, width = 100.dp)
-                                TableCell(text = entry.atomize, width = 100.dp)
-                                TableCell(text = entry.hvolt, width = 100.dp)
-                                TableCell(text = entry.speed, width = 100.dp)
-                                TableCell(text = entry.jspeed, width = 100.dp)
-                            }
-                        }
-                    }
-                }
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (sortedEntries.isEmpty()) {
+            Text(
+                "Nenhum registro no Data Bank deste backup. Toque em + para criar.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.align(Alignment.Center).padding(24.dp)
+            )
+        }
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().navigationBarsPadding(),
+            contentPadding = PaddingValues(top = 4.dp, bottom = 96.dp)
+        ) {
+            items(sortedEntries, key = { it.num }) { entry ->
+                DataBankCard(
+                    entry = entry,
+                    isSelected = entry.num in selectedNums,
+                    onToggleSelect = { onToggleSelect(entry.num) },
+                    onEdit = { showEditDialog = entry },
+                    onDuplicate = { showDuplicateDialog = entry }
+                )
             }
+        }
+        FloatingActionButton(
+            onClick = { showCreateDialog = true },
+            modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp)
+        ) {
+            Icon(Icons.Default.Add, "Novo registro")
         }
     }
 
-    // Janela de edição da linha escolhida.
-    // Janela de edição da variável escolhida.
     if (showEditDialog != null) {
         DataBankEditDialog(
             entry = showEditDialog!!,
@@ -943,13 +931,9 @@ fun DataBankPanel(
             onSave = { updated ->
                 viewModel?.updateDataBankEntry(updated)
                 showEditDialog = null
-                selectedEntry = updated
             }
         )
     }
-
-    // Janela para pedir o número da cópia.
-    // Janela para dar o nome da cópia.
     if (showDuplicateDialog != null) {
         DataBankDuplicateDialog(
             entry = showDuplicateDialog!!,
@@ -961,9 +945,6 @@ fun DataBankPanel(
             }
         )
     }
-
-    // Janela para criar uma linha nova.
-    // Janela para criar uma variável nova (posição com 8 valores em zero).
     if (showCreateDialog) {
         DataBankEditDialog(
             entry = RobotDataBankEntry(num = "", comment = "", frate = "0", pattern = "0", atomize = "0", hvolt = "0", speed = "0", jspeed = "0"),
@@ -978,67 +959,151 @@ fun DataBankPanel(
     }
 }
 
-/**
- * Barra de ferramentas do Data Bank: criar, ordenar, editar, duplicar, enviar e excluir.
- * Editar/duplicar/excluir só ligam com uma linha selecionada; "Enviar Seleção" aparece quando há checkboxes marcados.
- */
+/** Nomes e valores das seis colunas de uma linha do Data Bank, na ordem do backup. */
+private fun RobotDataBankEntry.columns() = listOf(
+    "FRATE" to frate, "PATTERN" to pattern, "ATOMIZE" to atomize,
+    "HVOLT" to hvolt, "SPEED" to speed, "JSPEED" to jspeed
+)
+
+/** Cartão de uma linha do Data Bank: seleção, DBn, comentário, os seis valores e as ações. */
 @Composable
-fun DataBankToolbar(
-    selected: RobotDataBankEntry?,
-    hasSelection: Boolean,
-    sortAscending: Boolean,
-    onSortToggle: () -> Unit,
-    onCreate: () -> Unit,
+private fun DataBankCard(
+    entry: RobotDataBankEntry,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit,
     onEdit: () -> Unit,
-    onDuplicate: () -> Unit,
-    onUpload: () -> Unit,
-    onDelete: () -> Unit
+    onDuplicate: () -> Unit
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-        modifier = Modifier.fillMaxWidth()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clickable(onClick = onEdit),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+        )
     ) {
         Row(
-            modifier = Modifier.padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onCreate) {
-                Icon(Icons.Default.Add, "Criar", tint = Color(0xFF2E7D32))
+            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect() })
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("DB${entry.num}", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
+                    if (entry.comment.isNotBlank()) {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            entry.comment.trim(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                entry.columns().chunked(3).forEach { row ->
+                    Row {
+                        row.forEach { (label, value) ->
+                            Column(Modifier.weight(1f)) {
+                                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
             }
-            VerticalDivider(modifier = Modifier.height(32.dp).align(Alignment.CenterVertically))
-            
-            IconButton(onClick = onSortToggle) {
-                Icon(
-                    imageVector = if (sortAscending) Icons.Default.SortByAlpha else Icons.Default.VerticalAlignBottom, 
-                    contentDescription = "Ordenar"
-                )
-            }
-
-            IconButton(onClick = onEdit, enabled = selected != null) {
-                Icon(Icons.Default.Edit, "Editar")
-            }
-            IconButton(onClick = onDuplicate, enabled = selected != null) {
-                Icon(Icons.Default.ContentCopy, "Duplicar")
-            }
-            
-            Button(
-                onClick = onUpload,
-                enabled = selected != null || hasSelection,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                modifier = Modifier.height(36.dp)
-            ) {
-                Icon(Icons.Rounded.CloudUpload, null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(if (hasSelection) "Enviar Seleção" else "Enviar", fontSize = 12.sp)
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onDelete, enabled = selected != null) {
-                Icon(Icons.Default.Delete, "Excluir", tint = MaterialTheme.colorScheme.error)
+            Column {
+                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.Edit, "Editar", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+                IconButton(onClick = onDuplicate, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.ContentCopy, "Duplicar", modifier = Modifier.size(18.dp))
+                }
             }
         }
     }
+}
+
+/**
+ * "Editar selecionados" do Data Bank: muda as colunas escolhidas em todas as linhas marcadas
+ * de uma vez. Cada campo começa com o valor comum às linhas (ou vazio, com "vários valores",
+ * quando elas diferem). Só os campos alterados são aplicados; os outros ficam como estão em
+ * cada linha.
+ */
+@Composable
+fun DataBankBulkEditDialog(
+    entries: List<RobotDataBankEntry>,
+    onDismiss: () -> Unit,
+    onApply: (List<RobotDataBankEntry>) -> Unit
+) {
+    val labels = listOf("FRATE", "PATTERN", "ATOMIZE", "HVOLT", "SPEED", "JSPEED", "Comentário")
+    fun values(e: RobotDataBankEntry) = listOf(e.frate, e.pattern, e.atomize, e.hvolt, e.speed, e.jspeed, e.comment)
+    // valor comum a todas as linhas, ou null quando elas diferem
+    val common = remember(entries) {
+        labels.indices.map { i -> entries.map { values(it)[i] }.distinct().singleOrNull() }
+    }
+    val fields = remember(entries) { mutableStateListOf(*common.map { it ?: "" }.toTypedArray()) }
+    val changed = labels.indices.filter { i -> fields[i] != (common[i] ?: "") && (fields[i].isNotBlank() || i == 6) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Editar ${entries.size} registros") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    entries.joinToString { "DB" + it.num },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    "Altere só as colunas que quer mudar em todos. As outras ficam como estão em cada registro.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                labels.indices.chunked(2).forEach { pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        pair.forEach { i ->
+                            OutlinedTextField(
+                                value = fields[i],
+                                onValueChange = { fields[i] = it },
+                                label = { Text(labels[i]) },
+                                placeholder = { if (common[i] == null) Text("vários") },
+                                singleLine = true,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onApply(entries.map { e ->
+                        var out = e
+                        changed.forEach { i ->
+                            val v = fields[i].trim()
+                            out = when (i) {
+                                0 -> out.copy(frate = v)
+                                1 -> out.copy(pattern = v)
+                                2 -> out.copy(atomize = v)
+                                3 -> out.copy(hvolt = v)
+                                4 -> out.copy(speed = v)
+                                5 -> out.copy(jspeed = v)
+                                else -> out.copy(comment = fields[i])
+                            }
+                        }
+                        out
+                    })
+                },
+                enabled = changed.isNotEmpty()
+            ) { Text(if (changed.isEmpty()) "Aplicar" else "Aplicar ${changed.size} coluna(s)") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
 }
 
 /**
@@ -1148,7 +1213,8 @@ fun DataBankDuplicateDialog(
  */
 @Composable
 fun VariablesPanel(
-    variables: List<RobotVariable>, 
+    variables: List<RobotVariable>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     viewModel: RobotDashboardViewModel?,
     onUpload: (RobotVariable) -> Unit,
     onDelete: (RobotVariable) -> Unit
@@ -1180,7 +1246,7 @@ fun VariablesPanel(
         val horizontalScrollState = rememberScrollState()
 
         Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 item {
                     Row(modifier = Modifier.fillMaxWidth()) {
                         TableCell(text = "Name", width = 150.dp, isHeader = true, textAlign = TextAlign.Start, 
@@ -1654,7 +1720,11 @@ fun DashboardHome(
  * o aviso de que esse log só existe em backups SAVE/FULL.
  */
 @Composable
-fun LogPanel(entries: List<RobotLogEntry>, emptyHint: String) {
+fun LogPanel(
+    entries: List<RobotLogEntry>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    emptyHint: String
+) {
     if (entries.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
             Text(
@@ -1668,6 +1738,7 @@ fun LogPanel(entries: List<RobotLogEntry>, emptyHint: String) {
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().navigationBarsPadding(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1702,7 +1773,11 @@ fun LogEntryCard(entry: RobotLogEntry) {
  * para escanear rápido). Tocar abre o detalhe completo (`ErrorLogDetailDialog`).
  */
 @Composable
-fun ErrorLogPanel(entries: List<RobotErrorLogEntry>, emptyHint: String) {
+fun ErrorLogPanel(
+    entries: List<RobotErrorLogEntry>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    emptyHint: String
+) {
     var selectedEntry by remember { mutableStateOf<RobotErrorLogEntry?>(null) }
 
     if (entries.isEmpty()) {
@@ -1718,6 +1793,7 @@ fun ErrorLogPanel(entries: List<RobotErrorLogEntry>, emptyHint: String) {
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().navigationBarsPadding(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -2022,29 +2098,32 @@ fun StatusItem(label: String, value: String) {
 @Composable
 fun ProgramsPanel(
     programs: List<RobotProgram>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    collapsedGroups: Set<String>,
+    onToggleGroup: (String) -> Unit,
     selectedNames: Set<String>,
     onToggleSelect: (String) -> Unit,
     onProgramClick: (RobotProgram) -> Unit,
     onDuplicate: (RobotProgram) -> Unit
 ) {
-    val expandedSections = remember { mutableStateMapOf<String, Boolean>() }
     
     val groupedPrograms = remember(programs) {
         programs.groupBy { it.group }
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize().navigationBarsPadding(),
         contentPadding = PaddingValues(bottom = 80.dp)
     ) {
         groupedPrograms.forEach { (groupName, programsInGroup) ->
             item {
-                val isExpanded = expandedSections[groupName] ?: true
+                val isExpanded = groupName !in collapsedGroups
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { expandedSections[groupName] = !isExpanded }
+                        .clickable { onToggleGroup(groupName) }
                 ) {
                     Row(
                         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
@@ -2066,7 +2145,7 @@ fun ProgramsPanel(
                 }
             }
 
-            if (expandedSections[groupName] ?: true) {
+            if (groupName !in collapsedGroups) {
                 items(programsInGroup) { program ->
                     val isSelected = program.name in selectedNames
                     Card(
@@ -2122,29 +2201,21 @@ fun ProgramsPanel(
 }
 
 /**
- * Junta o texto dos programas selecionados num arquivo temporário e abre o menu de
- * compartilhar do Android (mesmo mecanismo usado no histórico de backups).
+ * Grava o texto num arquivo temporário e abre o menu de compartilhar do Android (mesmo
+ * mecanismo usado no histórico de backups). Usado por Programas e Data Bank.
  */
-private fun shareProgramsContent(context: Context, programs: List<RobotProgram>, content: String) {
+private fun shareTextFile(context: Context, fileName: String, content: String, title: String) {
     try {
-        val fileName = if (programs.size == 1) {
-            // o nome do programa vem do texto do backup: limpa para não sair de shared_backups
-            FileUtil.sanitizeFileName("${programs[0].name}.as")
-        } else {
-            "programas_${System.currentTimeMillis()}.as"
-        }
-        val cacheDir = File(context.cacheDir, "shared_backups")
-        if (!cacheDir.exists()) cacheDir.mkdirs()
-        val file = File(cacheDir, fileName)
+        // o nome pode vir do texto do backup: limpa para não sair de shared_backups
+        val file = File(File(context.cacheDir, "shared_backups").apply { mkdirs() }, FileUtil.sanitizeFileName(fileName))
         file.writeText(content)
-
         val contentUri = FileProvider.getUriForFile(context, "my.robots.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/octet-stream"
             putExtra(Intent.EXTRA_STREAM, contentUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(intent, "Compartilhar Programas"))
+        context.startActivity(Intent.createChooser(intent, title))
     } catch (e: Exception) {
         Toast.makeText(context, "Erro ao compartilhar: ${e.message}", Toast.LENGTH_LONG).show()
     }

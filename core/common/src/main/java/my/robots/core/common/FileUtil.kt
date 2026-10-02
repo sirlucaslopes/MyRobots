@@ -10,6 +10,15 @@ import android.provider.OpenableColumns
  */
 object FileUtil {
     /**
+     * Arquivos que o app grava na pasta do robô só para mandar ao controlador com LOAD
+     * (envio de programa, variável ou Data Bank): transfer_<nome>.as, transfer_batch_<hora>.as,
+     * var_<nome>.as, db_<n>.as e db_batch_<hora>.as. Não são backups.
+     */
+    private val TRANSFER_FILE = Regex("""^(transfer_|var_|db_)[^/\\]*\.as$""", RegexOption.IGNORE_CASE)
+
+    fun isTransferFile(fileName: String): Boolean = TRANSFER_FILE.matches(fileName)
+
+    /**
      * Descobre o nome de um arquivo a partir do endereço dele (Uri).
      *
      * Como funciona:

@@ -14,9 +14,12 @@ import my.robots.core.network.KawasakiTerminalManager
 import my.robots.core.data.RobotRepository
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsControllerLogs
+import my.robots.core.common.ascode.AsControllerReplies
 import my.robots.core.common.ascode.AsRobotInfo
 import my.robots.core.common.ascode.ControllerMemory
 import my.robots.core.data.ControllerChecks
+import my.robots.core.designsystem.SendProgress
+import my.robots.core.designsystem.SendState
 import my.robots.core.model.HeartbeatState
 import my.robots.core.common.ascode.RobotInfo
 import my.robots.core.common.ascode.DailyUsage
@@ -232,13 +235,14 @@ class RobotDashboardViewModel(
     /** Heartbeat de cada robô (para a lista de destino do envio). */
     val heartbeats: StateFlow<Map<Int, HeartbeatState>> = _heartbeats.asStateFlow()
 
-    private val _connectingTarget = MutableStateFlow<Int?>(null)
-    /** Robô de destino que está sendo conectado agora (mostra o andamento na lista). */
-    val connectingTarget: StateFlow<Int?> = _connectingTarget.asStateFlow()
+    private val _sendProgress = MutableStateFlow<Map<Int, SendProgress>>(emptyMap())
+    /** Andamento do envio atual, robô por robô (vazio = nenhum envio). */
+    val sendProgress: StateFlow<Map<Int, SendProgress>> = _sendProgress.asStateFlow()
 
-    private val _failedTarget = MutableStateFlow<Int?>(null)
-    /** Robô de destino que não conectou (a lista mostra o aviso). */
-    val failedTarget: StateFlow<Int?> = _failedTarget.asStateFlow()
+    /** Limpa o andamento ao fechar a lista de destino (só se o envio já terminou). */
+    fun clearSendProgress() {
+        if (_sendProgress.value.values.all { it.finished }) _sendProgress.value = emptyMap()
+    }
 
     // Ids que já têm um observador de conexão/heartbeat (evita duplicar o coletor).
     private val watchedIds = mutableSetOf<Int>()
@@ -253,26 +257,6 @@ class RobotDashboardViewModel(
         viewModelScope.launch {
             terminalManager.getHeartbeat(id).collect { hb -> _heartbeats.update { it + (id to hb) } }
         }
-    }
-
-    /**
-     * Prepara o robô de destino de um envio: se não estiver conectado, conecta e espera o
-     * login e as checagens. Com ele pronto, chama [onReady] (que faz o envio). Se não
-     * conectar, marca [failedTarget] e não envia.
-     */
-    fun prepareTarget(target: Robot, onReady: () -> Unit) {
-        if (_connectingTarget.value != null) return
-        _failedTarget.value = null
-        viewModelScope.launch {
-            _connectingTarget.value = target.id
-            val ok = checks.connectAndWait(target)
-            _connectingTarget.value = null
-            if (ok) onReady() else _failedTarget.value = target.id
-        }
-    }
-
-    fun clearTargetState() {
-        _failedTarget.value = null
     }
 
     private val _isLoading = MutableStateFlow(false)
@@ -403,137 +387,131 @@ class RobotDashboardViewModel(
     }
 
     /**
-     * Envia um ou mais programas do backup para um robô, empacotados num único arquivo.
-     *
-     * 1. Extrai do backup o bloco .PROGRAM ... .END de cada programa selecionado (`packProgramsContent`).
-     * 2. Cria o arquivo transfer_<nome>.as (um programa só) ou transfer_batch_<hora>.as (vários).
-     * 3. Se o destino é ESTE robô: grava o arquivo e manda LOAD na hora.
-     *    Se é OUTRO robô: deixa na fila; o painel dele fará o LOAD ao conectar.
+     * Envia o mesmo arquivo para vários robôs, ao mesmo tempo, cada um na sua conexão:
+     * 1. conecta (se preciso) e espera o login e as checagens (`ControllerChecks.connectAndWait`);
+     * 2. grava o arquivo na pasta do robô de destino;
+     * 3. manda `LOAD <arquivo>` e espera o controlador voltar ao prompt.
+     * O andamento de cada robô fica em [sendProgress]. Um robô que falha não para os outros.
      */
-    fun sendProgramsToRobot(programs: List<RobotProgram>, targetRobot: Robot) {
+    private fun sendFileToRobots(targets: List<Robot>, fileName: String, content: String) {
+        if (targets.isEmpty() || content.isBlank()) return
+        _sendProgress.value = targets.associate { it.id to SendProgress(SendState.CONNECTING) }
+        fun set(id: Int, p: SendProgress) = _sendProgress.update { it + (id to p) }
+        targets.forEach { target ->
+            viewModelScope.launch {
+                if (!checks.connectAndWait(target)) {
+                    set(target.id, SendProgress(SendState.FAILED, "Não conectou"))
+                    return@launch
+                }
+                set(target.id, SendProgress(SendState.SENDING))
+                if (!repository.saveFileToRobotFolder(target.id, fileName, content)) {
+                    set(target.id, SendProgress(SendState.FAILED, "Não gravou o arquivo"))
+                    return@launch
+                }
+                delay(500)
+                val ok = checks.sendAndAwaitPrompt(target.id, "LOAD $fileName")
+                // "File load completed. (N errors)": 0 = deu certo; sem essa linha, vale o prompt
+                val errors = AsControllerReplies.parseLoadErrors(
+                    terminalManager.getHistory(target.id).value.takeLast(30).joinToString("\n")
+                )
+                set(
+                    target.id,
+                    when {
+                        !ok -> SendProgress(SendState.FAILED, "Sem resposta ao LOAD: veja o terminal")
+                        errors == null -> SendProgress(SendState.DONE, "LOAD terminou")
+                        errors == 0 -> SendProgress(SendState.DONE, "LOAD sem erros")
+                        else -> SendProgress(SendState.FAILED, "LOAD com $errors erro(s): veja o terminal")
+                    }
+                )
+            }
+        }
+    }
+
+    /**
+     * Envia um ou mais programas do backup para os robôs escolhidos, empacotados num arquivo
+     * só: transfer_<nome>.as (um programa) ou transfer_batch_<hora>.as (vários).
+     */
+    fun sendProgramsToRobots(programs: List<RobotProgram>, targets: List<Robot>) {
         if (programs.isEmpty()) return
         viewModelScope.launch {
-            _isLoading.value = true
-            val packedContent = packProgramsContent(programs)
-
-            if (packedContent.isNotBlank()) {
-                val fileName = if (programs.size == 1) {
-                    val sanitizedName = FileUtil.sanitizeFileName(programs[0].name).replace(".as", "")
-                    "transfer_$sanitizedName.as"
-                } else {
-                    "transfer_batch_${System.currentTimeMillis()}.as"
-                }
-
-                if (targetRobot.id == robotId) {
-                    repository.saveFileToRobotFolder(robotId, fileName, packedContent)
-                    delay(500)
-                    terminalManager.sendCommand(robotId, "LOAD $fileName")
-                } else {
-                    terminalManager.setPendingTransfer(targetRobot.id, fileName, packedContent)
-                }
+            val packed = packProgramsContent(programs)
+            val fileName = if (programs.size == 1) {
+                "transfer_${FileUtil.sanitizeFileName(programs[0].name).replace(".as", "")}.as"
+            } else {
+                "transfer_batch_${System.currentTimeMillis()}.as"
             }
-            _isLoading.value = false
+            sendFileToRobots(targets, fileName, packed)
         }
     }
 
     /**
-     * Envia uma variável do backup para um robô.
-     * Monta um arquivo var_<nome>.as só com a linha da variável dentro da sua seção
-     * (.TRANS, .REALS...) e segue a mesma regra do envio de programa (agora ou na fila).
+     * Envia uma variável do backup para os robôs escolhidos: arquivo var_<nome>.as só com a
+     * linha da variável dentro da sua seção (.TRANS, .REALS...).
      */
-    fun sendVariableToRobot(variable: RobotVariable, targetRobot: Robot) {
+    fun sendVariableToRobots(variable: RobotVariable, targets: List<Robot>) {
         viewModelScope.launch {
-            _isLoading.value = true
             val summary = _latestBackup.value ?: return@launch
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
-            
-            val varContent = withContext(Dispatchers.Default) {
-                val lines = fullBackup.content.lines()
-                val extracted = StringBuilder()
-                var isReading = false
-                var found = false
-                
-                val sectionHeader = when(variable.type) {
-                    "REALS" -> ".REALS"
-                    "STRINGS" -> ".STRINGS"
-                    "INTEGER" -> ".INTEGER"
-                    else -> ".TRANS"
-                }
-
-                for (line in lines) {
-                    val trimmed = line.trim()
-                    if (trimmed.equals(sectionHeader, ignoreCase = true)) {
-                        isReading = true
-                        extracted.append(line).append("\n")
-                        continue
-                    }
-                    
-                    if (isReading) {
-                        if (trimmed.startsWith("${variable.name} =", ignoreCase = true) || 
-                            trimmed.startsWith("${variable.name}=", ignoreCase = true) ||
-                            trimmed.startsWith("${variable.name} ", ignoreCase = true)) {
-                            extracted.append(line).append("\n")
-                            found = true
-                        }
-                        
-                        if (trimmed.equals(".END", ignoreCase = true)) {
-                            extracted.append(line).append("\n")
-                            isReading = false
-                            if (found) break
-                        }
-                    }
-                }
-                if (found) extracted.toString() else ""
-            }
-            
-            if (varContent.isNotBlank()) {
-                val sanitizedName = FileUtil.sanitizeFileName(variable.name).replace(".as", "")
-                val fileName = "var_$sanitizedName.as"
-                
-                if (targetRobot.id == robotId) {
-                    repository.saveFileToRobotFolder(robotId, fileName, varContent)
-                    delay(500)
-                    terminalManager.sendCommand(robotId, "LOAD $fileName")
-                } else {
-                    terminalManager.setPendingTransfer(targetRobot.id, fileName, varContent)
-                }
-            }
-            _isLoading.value = false
+            val varContent = withContext(Dispatchers.Default) { extractVariable(fullBackup.content, variable) }
+            val fileName = "var_${FileUtil.sanitizeFileName(variable.name).replace(".as", "")}.as"
+            sendFileToRobots(targets, fileName, varContent)
         }
     }
 
-    /**
-     * Envia UMA linha do Data Bank para um robô (atalho de sendDataBankEntriesToRobot).
-     */
-    fun sendDataBankToRobot(entry: RobotDataBankEntry, targetRobot: Robot) {
-        sendDataBankEntriesToRobot(listOf(entry), targetRobot)
+    /** Bloco ".SEÇÃO / linha da variável / .END" tirado do texto do backup, ou "" se não achar. */
+    private fun extractVariable(content: String, variable: RobotVariable): String {
+        val sectionHeader = when (variable.type) {
+            "REALS" -> ".REALS"
+            "STRINGS" -> ".STRINGS"
+            "INTEGER" -> ".INTEGER"
+            else -> ".TRANS"
+        }
+        val extracted = StringBuilder()
+        var isReading = false
+        var found = false
+        for (line in content.lines()) {
+            val trimmed = line.trim()
+            if (trimmed.equals(sectionHeader, ignoreCase = true)) {
+                isReading = true
+                extracted.append(line).append("\n")
+                continue
+            }
+            if (isReading) {
+                if (trimmed.startsWith("${variable.name} =", ignoreCase = true) ||
+                    trimmed.startsWith("${variable.name}=", ignoreCase = true) ||
+                    trimmed.startsWith("${variable.name} ", ignoreCase = true)
+                ) {
+                    extracted.append(line).append("\n")
+                    found = true
+                }
+                if (trimmed.equals(".END", ignoreCase = true)) {
+                    extracted.append(line).append("\n")
+                    isReading = false
+                    if (found) break
+                }
+            }
+        }
+        return if (found) extracted.toString() else ""
     }
 
-    /**
-     * Envia várias linhas do Data Bank para um robô.
-     * Monta um arquivo .sprdb ... .END com as linhas e segue a mesma regra dos outros envios.
-     */
-    fun sendDataBankEntriesToRobot(entries: List<RobotDataBankEntry>, targetRobot: Robot) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            val stringBuilder = StringBuilder(".sprdb\n")
-            entries.forEach { entry ->
-                stringBuilder.append("  DB${entry.num} ${entry.frate} ${entry.pattern} ${entry.atomize} ${entry.hvolt} ${entry.speed} ${entry.jspeed} \"${entry.comment}\"\n")
-            }
-            stringBuilder.append(".END")
-            val fullContent = stringBuilder.toString()
-            
-            val fileName = if (entries.size == 1) "db_${entries[0].num}.as" else "db_batch_${System.currentTimeMillis()}.as"
-            
-            if (targetRobot.id == robotId) {
-                repository.saveFileToRobotFolder(robotId, fileName, fullContent)
-                delay(500)
-                terminalManager.sendCommand(robotId, "LOAD $fileName")
-            } else {
-                terminalManager.setPendingTransfer(targetRobot.id, fileName, fullContent)
-            }
-            _isLoading.value = false
-        }
+    /** Texto ".sprdb ... .END" com as linhas do Data Bank, no formato do backup. */
+    fun dataBankContent(entries: List<RobotDataBankEntry>): String = buildString {
+        append(".sprdb\n")
+        entries.forEach { append(dataBankLine(it)).append("\n") }
+        append(".END")
+    }
+
+    private fun dataBankLine(e: RobotDataBankEntry) =
+        "  DB${e.num} ${e.frate} ${e.pattern} ${e.atomize} ${e.hvolt} ${e.speed} ${e.jspeed} \"${e.comment}\""
+
+    /** Nome do arquivo de envio/compartilhamento das linhas do Data Bank. */
+    fun dataBankFileName(entries: List<RobotDataBankEntry>) =
+        if (entries.size == 1) "db_${entries[0].num}.as" else "db_batch_${System.currentTimeMillis()}.as"
+
+    /** Envia linhas do Data Bank para os robôs escolhidos (arquivo .sprdb ... .END). */
+    fun sendDataBankEntriesToRobots(entries: List<RobotDataBankEntry>, targets: List<Robot>) {
+        if (entries.isEmpty()) return
+        sendFileToRobots(targets, dataBankFileName(entries), dataBankContent(entries))
     }
 
     /**
@@ -549,9 +527,13 @@ class RobotDashboardViewModel(
                 val targetSummary = if (initialBackupId != null && initialBackupId != -1) {
                     summaries.find { it.id == initialBackupId }
                 } else {
-                    summaries.sortedByDescending { it.timestamp }.firstOrNull()
+                    // o mais recente que seja backup de verdade (arquivos de envio importados
+                    // até a v1.2, como transfer_pg635.as, não contam); sem nenhum, o mais recente
+                    summaries.filterNot { FileUtil.isTransferFile(it.fileName) }.maxByOrNull { it.timestamp }
+                        ?: summaries.maxByOrNull { it.timestamp }
                 }
-                val newest = summaries.maxByOrNull { it.timestamp }
+                val newest = summaries.filterNot { FileUtil.isTransferFile(it.fileName) }.maxByOrNull { it.timestamp }
+                    ?: summaries.maxByOrNull { it.timestamp }
                 _isShowingNewestBackup.value = targetSummary == null || targetSummary.id == newest?.id
                 loadUsageIfChanged(summaries.size, newest?.timestamp ?: 0L)
 
@@ -1042,32 +1024,57 @@ class RobotDashboardViewModel(
     /**
      * Apaga uma linha do Data Bank (pelo número) do texto do backup.
      */
-    fun deleteDataBankEntry(entry: RobotDataBankEntry) {
+    fun deleteDataBankEntry(entry: RobotDataBankEntry) = deleteDataBankEntries(listOf(entry))
+
+    /**
+     * Apaga várias linhas do Data Bank (pelo número) do texto do backup, numa gravação só.
+     */
+    fun deleteDataBankEntries(entries: List<RobotDataBankEntry>) {
+        val nums = entries.map { it.num }.toSet()
+        rewriteDataBank { num, _ -> if (num in nums) null else DataBankKeep }
+    }
+
+    /**
+     * Troca as linhas do Data Bank que têm o mesmo número pelas versões editadas, numa
+     * gravação só (edição de uma linha ou "Editar selecionados").
+     */
+    fun updateDataBankEntries(updated: List<RobotDataBankEntry>) {
+        val byNum = updated.associateBy { it.num }
+        rewriteDataBank { num, _ -> byNum[num]?.let { dataBankLine(it) } ?: DataBankKeep }
+    }
+
+    /**
+     * Percorre a seção .sprdb do backup e, para cada linha "DBn ...", pergunta a [decide]:
+     * [DataBankKeep] mantém a linha, null apaga, outro texto substitui. Grava o backup no fim.
+     */
+    private fun rewriteDataBank(decide: (num: String, line: String) -> String?) {
         val summary = _latestBackup.value ?: return
         viewModelScope.launch {
             _isLoading.value = true
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
             val fullContent = withContext(Dispatchers.Default) {
-                val lines = fullBackup.content.lines()
                 val result = StringBuilder()
                 var inSprdb = false
-                
-                for (line in lines) {
+                for (line in fullBackup.content.lines()) {
                     val trimmed = line.trim()
                     if (trimmed.equals(".sprdb", ignoreCase = true)) {
                         inSprdb = true
                         result.append(line).append("\n")
                         continue
                     }
-                    
                     if (inSprdb) {
-                        val parts = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
-                        val numPart = parts.getOrNull(0)?.removePrefix("DB")
-                        
                         if (trimmed.equals(".END", ignoreCase = true)) {
                             inSprdb = false
-                        } else if (numPart == entry.num) {
-                            continue
+                        } else {
+                            val num = trimmed.split(Regex("\\s+")).firstOrNull()?.removePrefix("DB")
+                            if (num != null && num.isNotBlank()) {
+                                when (val out = decide(num, line)) {
+                                    DataBankKeep -> result.append(line).append("\n")
+                                    null -> Unit
+                                    else -> result.append(out).append("\n")
+                                }
+                                continue
+                            }
                         }
                     }
                     result.append(line).append("\n")
@@ -1143,47 +1150,7 @@ class RobotDashboardViewModel(
     /**
      * Troca a linha do Data Bank que tem o mesmo número pela versão editada e salva o backup.
      */
-    fun updateDataBankEntry(updatedEntry: RobotDataBankEntry) {
-        val summary = _latestBackup.value ?: return
-        viewModelScope.launch {
-            _isLoading.value = true
-            val fullBackup = repository.getBackupById(summary.id) ?: return@launch
-            val fullContent = withContext(Dispatchers.Default) {
-                val lines = fullBackup.content.lines()
-                val result = StringBuilder()
-                var inSprdb = false
-                var found = false
-                
-                for (line in lines) {
-                    val trimmed = line.trim()
-                    if (trimmed.equals(".sprdb", ignoreCase = true)) {
-                        inSprdb = true
-                        result.append(line).append("\n")
-                        continue
-                    }
-                    
-                    if (inSprdb) {
-                        // pega o número da linha para comparar com o que está sendo editado
-                        val parts = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
-                        val numPart = parts.getOrNull(0)?.removePrefix("DB")
-                        
-                        if (trimmed.equals(".END", ignoreCase = true)) {
-                            inSprdb = false
-                        } else if (!found && numPart == updatedEntry.num) {
-                            // escreve no mesmo formato do backup (valores separados por espaço)
-                            val newLine = "  DB${updatedEntry.num} ${updatedEntry.frate} ${updatedEntry.pattern} ${updatedEntry.atomize} ${updatedEntry.hvolt} ${updatedEntry.speed} ${updatedEntry.jspeed} \"${updatedEntry.comment}\""
-                            result.append(newLine).append("\n")
-                            found = true
-                            continue
-                        }
-                    }
-                    result.append(line).append("\n")
-                }
-                result.toString().trim()
-            }
-            saveBackupContent(fullContent)
-        }
-    }
+    fun updateDataBankEntry(updatedEntry: RobotDataBankEntry) = updateDataBankEntries(listOf(updatedEntry))
 
     /**
      * Chamado quando o painel é fechado. Se o terminal não estava conectado, limpa o que sobrou dele.
@@ -1195,3 +1162,6 @@ class RobotDashboardViewModel(
         }
     }
 }
+
+/** Marca "manter a linha como está" no [RobotDashboardViewModel.rewriteDataBank]. */
+private const val DataBankKeep = "\u0000keep"
