@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import my.robots.core.database.BackupDao
+import my.robots.core.database.ProjectDao
 import my.robots.core.database.QuickCommandDao
 import my.robots.core.database.RobotDao
 import my.robots.core.model.*
@@ -37,6 +38,7 @@ class RobotRepository(
     private val robotDao: RobotDao,
     private val quickCommandDao: QuickCommandDao,
     private val backupDao: BackupDao,
+    private val projectDao: ProjectDao,
     private val files: RobotFilesStorage,
     private val secrets: SecretCipher
 ) {
@@ -100,17 +102,58 @@ class RobotRepository(
      * o nome novo (os antigos continuam na pasta antiga e os backups continuam no banco).
      */
     suspend fun updateRobot(robot: Robot) {
-        robotDao.updateRobot(toDb(robot))
+        val current = robotDao.getRobotById(robot.id)
+        // A posição na cabine é do banco: quem edita o robô (RobotDialog) não a conhece.
+        // Mudou de projeto: o robô cai em "fora do layout" no projeto novo.
+        val positioned = when {
+            current == null -> robot
+            current.project != robot.project -> robot.copy(layoutRow = null, layoutCol = null)
+            else -> robot.copy(layoutRow = current.layoutRow, layoutCol = current.layoutCol)
+        }
+        robotDao.updateRobot(toDb(positioned))
+        if (current != null && current.project != robot.project) projectDao.deleteLayoutIfEmpty(current.project)
     }
 
     /**
-     * Apaga o robô do banco. Os arquivos dele na pasta não são apagados.
+     * Apaga o robô do banco. Os arquivos dele na pasta não são apagados. Se o projeto dele
+     * ficou sem robôs, o layout da cabine e os equipamentos do projeto também são apagados.
      */
-    suspend fun deleteRobot(robot: Robot) = robotDao.deleteRobot(robot)
+    suspend fun deleteRobot(robot: Robot) {
+        robotDao.deleteRobot(robot)
+        projectDao.deleteLayoutIfEmpty(robot.project)
+    }
     /**
      * Busca um robô pelo id. Devolve null se não existir.
      */
     suspend fun getRobotById(id: Int): Robot? = robotDao.getRobotById(id)?.let { fromDb(it) }
+
+    // ---------- Projetos (cabine) ----------
+    /**
+     * Tamanho da grade da cabine do projeto. Sem layout gravado, devolve o padrão 2×2.
+     */
+    fun getProjectLayout(projectName: String): Flow<ProjectLayout> =
+        projectDao.getLayout(projectName).map { it ?: ProjectLayout(projectName) }
+
+    /**
+     * Equipamentos da cabine do projeto, por faixa e ordem.
+     */
+    fun getProjectEquipment(projectName: String): Flow<List<ProjectEquipment>> =
+        projectDao.getEquipment(projectName)
+
+    /**
+     * Grava a edição do layout de uma vez (numa transação): tamanho da grade, posição de cada
+     * robô (null = fora do layout) e a lista completa de equipamentos.
+     */
+    suspend fun saveProjectLayout(
+        layout: ProjectLayout,
+        robotPositions: Map<Int, Pair<Int?, Int?>>,
+        equipment: List<ProjectEquipment>
+    ) = projectDao.saveLayout(layout, robotPositions, equipment)
+
+    /**
+     * Renomeia o projeto nos robôs, no layout e nos equipamentos (numa transação).
+     */
+    suspend fun renameProject(oldName: String, newName: String) = projectDao.renameProject(oldName, newName)
 
     // ---------- Comandos rápidos ----------
     /**

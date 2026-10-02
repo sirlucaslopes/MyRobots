@@ -75,6 +75,7 @@ class MyRobotsApp : Application() {
             database.robotDao(),
             database.quickCommandDao(),
             database.backupDao(),
+            database.projectDao(),
             RobotFilesStorage(this).also { filesStorage = it },
             KeystoreSecretCipher()
         )
