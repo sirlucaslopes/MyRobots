@@ -1,5 +1,6 @@
 package my.robots.feature.dashboard
 
+import my.robots.core.designsystem.FormDialog
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -1116,11 +1117,11 @@ fun DataBankBulkEditDialog(
     val fields = remember(entries) { mutableStateListOf(*common.map { it ?: "" }.toTypedArray()) }
     val changed = labels.indices.filter { i -> fields[i] != (common[i] ?: "") && (fields[i].isNotBlank() || i == 6) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Editar ${entries.size} registros") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = "Editar ${entries.size} registros",
+        content = {
+            Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     entries.joinToString { "DB" + it.num },
                     style = MaterialTheme.typography.bodySmall,
@@ -1197,11 +1198,11 @@ fun DataBankEditDialog(
 
     val numError = if (isNew) remember(num) { viewModel?.validateDataBankNum(num) } else null
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (isNew) "Novo Registro" else "Editar Data Bank: ${entry.num}") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = if (isNew) "Novo Registro" else "Editar Data Bank: ${entry.num}",
+        content = {
+            Column(modifier = Modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (isNew) {
                     OutlinedTextField(
                         value = num, 
@@ -1252,10 +1253,10 @@ fun DataBankDuplicateDialog(
     var newNum by remember { mutableStateOf("") }
     val error = remember(newNum) { viewModel?.validateDataBankNum(newNum) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Duplicar Registro") },
-        text = {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = "Duplicar Registro",
+        content = {
             OutlinedTextField(
                 value = newNum,
                 onValueChange = { newNum = it },
@@ -1515,11 +1516,11 @@ fun VariableEditDialog(
 
     val nameError = if (viewModel != null) remember(name) { viewModel.validateVariableName(name, isNew) } else null
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (isNew) "Nova Variável" else "Editar: ${variable.name}") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = if (isNew) "Nova Variável" else "Editar: ${variable.name}",
+        content = {
+            Column(modifier = Modifier) {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -1588,10 +1589,10 @@ fun VariableDuplicateDialog(
     var newName by remember { mutableStateOf("${variable.name}_copy") }
     val error = if (viewModel != null) remember(newName) { viewModel.validateProgramName(newName) } else null
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Duplicar Variável") },
-        text = {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = "Duplicar Variável",
+        content = {
             OutlinedTextField(
                 value = newName,
                 onValueChange = { newValue ->
@@ -2326,10 +2327,10 @@ fun DuplicateProgramDialog(
     var newName by remember { mutableStateOf("${program.name}_copy") }
     val error = if (viewModel != null) remember(newName) { viewModel.validateProgramName(newName) } else null
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Duplicar Programa") },
-        text = {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = "Duplicar Programa",
+        content = {
             Column {
                 Text("Digite o novo nome para o programa:", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(12.dp))

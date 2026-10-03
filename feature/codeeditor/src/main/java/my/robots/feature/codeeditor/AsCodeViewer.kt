@@ -1,5 +1,6 @@
 package my.robots.feature.codeeditor
 
+import my.robots.core.designsystem.FormDialog
 import android.widget.Toast
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -617,10 +618,10 @@ fun LineEditDialog(
 ) {
     var text by remember(initialText) { mutableStateOf(initialText) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = title,
+        content = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
@@ -670,11 +671,11 @@ private fun ShiftPointsDialog(
         mutableStateMapOf<PointAxis, String>().apply { PointAxis.entries.forEach { put(it, "0") } }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Deslocar Pontos") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = "Deslocar Pontos",
+        content = {
+            Column(modifier = Modifier) {
                 Text(
                     "Só altera pontos definidos e usados exclusivamente neste programa.",
                     style = MaterialTheme.typography.bodySmall,
@@ -732,10 +733,10 @@ private fun MirrorPointsDialog(
     var axis by remember { mutableStateOf(PointAxis.X) }
     val mirrorAxes = listOf(PointAxis.X, PointAxis.Y, PointAxis.Z)
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Espelhar Pontos") },
-        text = {
+    FormDialog(
+        onDismiss = onDismiss,
+        title = "Espelhar Pontos",
+        content = {
             Column {
                 Text(
                     "Só altera pontos definidos e usados exclusivamente neste programa.",
