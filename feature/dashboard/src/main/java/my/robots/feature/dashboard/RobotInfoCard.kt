@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -86,6 +87,7 @@ fun RobotInfoCard(
     isConnected: Boolean,
     isReadingMemory: Boolean,
     onReadMemory: () -> Unit,
+    onOpenTerminal: () -> Unit,
     onOpenErrorLog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -129,6 +131,18 @@ fun RobotInfoCard(
                     letterSpacing = 2.sp,
                     modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)
                 )
+            }
+
+            // atalho para o terminal do robô, no canto de baixo do desenho
+            FilledTonalIconButton(
+                onClick = onOpenTerminal,
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = HudLine.copy(alpha = 0.18f),
+                    contentColor = HudAccent
+                ),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp)
+            ) {
+                Icon(Icons.Rounded.Terminal, contentDescription = "Abrir terminal")
             }
 
             health?.let {

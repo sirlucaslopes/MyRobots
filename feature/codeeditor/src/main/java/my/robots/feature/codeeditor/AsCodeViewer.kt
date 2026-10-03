@@ -55,6 +55,9 @@ private sealed class LineDialogAction {
     data class Insert(val beforeIndex: Int, val refIndex: Int, val after: Boolean) : LineDialogAction()
 }
 
+/** Coluna dos números de linha: 4 dígitos (9999) em monoespaçada 14sp, mais a margem. */
+private val LINE_NUMBER_WIDTH = 42.dp
+
 /** Quantos passos de desfazer ficam guardados (o mais antigo cai fora depois disso). */
 private const val MAX_UNDO_STEPS = 50
 
@@ -822,8 +825,6 @@ fun CodeLinesList(
         )
     }
     val horizontalScrollState = rememberScrollState()
-    // largura da coluna de números pelo maior número (um arquivo FULL passa de 10.000 linhas)
-    val numberWidth = (lines.size.toString().length * 9 + 18).dp
 
     LazyColumn(
         state = listState,
@@ -831,7 +832,6 @@ fun CodeLinesList(
     ) {
         itemsIndexed(lines) { index, line ->
             CodeLineRow(
-                numberWidth = numberWidth,
                 lineNumber = index + 1,
                 text = line,
                 isEditMode = isEditMode,
@@ -854,7 +854,6 @@ fun CodeLinesList(
  */
 @Composable
 fun CodeLineRow(
-    numberWidth: androidx.compose.ui.unit.Dp = 48.dp,
     lineNumber: Int,
     text: String,
     isEditMode: Boolean,
@@ -881,11 +880,29 @@ fun CodeLineRow(
             .pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Espaço da caixa de seleção sempre reservado (mesmo fora do modo de edição), pra
-        // número e código não deslocarem para o lado ao ligar/desligar a edição. O Checkbox
-        // do Material tem uma área de toque padrão de 48dp — bem maior que a linha de código
-        // (~24dp) — então ele é encolhido para não esticar a altura da linha.
-        Box(modifier = Modifier.width(32.dp), contentAlignment = Alignment.Center) {
+        // Número da linha encostado na borda, numa coluna fixa do tamanho de 4 dígitos (9999).
+        // Números maiores (arquivo FULL passa de 10.000 linhas) diminuem a fonte para caber.
+        val number = lineNumber.toString()
+        Text(
+            text = number,
+            style = TextStyle(
+                fontFamily = FontFamily.Monospace,
+                fontSize = (14f * minOf(1f, 4f / number.length)).sp,
+                lineHeight = 20.sp,
+                color = Color(0xFF858585),
+                textAlign = TextAlign.End
+            ),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier
+                .width(LINE_NUMBER_WIDTH)
+                .background(Color(0xFF252526))
+                .padding(vertical = 2.dp, horizontal = 4.dp)
+        )
+        // Caixa de seleção entre o número e o código. O espaço fica reservado mesmo fora do modo
+        // de edição, para o código não pular de lado ao ligar/desligar. O Checkbox do Material
+        // tem área de toque de 48dp, maior que a linha (~24dp), então ele é encolhido.
+        Box(modifier = Modifier.width(30.dp), contentAlignment = Alignment.Center) {
             if (isEditMode) {
                 Checkbox(
                     checked = isSelected,
@@ -894,22 +911,6 @@ fun CodeLineRow(
                 )
             }
         }
-        Text(
-            text = lineNumber.toString(),
-            style = TextStyle(
-                fontFamily = FontFamily.Monospace,
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                color = Color(0xFF858585),
-                textAlign = TextAlign.End
-            ),
-            maxLines = 1,
-            softWrap = false,
-            modifier = Modifier
-                .width(numberWidth)
-                .background(Color(0xFF252526))
-                .padding(vertical = 2.dp, horizontal = 8.dp)
-        )
         Box(
             modifier = Modifier
                 .weight(1f)

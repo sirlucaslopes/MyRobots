@@ -1747,6 +1747,7 @@ fun DashboardHome(
             isConnected = isConnected,
             isReadingMemory = isReadingMemory,
             onReadMemory = onReadMemory,
+            onOpenTerminal = { onFeatureClick(DashboardFeature.Terminal) },
             onOpenErrorLog = { onFeatureClick(DashboardFeature.ErrorLog) }
         )
         RobotUsageCard(days = dailyUsage, robotName = robot?.name ?: "robo")

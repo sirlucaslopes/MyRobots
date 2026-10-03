@@ -361,8 +361,10 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   instrução do teach pendant.
 - **O texto nunca é editável direto na área de código.** Cada linha é uma linha de uma
   `LazyColumn` (`CodeLinesList`/`CodeLineRow`), colorida com `highlightAsCode` só nas linhas
-  visíveis, então funciona liso em arquivo com dezenas de milhares de linhas. A coluna de
-  números se ajusta ao tamanho do arquivo.
+  visíveis, então funciona liso em arquivo com dezenas de milhares de linhas. Cada linha tem,
+  da esquerda para a direita: o número (coluna fixa do tamanho de 4 dígitos; números maiores
+  que 9999 diminuem a fonte para caber), a caixa de seleção (só no modo de edição; o espaço
+  fica reservado) e o código.
 - **Lápis** liga o modo de edição: cada linha ganha uma caixa de seleção e abre a barra de
   edição (`LineActionsToolbar`): marcar linhas em lote (todas, limpar, da marcada para
   cima/baixo, entre duas), **copiar** (1+), **colar** (1, entra acima da marcada), **Edit** (1),
@@ -410,7 +412,8 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
 - **Home:** de cima para baixo:
   - **Cartão do robô** (`RobotInfoCard.kt`): faixa baixa com o desenho em linhas de um robô
     de pintura, estilo tela de controle (só ilustração, não mostra a pose real), o modelo, a
-    série, o nome, a quantidade de eixos e o selo do status. Embaixo, os dados lidos do backup
+    série, o nome, a quantidade de eixos, o selo do status e, no canto de baixo, o atalho para
+    o **terminal** do robô. Embaixo, os dados lidos do backup
     SAVE/FULL por `AsRobotInfo` (`:core:common`): horímetro (`HOUR_MTR`, ou `CONT_TIM`; é o
     tempo com o controlador ligado), em operação (`SERV_TIM`, servo ligado), vezes que o motor
     ligou (`MTON_CNT`), emergências (`ESTP_CNT`), freio acionado (`BRKE_CNT`), eixos e série
