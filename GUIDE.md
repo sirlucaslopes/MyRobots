@@ -427,7 +427,10 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     backup, sem carregar o texto inteiro. A hora de cada backup vem do nome do arquivo
     (`R10_20260919_0810.as`) quando ele segue o padrão do app. Entre backups com mais de 2
     dias de intervalo, o valor é a média do intervalo, e a barra aparece apagada. Tocar numa
-    barra mostra o dia. Precisa de pelo menos dois backups SAVE/FULL. Só entram backups do
+    barra mostra o dia. Precisa de pelo menos dois backups SAVE/FULL. **"Exportar (Excel)"** gera
+    `uso_<robô>_<aaaammdd>.csv` com todos os dias (`UsageCsv`, em `:core:common`): colunas
+    separadas por ";", vírgula decimal e BOM UTF-8, para abrir direto no Excel em português, e
+    abre o compartilhar do Android. Só entram backups do
     mesmo controlador (série do `OPEINFO`) do backup mais novo, e um intervalo com mais horas
     do que o tempo que passou (por exemplo, um backup do K-ROSET com a mesma série) é descartado. Programas executados
     por dia não aparecem: o `.EXECPGLOG` do controlador guarda só os últimos dias.

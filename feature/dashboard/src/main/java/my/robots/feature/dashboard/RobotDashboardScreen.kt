@@ -1749,7 +1749,7 @@ fun DashboardHome(
             onReadMemory = onReadMemory,
             onOpenErrorLog = { onFeatureClick(DashboardFeature.ErrorLog) }
         )
-        RobotUsageCard(days = dailyUsage)
+        RobotUsageCard(days = dailyUsage, robotName = robot?.name ?: "robo")
 
         // Backup analisado: menor, abaixo das informações do robô.
         Card(
@@ -2348,14 +2348,20 @@ fun ProgramsPanel(
  * Grava o texto num arquivo temporário e abre o menu de compartilhar do Android (mesmo
  * mecanismo usado no histórico de backups). Usado por Programas e Data Bank.
  */
-private fun shareTextFile(context: Context, fileName: String, content: String, title: String) {
+internal fun shareTextFile(
+    context: Context,
+    fileName: String,
+    content: String,
+    title: String,
+    mimeType: String = "application/octet-stream"
+) {
     try {
         // o nome pode vir do texto do backup: limpa para não sair de shared_backups
         val file = File(File(context.cacheDir, "shared_backups").apply { mkdirs() }, FileUtil.sanitizeFileName(fileName))
         file.writeText(content)
         val contentUri = FileProvider.getUriForFile(context, "my.robots.fileprovider", file)
         val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "application/octet-stream"
+            type = mimeType
             putExtra(Intent.EXTRA_STREAM, contentUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

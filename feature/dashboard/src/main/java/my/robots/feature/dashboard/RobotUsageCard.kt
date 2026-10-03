@@ -19,6 +19,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import my.robots.core.common.ascode.DailyUsage
+import my.robots.core.common.ascode.UsageCsv
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FileDownload
 import java.time.format.DateTimeFormatter
 import kotlin.math.ceil
 
@@ -37,9 +40,11 @@ private val FULL_DATE = DateTimeFormatter.ofPattern("dd/MM/yyyy")
  * - O gráfico tem uma medida só (horas em operação); tocar numa barra mostra o dia com os
  *   três números. Barras apagadas são dias entre backups distantes (média do intervalo).
  * - Com menos de dois backups SAVE/FULL não há o que comparar: o cartão explica isso.
+ * - "Exportar (Excel)" gera um CSV com todos os dias ([UsageCsv]) e abre o compartilhar.
  */
 @Composable
-fun RobotUsageCard(days: List<DailyUsage>, modifier: Modifier = Modifier) {
+fun RobotUsageCard(days: List<DailyUsage>, robotName: String, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     var periodIndex by rememberSaveable { mutableIntStateOf(0) }
     var selected by remember(days, periodIndex) { mutableStateOf<Int?>(null) }
 
@@ -48,7 +53,27 @@ fun RobotUsageCard(days: List<DailyUsage>, modifier: Modifier = Modifier) {
 
     Card(modifier = modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Uso do robô", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Uso do robô",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                // planilha com todos os dias (não só o período escolhido), para abrir no Excel
+                if (days.isNotEmpty()) {
+                    TextButton(onClick = {
+                        shareTextFile(
+                            context, UsageCsv.fileName(robotName), UsageCsv.build(robotName, days),
+                            "Exportar uso do robô", mimeType = "text/csv"
+                        )
+                    }) {
+                        Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Exportar (Excel)")
+                    }
+                }
+            }
 
             if (days.isEmpty()) {
                 Text(
