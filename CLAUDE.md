@@ -59,3 +59,4 @@ Wiring and state:
 
 - Code comments, UI strings, `GUIDE.md`, and git commit messages are in **Portuguese**. Match that. Commit subjects are imperative (for example, "Adiciona …" or "Corrige …"), and the body is a bullet list.
 - `as` is a Kotlin keyword, so the AS-language package is named `ascode`.
+- Every screen uses `AppTopBar` (`:core:designsystem`): title (and subtitle) on top with only the ⋮ menu beside it, and all other actions in the `ActionStrip` row below as `BarAction`s (icon + label, fixed 64 dp height). Don't put icons next to the title.

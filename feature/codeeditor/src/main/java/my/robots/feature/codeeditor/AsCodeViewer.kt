@@ -1,5 +1,9 @@
 package my.robots.feature.codeeditor
 
+import my.robots.core.designsystem.BarAction
+import my.robots.core.designsystem.AppTopBar
+import my.robots.core.designsystem.ActionTone
+import my.robots.core.designsystem.ActionStrip
 import my.robots.core.designsystem.FormDialog
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.lazy.LazyListState
@@ -132,7 +136,6 @@ fun AsCodeViewer(
     // pesquisar a cada letra seria pesado)
     var searchInput by remember { mutableStateOf("") }
     var showEditChoice by remember { mutableStateOf(false) }
-    var showConversionMenu by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     // linha encontrada em destaque (posição dentro de searchMatches)
     var currentMatch by remember { mutableStateOf(0) }
@@ -238,39 +241,43 @@ fun AsCodeViewer(
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(
-                    title = { Text(fileName, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
-                        }
+                AppTopBar(
+                    title = fileName,
+                    subtitle = when {
+                        isLoadingLines -> "Carregando…"
+                        isNewFile -> "${lines.size} linhas · arquivo novo"
+                        isDirty -> "${lines.size} linhas · alterações não salvas"
+                        else -> "${lines.size} linhas"
                     },
-                    actions = {
-                        // lupa: abre/fecha a barra de pesquisa
-                        IconToggleButton(
-                            checked = isSearchActive,
-                            onCheckedChange = { on ->
-                                isSearchActive = on
-                                if (!on) { searchQuery = ""; searchInput = "" }
-                            }
-                        ) {
-                            Icon(Icons.Default.Search, contentDescription = "Pesquisar",
-                                tint = if (isSearchActive) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                        }
-                        // lápis: abre/fecha a barra de edição
-                        IconToggleButton(
-                            checked = isEditMode,
-                            enabled = !isLoadingLines,
-                            onCheckedChange = { on ->
-                                isEditMode = on
-                                selectedLines = emptySet()
-                            }
-                        ) {
-                            Icon(Icons.Default.Edit, contentDescription = "Modo de edição",
-                                tint = if (isEditMode) MaterialTheme.colorScheme.primary else LocalContentColor.current)
-                        }
-                        IconButton(
+                    onBack = onBack,
+                    // ⋮: conversão de programa (deslocar, espelhar...)
+                    menu = { close ->
+                        ProgramConversionItems(
+                            hasSelection = hasSelection,
+                            onShift = { close(); showShiftDialog = true },
+                            onMirror = { close(); showMirrorDialog = true }
+                        )
+                    },
+                    actions = listOf(
+                        BarAction(Icons.Default.Search, "Pesquisar", selected = isSearchActive, onClick = {
+                            isSearchActive = !isSearchActive
+                            if (!isSearchActive) { searchQuery = ""; searchInput = "" }
+                        }),
+                        BarAction(Icons.Default.Edit, "Editar", selected = isEditMode, enabled = !isLoadingLines, onClick = {
+                            isEditMode = !isEditMode
+                            selectedLines = emptySet()
+                        }),
+                        BarAction(
+                            if (isNewFile) Icons.Default.SaveAs else Icons.Default.Save,
+                            when {
+                                isSaving -> "Salvando…"
+                                isNewFile -> "Salvar em…"
+                                isDirty -> "Salvar"
+                                else -> "Salvo"
+                            },
                             enabled = !isSaving && !isLoadingLines,
+                            tone = if (isDirty || isNewFile) ActionTone.Primary else ActionTone.Normal,
+                            badge = isDirty || isNewFile,
                             onClick = {
                                 scope.launch {
                                     isSaving = true
@@ -279,23 +286,8 @@ fun AsCodeViewer(
                                     isSaving = false
                                 }
                             }
-                        ) {
-                            SaveIcon(isSaving = isSaving, isDirty = isDirty, isNewFile = isNewFile)
-                        }
-                        // ⋮: conversão de programa (deslocar, espelhar...)
-                        Box {
-                            IconButton(onClick = { showConversionMenu = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "Conversão de programa")
-                            }
-                            ProgramConversionMenu(
-                                expanded = showConversionMenu,
-                                hasSelection = hasSelection,
-                                onDismiss = { showConversionMenu = false },
-                                onShift = { showConversionMenu = false; showShiftDialog = true },
-                                onMirror = { showConversionMenu = false; showMirrorDialog = true }
-                            )
-                        }
-                    }
+                        )
+                    )
                 )
 
                 if (isSearchActive) {
@@ -524,7 +516,7 @@ private fun SearchNavigationBar(
             if (n > 0) k to n else null
         }
     }
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -587,41 +579,37 @@ private fun SearchNavigationBar(
  * (deslocar e espelhar pontos, ver PointTransform.kt). Sem linhas marcadas, só mostra a dica.
  */
 @Composable
-private fun ProgramConversionMenu(
-    expanded: Boolean,
+private fun ColumnScope.ProgramConversionItems(
     hasSelection: Boolean,
-    onDismiss: () -> Unit,
     onShift: () -> Unit,
     onMirror: () -> Unit
 ) {
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+    Text(
+        "Conversão de programa",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+    if (!hasSelection) {
         Text(
-            "Conversão de programa",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-        )
-        if (!hasSelection) {
-            Text(
-                "Marque as linhas no modo de edição (lápis).",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 240.dp)
-            )
-        }
-        DropdownMenuItem(
-            text = { Text("Deslocar pontos") },
-            leadingIcon = { Icon(Icons.Default.OpenWith, null) },
-            enabled = hasSelection,
-            onClick = onShift
-        )
-        DropdownMenuItem(
-            text = { Text("Espelhar pontos") },
-            leadingIcon = { Icon(Icons.Default.Flip, null) },
-            enabled = hasSelection,
-            onClick = onMirror
+            "Marque as linhas no modo de edição.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 240.dp)
         )
     }
+    DropdownMenuItem(
+        text = { Text("Deslocar pontos") },
+        leadingIcon = { Icon(Icons.Default.OpenWith, null) },
+        enabled = hasSelection,
+        onClick = onShift
+    )
+    DropdownMenuItem(
+        text = { Text("Espelhar pontos") },
+        leadingIcon = { Icon(Icons.Default.Flip, null) },
+        enabled = hasSelection,
+        onClick = onMirror
+    )
 }
 
 /**
@@ -673,38 +661,6 @@ private fun EditChoiceRow(icon: androidx.compose.ui.graphics.vector.ImageVector,
 }
 
 /**
- * Ícone do botão de salvar, de acordo com o estado do arquivo:
- * - salvando: um círculo de carregando;
- * - novo (sem destino ainda): "salvar como" na cor de destaque, com uma bolinha;
- * - com alteração pendente: o disquete normal, com a mesma bolinha;
- * - tudo salvo: o disquete normal, sem bolinha.
- */
-@Composable
-private fun SaveIcon(isSaving: Boolean, isDirty: Boolean, isNewFile: Boolean) {
-    when {
-        isSaving -> CircularProgressIndicator(
-            modifier = Modifier.size(20.dp),
-            strokeWidth = 2.dp
-        )
-        isNewFile -> BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) }) {
-            Icon(
-                imageVector = Icons.Default.SaveAs,
-                contentDescription = "Salvar em um Robô",
-                tint = MaterialTheme.colorScheme.primary
-            )
-        }
-        isDirty -> BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) }) {
-            Icon(Icons.Default.Save, contentDescription = "Salvar Alterações")
-        }
-        else -> Icon(
-            imageVector = Icons.Default.Save,
-            contentDescription = "Tudo Salvo",
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-        )
-    }
-}
-
-/**
  * Barra de edição (abre no lápis): marcar linhas em lote, copiar, colar, Edit (Editar /
  * Inserir / Adicionar), excluir e, à direita, desfazer e refazer. Colar e Edit exigem
  * exatamente uma linha marcada; copiar e excluir aceitam várias. Deslocar e espelhar pontos
@@ -730,68 +686,24 @@ fun LineActionsToolbar(
     onUndo: () -> Unit,
     onRedo: () -> Unit
 ) {
-    var showSelectionMenu by remember { mutableStateOf(false) }
-
-    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 4.dp, vertical = 4.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box {
-                IconButton(onClick = { showSelectionMenu = true }) {
-                    Icon(Icons.Default.Checklist, "Marcar Linhas", tint = LocalContentColor.current)
-                }
-                DropdownMenu(expanded = showSelectionMenu, onDismissRequest = { showSelectionMenu = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Marcar Todas") },
-                        onClick = { showSelectionMenu = false; onSelectAll() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Limpar Marcação") },
-                        enabled = hasSelection,
-                        onClick = { showSelectionMenu = false; onClearSelection() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Da Linha Marcada para Cima") },
-                        enabled = hasSingleSelection,
-                        onClick = { showSelectionMenu = false; onSelectUpward() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Da Linha Marcada para Baixo") },
-                        enabled = hasSingleSelection,
-                        onClick = { showSelectionMenu = false; onSelectDownward() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Preencher Entre as 2 Marcadas") },
-                        enabled = hasTwoSelected,
-                        onClick = { showSelectionMenu = false; onSelectRange() }
-                    )
-                }
-            }
-            IconButton(onClick = onCopy, enabled = hasSelection) {
-                Icon(Icons.Default.ContentCopy, "Copiar", tint = if (hasSelection) LocalContentColor.current else disabledTint)
-            }
-            IconButton(onClick = onPaste, enabled = hasSingleSelection) {
-                Icon(Icons.Default.ContentPaste, "Colar", tint = if (hasSingleSelection) LocalContentColor.current else disabledTint)
-            }
+    ActionStrip(
+        listOf(
+            BarAction(Icons.Default.Checklist, "Marcar", menu = { close ->
+                DropdownMenuItem(text = { Text("Marcar todas") }, onClick = { close(); onSelectAll() })
+                DropdownMenuItem(text = { Text("Limpar marcação") }, enabled = hasSelection, onClick = { close(); onClearSelection() })
+                DropdownMenuItem(text = { Text("Da linha marcada para cima") }, enabled = hasSingleSelection, onClick = { close(); onSelectUpward() })
+                DropdownMenuItem(text = { Text("Da linha marcada para baixo") }, enabled = hasSingleSelection, onClick = { close(); onSelectDownward() })
+                DropdownMenuItem(text = { Text("Preencher entre as 2 marcadas") }, enabled = hasTwoSelected, onClick = { close(); onSelectRange() })
+            }),
+            BarAction(Icons.Default.ContentCopy, "Copiar", enabled = hasSelection, onClick = onCopy),
+            BarAction(Icons.Default.ContentPaste, "Colar", enabled = hasSingleSelection, onClick = onPaste),
             // Edit: pergunta Editar / Inserir / Adicionar na linha marcada
-            IconButton(onClick = onEdit, enabled = hasSingleSelection) {
-                Icon(Icons.Default.EditNote, "Editar, inserir ou adicionar", tint = if (hasSingleSelection) MaterialTheme.colorScheme.primary else disabledTint)
-            }
-            IconButton(onClick = onDelete, enabled = hasSelection) {
-                Icon(Icons.Default.Delete, "Excluir", tint = if (hasSelection) MaterialTheme.colorScheme.error else disabledTint)
-            }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onUndo, enabled = canUndo) {
-                Icon(Icons.AutoMirrored.Filled.Undo, "Desfazer", tint = if (canUndo) LocalContentColor.current else disabledTint)
-            }
-            IconButton(onClick = onRedo, enabled = canRedo) {
-                Icon(Icons.AutoMirrored.Filled.Redo, "Refazer", tint = if (canRedo) LocalContentColor.current else disabledTint)
-            }
-        }
-    }
+            BarAction(Icons.Default.EditNote, "Linha", enabled = hasSingleSelection, tone = ActionTone.Primary, onClick = onEdit),
+            BarAction(Icons.Default.Delete, "Excluir", enabled = hasSelection, tone = ActionTone.Danger, onClick = onDelete),
+            BarAction(Icons.AutoMirrored.Filled.Undo, "Desfazer", enabled = canUndo, onClick = onUndo),
+            BarAction(Icons.AutoMirrored.Filled.Redo, "Refazer", enabled = canRedo, onClick = onRedo)
+        )
+    )
 }
 
 /**

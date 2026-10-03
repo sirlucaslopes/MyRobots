@@ -1,5 +1,10 @@
 package my.robots.feature.dashboard
 
+import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.Link
+import my.robots.core.designsystem.BarAction
+import my.robots.core.designsystem.AppTopBar
+import my.robots.core.designsystem.ActionTone
 import my.robots.core.designsystem.FormDialog
 import android.content.Context
 import android.content.Intent
@@ -288,283 +293,190 @@ fun RobotDashboardScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = {
-                        if (isLogFeature && isLogSearchActive) {
-                            OutlinedTextField(
-                                value = logSearchQuery,
-                                onValueChange = { logSearchQuery = it },
-                                modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
-                                placeholder = { Text("Pesquisar...") },
-                                singleLine = true,
-                                textStyle = LocalTextStyle.current.copy(fontSize = 16.sp)
-                            )
-                        } else {
-                            Text(
-                                text = when (activeFeature) {
-                                    null -> robot?.name ?: "Painel"
-                                    DashboardFeature.Terminal -> "Terminal: ${robot?.name ?: ""}"
-                                    DashboardFeature.Programs -> "Programas"
-                                    DashboardFeature.Variables -> "Variáveis"
-                                    DashboardFeature.DataBank -> "Data Bank"
-                                    else -> activeFeature!!.label
-                                },
-                                style = MaterialTheme.typography.titleLarge,
-                                // uma linha só: as seções com muitas ações na barra deixam pouco espaço
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = {
-                            if (isLogFeature && isLogSearchActive) {
-                                isLogSearchActive = false
-                                logSearchQuery = ""
-                            } else if (canGoBackToHome) {
-                                activeFeature = null
-                            } else {
-                                onBack()
-                            }
-                        }) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    actions = {
-                        if (activeFeature == null) {
-                            // Itens pouco usados da home ficam escondidos neste menu.
-                            var menuOpen by remember { mutableStateOf(false) }
-                            IconButton(onClick = { menuOpen = true }) {
-                                Icon(Icons.Default.MoreVert, contentDescription = "Mais opções")
-                            }
-                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                DropdownMenuItem(
-                                    text = { Text("Ver arquivo completo") },
-                                    leadingIcon = { Icon(DashboardFeature.FullCode.icon, contentDescription = null) },
-                                    enabled = latestBackup != null,
-                                    onClick = {
-                                        menuOpen = false
-                                        latestBackup?.let { onFullCodeClick(it) }
-                                    }
-                                )
-                            }
-                        } else if (activeFeature == DashboardFeature.Terminal) {
-                            val isConnected by (viewModel?.isConnected?.collectAsState() ?: remember { mutableStateOf(false) })
-                            
-                            IconButton(onClick = {
-                                viewModel?.clearTerminal()
-                            }) {
-                                Icon(Icons.Default.DeleteSweep, "Limpar Log", tint = MaterialTheme.colorScheme.error)
-                            }
+                val isTerminalConnected by (viewModel?.isConnected?.collectAsState() ?: remember { mutableStateOf(false) })
+                val robotName = robot?.name ?: ""
+                val title = when (activeFeature) {
+                    null -> robot?.name ?: "Painel"
+                    DashboardFeature.Programs -> "Programas"
+                    DashboardFeature.Variables -> "Variáveis"
+                    DashboardFeature.DataBank -> "Data Bank"
+                    else -> activeFeature!!.label
+                }
+                fun counted(total: Int, noun: String, marked: Int) =
+                    listOf(robotName, "$total $noun", if (marked > 0) "$marked marcados" else "")
+                        .filter { it.isNotBlank() }.joinToString(" · ")
+                val subtitle = when (activeFeature) {
+                    null -> robot?.project
+                    DashboardFeature.Programs -> counted(programs.size, "programas", selectedProgramNames.size)
+                    DashboardFeature.Variables -> counted(variables.size, "variáveis", selectedVarNames.size)
+                    DashboardFeature.DataBank -> counted(dataBankEntries.size, "linhas", selectedDbNums.size)
+                    DashboardFeature.Terminal -> listOf(robotName, if (isTerminalConnected) "conectado" else "desconectado")
+                        .filter { it.isNotBlank() }.joinToString(" · ")
+                    else -> robotName
+                }
 
-                            IconButton(onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW)
-                                    // pasta dos arquivos atual: Documentos/MyRobots ou a escolhida pelo usuário
-                                    val rootUri = viewModel?.filesFolderUri() ?: return@IconButton
+                // lupa das listas (Programas, Variáveis, Data Bank)
+                val searchAction = BarAction(
+                    Icons.Default.Search, "Pesquisar",
+                    selected = listSearchOpen,
+                    onClick = {
+                        listSearchOpen = !listSearchOpen
+                        if (!listSearchOpen) listSearchQuery = ""
+                    }
+                )
+                fun markAllAction(allMarked: Boolean, onClick: () -> Unit) = BarAction(
+                    if (allMarked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                    if (allMarked) "Desmarcar" else "Marcar todos",
+                    selected = allMarked,
+                    onClick = onClick
+                )
+
+                val actions: List<BarAction> = when (activeFeature) {
+                    DashboardFeature.Terminal -> listOf(
+                        BarAction(
+                            if (isTerminalConnected) Icons.Rounded.LinkOff else Icons.Rounded.Link,
+                            if (isTerminalConnected) "Desconectar" else "Conectar",
+                            tone = if (isTerminalConnected) ActionTone.Success else ActionTone.Primary,
+                            onClick = { viewModel?.toggleConnection() }
+                        ),
+                        BarAction(Icons.Rounded.Folder, "Arquivos", onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW)
+                                // pasta dos arquivos atual: Documentos/MyRobots ou a escolhida pelo usuário
+                                val rootUri = viewModel?.filesFolderUri()
+                                if (rootUri == null) {
+                                    onViewBackups()
+                                } else {
                                     intent.setDataAndType(rootUri, DocumentsContract.Document.MIME_TYPE_DIR)
                                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    // se o gerenciador de arquivos não abrir, vai para o histórico de backups
-                                    onViewBackups()
                                 }
-                            }) {
-                                Icon(Icons.Rounded.Folder, "Arquivos", tint = MaterialTheme.colorScheme.primary)
+                            } catch (e: Exception) {
+                                // se o gerenciador de arquivos não abrir, vai para o histórico de backups
+                                onViewBackups()
                             }
-
-                            Button(
-                                onClick = { viewModel?.toggleConnection() },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isConnected) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
-                                ),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                modifier = Modifier.padding(end = 8.dp).height(36.dp)
-                            ) {
-                                Text(if (isConnected) "Desconectar" else "Conectar", fontSize = 12.sp)
-                            }
-                        } else if (activeFeature == DashboardFeature.Programs) {
-                            IconButton(onClick = {
-                                listSearchOpen = !listSearchOpen
-                                if (!listSearchOpen) listSearchQuery = ""
-                            }) {
-                                Icon(
-                                    Icons.Default.Search, "Pesquisar",
-                                    tint = if (listSearchOpen) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                                )
-                            }
-                            // Seleciona/desmarca todos os programas que aparecem (com a busca, só os achados).
-                            val allSelected = shownPrograms.isNotEmpty() && shownPrograms.all { it.name in selectedProgramNames }
-                            IconButton(onClick = {
+                        }),
+                        BarAction(Icons.Default.DeleteSweep, "Limpar", tone = ActionTone.Danger, onClick = { viewModel?.clearTerminal() })
+                    )
+                    DashboardFeature.Programs -> {
+                        val allMarked = shownPrograms.isNotEmpty() && shownPrograms.all { it.name in selectedProgramNames }
+                        val selectedPrograms = programs.filter { it.name in selectedProgramNames }
+                        val has = selectedPrograms.isNotEmpty()
+                        listOf(
+                            searchAction,
+                            // marca/desmarca os que aparecem (com a busca, só os achados)
+                            markAllAction(allMarked) {
                                 val names = shownPrograms.map { it.name }.toSet()
-                                selectedProgramNames = if (allSelected) selectedProgramNames - names else selectedProgramNames + names
-                            }) {
-                                Icon(
-                                    imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                                    contentDescription = if (allSelected) "Desmarcar Todos" else "Selecionar Todos"
-                                )
-                            }
-
-                            val selectedPrograms = programs.filter { it.name in selectedProgramNames }
-                            val hasSelection = selectedPrograms.isNotEmpty()
-                            val disabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-
-                            // Só os programas marcados são empacotados e enviados.
-                            IconButton(onClick = { programsToUpload = selectedPrograms }, enabled = hasSelection) {
-                                Icon(
-                                    imageVector = Icons.Rounded.CloudUpload,
-                                    contentDescription = "Enviar Selecionados",
-                                    tint = if (hasSelection) MaterialTheme.colorScheme.primary else disabledTint
-                                )
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    scope.launch {
-                                        val content = viewModel?.packProgramsContent(selectedPrograms) ?: ""
-                                        if (content.isNotBlank()) {
-                                            val name = if (selectedPrograms.size == 1) "${selectedPrograms[0].name}.as"
-                                                else "programas_${System.currentTimeMillis()}.as"
-                                            shareTextFile(context, name, content, "Compartilhar Programas")
-                                        }
+                                selectedProgramNames = if (allMarked) selectedProgramNames - names else selectedProgramNames + names
+                            },
+                            BarAction(Icons.Rounded.CloudUpload, "Enviar", enabled = has, tone = ActionTone.Primary,
+                                onClick = { programsToUpload = selectedPrograms }),
+                            BarAction(Icons.Default.Share, "Compartilhar", enabled = has, onClick = {
+                                scope.launch {
+                                    val content = viewModel?.packProgramsContent(selectedPrograms) ?: ""
+                                    if (content.isNotBlank()) {
+                                        val name = if (selectedPrograms.size == 1) "${selectedPrograms[0].name}.as"
+                                            else "programas_${System.currentTimeMillis()}.as"
+                                        shareTextFile(context, name, content, "Compartilhar Programas")
                                     }
-                                },
-                                enabled = hasSelection
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = "Compartilhar Selecionados",
-                                    tint = if (hasSelection) MaterialTheme.colorScheme.onSurface else disabledTint
-                                )
-                            }
-
-                            IconButton(onClick = { programsToDelete = selectedPrograms }, enabled = hasSelection) {
-                                Icon(
-                                    imageVector = Icons.Default.Delete,
-                                    contentDescription = "Excluir Selecionados",
-                                    tint = if (hasSelection) MaterialTheme.colorScheme.error else disabledTint
-                                )
-                            }
-                        } else if (activeFeature == DashboardFeature.Variables) {
-                            IconButton(onClick = {
-                                listSearchOpen = !listSearchOpen
-                                if (!listSearchOpen) listSearchQuery = ""
-                            }) {
-                                Icon(
-                                    Icons.Default.Search, "Pesquisar",
-                                    tint = if (listSearchOpen) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                                )
-                            }
-                            val allSelected = shownVariables.isNotEmpty() && shownVariables.all { it.name in selectedVarNames }
-                            IconButton(onClick = {
-                                val names = shownVariables.map { it.name }.toSet()
-                                selectedVarNames = if (allSelected) selectedVarNames - names else selectedVarNames + names
-                            }) {
-                                Icon(
-                                    imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                                    contentDescription = if (allSelected) "Desmarcar Todos" else "Selecionar Todos"
-                                )
-                            }
-                            val selectedVars = variables.filter { it.name in selectedVarNames }
-                            val hasVarSelection = selectedVars.isNotEmpty()
-                            val varDisabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            IconButton(onClick = { variableToUpload = selectedVars }, enabled = hasVarSelection) {
-                                Icon(
-                                    Icons.Rounded.CloudUpload, "Enviar Selecionadas",
-                                    tint = if (hasVarSelection) MaterialTheme.colorScheme.primary else varDisabledTint
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    scope.launch {
-                                        val vm = viewModel ?: return@launch
-                                        val content = vm.variablesContent(selectedVars)
-                                        if (content.isNotBlank()) {
-                                            shareTextFile(context, vm.variablesFileName(selectedVars), content, "Compartilhar Variáveis")
-                                        }
-                                    }
-                                },
-                                enabled = hasVarSelection
-                            ) {
-                                Icon(
-                                    Icons.Default.Share, "Compartilhar Selecionadas",
-                                    tint = if (hasVarSelection) MaterialTheme.colorScheme.onSurface else varDisabledTint
-                                )
-                            }
-                            IconButton(onClick = { variableToDelete = selectedVars }, enabled = hasVarSelection) {
-                                Icon(
-                                    Icons.Default.Delete, "Excluir Selecionadas",
-                                    tint = if (hasVarSelection) MaterialTheme.colorScheme.error else varDisabledTint
-                                )
-                            }
-                        } else if (activeFeature == DashboardFeature.DataBank) {
-                            IconButton(onClick = {
-                                listSearchOpen = !listSearchOpen
-                                if (!listSearchOpen) listSearchQuery = ""
-                            }) {
-                                Icon(
-                                    Icons.Default.Search, "Pesquisar",
-                                    tint = if (listSearchOpen) MaterialTheme.colorScheme.primary else LocalContentColor.current
-                                )
-                            }
-                            val allSelected = shownDataBank.isNotEmpty() && shownDataBank.all { it.num in selectedDbNums }
-                            IconButton(onClick = {
-                                val nums = shownDataBank.map { it.num }.toSet()
-                                selectedDbNums = if (allSelected) selectedDbNums - nums else selectedDbNums + nums
-                            }) {
-                                Icon(
-                                    imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                                    contentDescription = if (allSelected) "Desmarcar Todos" else "Selecionar Todos"
-                                )
-                            }
-                            val selectedDb = dataBankEntries.filter { it.num in selectedDbNums }.sortedBy { it.num.toIntOrNull() ?: 0 }
-                            val hasDbSelection = selectedDb.isNotEmpty()
-                            val dbDisabledTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-
-                            // muda as colunas escolhidas em todas as linhas marcadas de uma vez
-                            IconButton(onClick = { dataBankToBulkEdit = selectedDb }, enabled = hasDbSelection) {
-                                Icon(
-                                    Icons.Default.EditNote, "Editar Selecionados",
-                                    tint = if (hasDbSelection) MaterialTheme.colorScheme.onSurface else dbDisabledTint
-                                )
-                            }
-                            IconButton(onClick = { dataBankToUpload = selectedDb }, enabled = hasDbSelection) {
-                                Icon(
-                                    Icons.Rounded.CloudUpload, "Enviar Selecionados",
-                                    tint = if (hasDbSelection) MaterialTheme.colorScheme.primary else dbDisabledTint
-                                )
-                            }
-                            IconButton(
-                                onClick = {
-                                    viewModel?.let { vm ->
-                                        shareTextFile(context, vm.dataBankFileName(selectedDb), vm.dataBankContent(selectedDb), "Compartilhar Data Bank")
-                                    }
-                                },
-                                enabled = hasDbSelection
-                            ) {
-                                Icon(
-                                    Icons.Default.Share, "Compartilhar Selecionados",
-                                    tint = if (hasDbSelection) MaterialTheme.colorScheme.onSurface else dbDisabledTint
-                                )
-                            }
-                            IconButton(onClick = { dataBankToDelete = selectedDb }, enabled = hasDbSelection) {
-                                Icon(
-                                    Icons.Default.Delete, "Excluir Selecionados",
-                                    tint = if (hasDbSelection) MaterialTheme.colorScheme.error else dbDisabledTint
-                                )
-                            }
-                        } else if (isLogFeature) {
-                            if (isLogSearchActive) {
-                                IconButton(onClick = { isLogSearchActive = false; logSearchQuery = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Fechar Busca")
                                 }
-                            } else {
-                                IconButton(onClick = { isLogSearchActive = true }) {
-                                    Icon(Icons.Default.Search, contentDescription = "Pesquisar")
-                                }
-                            }
-                        }
+                            }),
+                            BarAction(Icons.Default.Delete, "Excluir", enabled = has, tone = ActionTone.Danger,
+                                onClick = { programsToDelete = selectedPrograms })
+                        )
                     }
+                    DashboardFeature.Variables -> {
+                        val allMarked = shownVariables.isNotEmpty() && shownVariables.all { it.name in selectedVarNames }
+                        val selectedVars = variables.filter { it.name in selectedVarNames }
+                        val has = selectedVars.isNotEmpty()
+                        listOf(
+                            searchAction,
+                            markAllAction(allMarked) {
+                                val names = shownVariables.map { it.name }.toSet()
+                                selectedVarNames = if (allMarked) selectedVarNames - names else selectedVarNames + names
+                            },
+                            BarAction(Icons.Rounded.CloudUpload, "Enviar", enabled = has, tone = ActionTone.Primary,
+                                onClick = { variableToUpload = selectedVars }),
+                            BarAction(Icons.Default.Share, "Compartilhar", enabled = has, onClick = {
+                                scope.launch {
+                                    val vm = viewModel ?: return@launch
+                                    val content = vm.variablesContent(selectedVars)
+                                    if (content.isNotBlank()) {
+                                        shareTextFile(context, vm.variablesFileName(selectedVars), content, "Compartilhar Variáveis")
+                                    }
+                                }
+                            }),
+                            BarAction(Icons.Default.Delete, "Excluir", enabled = has, tone = ActionTone.Danger,
+                                onClick = { variableToDelete = selectedVars })
+                        )
+                    }
+                    DashboardFeature.DataBank -> {
+                        val allMarked = shownDataBank.isNotEmpty() && shownDataBank.all { it.num in selectedDbNums }
+                        val selectedDb = dataBankEntries.filter { it.num in selectedDbNums }.sortedBy { it.num.toIntOrNull() ?: 0 }
+                        val has = selectedDb.isNotEmpty()
+                        listOf(
+                            searchAction,
+                            markAllAction(allMarked) {
+                                val nums = shownDataBank.map { it.num }.toSet()
+                                selectedDbNums = if (allMarked) selectedDbNums - nums else selectedDbNums + nums
+                            },
+                            // muda as colunas escolhidas em todas as linhas marcadas de uma vez
+                            BarAction(Icons.Default.EditNote, "Editar", enabled = has, onClick = { dataBankToBulkEdit = selectedDb }),
+                            BarAction(Icons.Rounded.CloudUpload, "Enviar", enabled = has, tone = ActionTone.Primary,
+                                onClick = { dataBankToUpload = selectedDb }),
+                            BarAction(Icons.Default.Share, "Compartilhar", enabled = has, onClick = {
+                                viewModel?.let { vm ->
+                                    shareTextFile(context, vm.dataBankFileName(selectedDb), vm.dataBankContent(selectedDb), "Compartilhar Data Bank")
+                                }
+                            }),
+                            BarAction(Icons.Default.Delete, "Excluir", enabled = has, tone = ActionTone.Danger,
+                                onClick = { dataBankToDelete = selectedDb })
+                        )
+                    }
+                    else -> if (isLogFeature) listOf(
+                        BarAction(Icons.Default.Search, "Pesquisar", selected = isLogSearchActive, onClick = {
+                            isLogSearchActive = !isLogSearchActive
+                            if (!isLogSearchActive) logSearchQuery = ""
+                        })
+                    ) else emptyList()
+                }
+
+                AppTopBar(
+                    title = title,
+                    subtitle = subtitle,
+                    onBack = {
+                        if (isLogFeature && isLogSearchActive) {
+                            isLogSearchActive = false
+                            logSearchQuery = ""
+                        } else if (canGoBackToHome) {
+                            activeFeature = null
+                        } else {
+                            onBack()
+                        }
+                    },
+                    // itens pouco usados da página inicial do robô
+                    menu = if (activeFeature == null) { close ->
+                        DropdownMenuItem(
+                            text = { Text("Ver arquivo completo") },
+                            leadingIcon = { Icon(DashboardFeature.FullCode.icon, contentDescription = null) },
+                            enabled = latestBackup != null,
+                            onClick = {
+                                close()
+                                latestBackup?.let { onFullCodeClick(it) }
+                            }
+                        )
+                    } else null,
+                    actions = actions,
+                    below = if (isLogFeature && isLogSearchActive) {
+                        {
+                            SearchFieldRow(
+                                query = logSearchQuery,
+                                onQuery = { logSearchQuery = it },
+                                count = null,
+                                onClose = { isLogSearchActive = false; logSearchQuery = "" }
+                            )
+                        }
+                    } else null
                 )
             },
             // As bordas são zeradas aqui porque o terminal ajusta a parte de baixo (teclado)
@@ -2077,14 +1989,7 @@ fun ErrorLogDetailDialog(entry: RobotErrorLogEntry, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(modifier = Modifier.fillMaxSize()) {
-                TopAppBar(
-                    title = { Text("Detalhe do Erro") },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Voltar")
-                        }
-                    }
-                )
+                AppTopBar(title = "Detalhe do erro", onBack = onDismiss)
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -2534,28 +2439,8 @@ private fun WithListSearch(
 ) {
     Column(Modifier.fillMaxSize()) {
         if (open) {
-            val focus = remember { androidx.compose.ui.focus.FocusRequester() }
-            LaunchedEffect(Unit) { focus.requestFocus() }
-            Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = onQuery,
-                        placeholder = { Text("Pesquisar na lista...") },
-                        leadingIcon = { Icon(Icons.Default.Search, null) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f).focusRequester(focus)
-                    )
-                    Text(
-                        if (query.isBlank()) "$total" else "$shown de $total",
-                        style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 8.dp)
-                    )
-                    IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Fechar busca") }
-                }
-            }
+            SearchFieldRow(query = query, onQuery = onQuery, count = if (query.isBlank()) "$total" else "$shown de $total", onClose = onClose)
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
         if (open && query.isNotBlank() && shown == 0) {
             Text(
                 "Nada encontrado para \"$query\".",
@@ -2563,6 +2448,34 @@ private fun WithListSearch(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp)
             )
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+    }
+}
+
+/**
+ * Linha do campo de busca, embaixo da linha de ações (listas e logs): campo com a lupa, a
+ * contagem ("N de M") e o X para fechar. Abre com o teclado no campo.
+ */
+@Composable
+private fun SearchFieldRow(query: String, onQuery: (String) -> Unit, count: String?, onClose: () -> Unit) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = onQuery,
+                placeholder = { Text("Pesquisar...") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                singleLine = true,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.weight(1f).focusRequester(focus)
+            )
+            if (count != null) {
+                Text(count, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 8.dp))
+            }
+            IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Fechar busca") }
         }
     }
 }

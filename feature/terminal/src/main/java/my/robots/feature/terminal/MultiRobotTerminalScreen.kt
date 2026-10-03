@@ -1,5 +1,8 @@
 package my.robots.feature.terminal
 
+import my.robots.core.designsystem.ActionTone
+import my.robots.core.designsystem.AppTopBar
+import my.robots.core.designsystem.BarAction
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -70,41 +73,26 @@ fun MultiRobotTerminalScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { 
-                    Column {
-                        Text("Terminal Geral", style = MaterialTheme.typography.titleMedium)
-                        Text(projectName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { viewModel.clearHistory() }) {
-                        Icon(Icons.Default.DeleteSweep, "Limpar Log", tint = MaterialTheme.colorScheme.error)
-                    }
-
-                    Button(
-                        onClick = { 
+            AppTopBar(
+                title = "Terminal Geral",
+                subtitle = projectName,
+                onBack = onBack,
+                actions = listOf(
+                    BarAction(
+                        if (isAnyConnected) Icons.Default.LinkOff else Icons.Default.Link,
+                        if (isAnyConnected) "Desconectar" else "Conectar todos",
+                        tone = if (isAnyConnected) ActionTone.Success else ActionTone.Primary,
+                        onClick = {
                             if (!isAnyConnected) {
                                 viewModel.connectAll()
                                 showConnectDialog = true
                             } else {
                                 viewModel.toggleConnection()
                             }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isAnyConnected) Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
-                        ),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                        modifier = Modifier.padding(end = 8.dp).height(36.dp)
-                    ) {
-                        Text(if (isAnyConnected) "Desconectar" else "Conectar", fontSize = 12.sp)
-                    }
-                }
+                        }
+                    ),
+                    BarAction(Icons.Default.DeleteSweep, "Limpar", tone = ActionTone.Danger, onClick = { viewModel.clearHistory() })
+                )
             )
         },
         contentWindowInsets = WindowInsets(0, 0, 0, 0)

@@ -14,6 +14,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
@@ -35,6 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import my.robots.core.common.layout.Cell
 import my.robots.core.common.layout.LayoutOps
+import my.robots.core.designsystem.ActionTone
+import my.robots.core.designsystem.AppTopBar
+import my.robots.core.designsystem.BarAction
 import my.robots.core.designsystem.HeartbeatDot
 import my.robots.core.designsystem.label
 import my.robots.core.model.EquipmentType
@@ -47,12 +55,12 @@ import my.robots.core.model.Robot
  * Tela de Projeto: a cabine com os robôs dispostos como na real.
  *
  * Visualização:
- * - "Conectar todos" / "Desconectar todos" e quantos estão conectados;
+ * - barra do topo (AppTopBar): o nome e quantos estão conectados; na linha de ações, Conectar
+ *   todos, Desconectar, Editar layout e Terminal Geral; no ⋮, Renomear e Projeto mestre;
  * - a grade: cada robô com LED de heartbeat, nome e estado. Tocar conecta ou desconecta;
  *   segurar abre o painel do robô. Linhas sem nenhum robô ficam ocultas;
  * - os equipamentos como faixas entre as linhas, com setas do sentido do fluxo;
  * - "Fora do layout": robôs sem vaga, também com LED;
- * - "Modo avançado": o Terminal Geral do projeto.
  *
  * Edição (lápis no topo): mexe numa cópia; "Salvar" grava e "Cancelar" descarta. Tocar num
  * robô o seleciona; com ele selecionado, tocar numa vaga move, tocar em outro robô troca os
@@ -90,55 +98,59 @@ fun ProjectScreen(
 
     val editing = draft != null
     val shown = draft ?: view
-    var menuOpen by remember { mutableStateOf(false) }
     var showRename by remember { mutableStateOf(false) }
     var showAddEquipment by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        if (editing) "Editar layout" else viewModel.projectName,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis
+            val total = view?.robots?.size ?: 0
+            val connectedCount = view?.robots?.count { it.id in connected } ?: 0
+            if (editing) {
+                AppTopBar(
+                    title = "Editar layout",
+                    subtitle = viewModel.projectName,
+                    onBack = viewModel::cancelEdit,
+                    backIcon = Icons.Rounded.Close,
+                    backLabel = "Cancelar",
+                    actions = listOf(
+                        BarAction(Icons.Rounded.Check, "Salvar", tone = ActionTone.Primary, onClick = viewModel::save),
+                        BarAction(Icons.Rounded.Close, "Descartar", onClick = viewModel::cancelEdit)
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = { if (editing) viewModel.cancelEdit() else onBack() }) {
-                        Icon(
-                            if (editing) Icons.Rounded.Close else Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = if (editing) "Cancelar" else "Voltar"
+                )
+            } else {
+                AppTopBar(
+                    title = viewModel.projectName,
+                    subtitle = if (total > 0) "$connectedCount de $total conectados" else null,
+                    onBack = onBack,
+                    menu = { close ->
+                        DropdownMenuItem(
+                            text = { Text("Renomear projeto") },
+                            leadingIcon = { Icon(Icons.Rounded.Edit, null) },
+                            onClick = { close(); showRename = true }
                         )
-                    }
-                },
-                actions = {
-                    if (editing) {
-                        TextButton(onClick = viewModel::save) { Text("Salvar") }
-                    } else {
-                        IconButton(onClick = viewModel::startEdit, enabled = view != null) {
-                            Icon(Icons.Rounded.Edit, contentDescription = "Editar layout")
-                        }
-                        IconButton(onClick = { menuOpen = true }) {
-                            Icon(Icons.Rounded.MoreVert, contentDescription = "Mais opções")
-                        }
-                        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Renomear projeto") },
-                                onClick = { menuOpen = false; showRename = true }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Projeto mestre…") },
-                                onClick = { menuOpen = false; showMasterConfig = true }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Terminal Geral") },
-                                leadingIcon = { Icon(Icons.Rounded.Terminal, null) },
-                                onClick = { menuOpen = false; onOpenTerminal() }
-                            )
-                        }
-                    }
-                }
-            )
+                        DropdownMenuItem(
+                            text = { Text("Projeto mestre…") },
+                            leadingIcon = { Icon(Icons.Rounded.AccountTree, null) },
+                            onClick = { close(); showMasterConfig = true }
+                        )
+                    },
+                    actions = listOf(
+                        BarAction(
+                            Icons.Rounded.Link, "Conectar todos",
+                            tone = ActionTone.Primary,
+                            enabled = connectedCount < total,
+                            onClick = viewModel::connectAll
+                        ),
+                        BarAction(
+                            Icons.Rounded.LinkOff, "Desconectar",
+                            enabled = connectedCount > 0,
+                            onClick = viewModel::disconnectAll
+                        ),
+                        BarAction(Icons.Rounded.GridView, "Editar layout", enabled = view != null, onClick = viewModel::startEdit),
+                        BarAction(Icons.Rounded.Terminal, "Terminal Geral", onClick = onOpenTerminal)
+                    )
+                )
+            }
         }
     ) { padding ->
         val v = shown
@@ -164,12 +176,6 @@ fun ProjectScreen(
                     onAddEquipment = { showAddEquipment = true }
                 )
             } else {
-                ConnectionBar(
-                    connectedCount = v.robots.count { it.id in connected },
-                    total = v.robots.size,
-                    onConnectAll = viewModel::connectAll,
-                    onDisconnectAll = viewModel::disconnectAll
-                )
                 GroupActionsCard(
                     running = running,
                     lastAction = lastAction,
@@ -236,20 +242,6 @@ fun ProjectScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                OutlinedCard(onClick = onOpenTerminal, modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Terminal, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            Text("Modo avançado", fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Terminal Geral: o mesmo comando para todos os robôs do projeto.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
             }
         }
     }
@@ -316,25 +308,6 @@ fun ProjectScreen(
             onConfirm = { type, name -> showAddEquipment = false; viewModel.addEquipment(type, name) },
             onDismiss = { showAddEquipment = false }
         )
-    }
-}
-
-@Composable
-private fun ConnectionBar(connectedCount: Int, total: Int, onConnectAll: () -> Unit, onDisconnectAll: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            "$connectedCount de $total conectados",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onConnectAll, enabled = connectedCount < total, modifier = Modifier.weight(1f)) {
-                Text("Conectar todos")
-            }
-            OutlinedButton(onClick = onDisconnectAll, enabled = connectedCount > 0, modifier = Modifier.weight(1f)) {
-                Text("Desconectar todos")
-            }
-        }
     }
 }
 

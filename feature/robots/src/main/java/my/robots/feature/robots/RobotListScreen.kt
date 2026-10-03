@@ -31,6 +31,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import my.robots.core.designsystem.ActionTone
+import my.robots.core.designsystem.AppTopBar
+import my.robots.core.designsystem.BarAction
 import my.robots.core.model.Manufacturer
 import my.robots.core.model.Robot
 import java.math.BigInteger
@@ -72,7 +75,6 @@ fun RobotListScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var robotToEdit by remember { mutableStateOf<Robot?>(null) }
     var robotToDelete by remember { mutableStateOf<Robot?>(null) }
-    var showSettingsMenu by remember { mutableStateOf(false) }
     var showConnectedRobots by remember { mutableStateOf(false) }
     var sortAlphabetical by remember { mutableStateOf(false) }
     var showStorageDialog by remember { mutableStateOf(false) }
@@ -101,97 +103,59 @@ fun RobotListScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            TopAppBar(
-                title = { Text("My Robots") },
-                actions = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (connectedRobotsViewModel != null) {
-                            IconButton(onClick = { showConnectedRobots = true }) {
-                                Icon(
-                                    imageVector = Icons.Rounded.DeviceHub,
-                                    contentDescription = "Robôs Conectados"
-                                )
-                            }
-                        }
-
-                        IconButton(onClick = { sortAlphabetical = !sortAlphabetical }) {
-                            Icon(
-                                imageVector = Icons.Rounded.SortByAlpha,
-                                contentDescription = "Ordenar",
-                                tint = if (sortAlphabetical) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clickable { showSettingsMenu = true },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Wifi,
-                                contentDescription = "Wifi Status",
-                                tint = if (wifiInfo.isConnected) MaterialTheme.colorScheme.primary 
-                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            if (!wifiInfo.isConnected) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Disconnected",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        Box {
-                            IconButton(onClick = { showSettingsMenu = true }) {
-                                Icon(Icons.Default.Settings, contentDescription = "Settings")
-                            }
-                            DropdownMenu(
-                                expanded = showSettingsMenu,
-                                onDismissRequest = { showSettingsMenu = false }
-                            ) {
-                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                    Text(
-                                        text = if (wifiInfo.isConnected) wifiInfo.ssid else "Desconectado",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = "IP: ${wifiInfo.ip}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("Configurar Wifi") },
-                                    onClick = {
-                                        showSettingsMenu = false
-                                        val intent = Intent(Settings.ACTION_WIFI_SETTINGS)
-                                        context.startActivity(intent)
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Wifi, null) }
-                                )
-                                if (viewModel != null) {
-                                    DropdownMenuItem(
-                                        text = { Text("Pasta dos arquivos") },
-                                        onClick = {
-                                            showSettingsMenu = false
-                                            viewModel.refreshStorage()
-                                            showStorageDialog = true
-                                        },
-                                        leadingIcon = { Icon(Icons.Default.Folder, null) }
-                                    )
-                                }
-                            }
-                        }
+            AppTopBar(
+                title = "My Robots",
+                subtitle = if (wifiInfo.isConnected) "${wifiInfo.ssid} · ${wifiInfo.ip}" else "Sem Wi-Fi",
+                menu = { close ->
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(
+                            text = if (wifiInfo.isConnected) wifiInfo.ssid else "Desconectado",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "IP: ${wifiInfo.ip}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Configurar Wi-Fi") },
+                        onClick = {
+                            close()
+                            context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+                        },
+                        leadingIcon = { Icon(Icons.Default.Wifi, null) }
+                    )
+                    if (viewModel != null) {
+                        DropdownMenuItem(
+                            text = { Text("Pasta dos arquivos") },
+                            onClick = {
+                                close()
+                                viewModel.refreshStorage()
+                                showStorageDialog = true
+                            },
+                            leadingIcon = { Icon(Icons.Default.Folder, null) }
+                        )
+                    }
+                },
+                actions = listOfNotNull(
+                    if (connectedRobotsViewModel != null) {
+                        BarAction(Icons.Rounded.DeviceHub, "Conectados", onClick = { showConnectedRobots = true })
+                    } else null,
+                    BarAction(
+                        Icons.Rounded.SortByAlpha, "Ordenar A-Z",
+                        selected = sortAlphabetical,
+                        onClick = { sortAlphabetical = !sortAlphabetical }
+                    ),
+                    BarAction(
+                        if (wifiInfo.isConnected) Icons.Default.Wifi else Icons.Default.WifiOff,
+                        if (wifiInfo.isConnected) "Wi-Fi" else "Sem Wi-Fi",
+                        tone = if (wifiInfo.isConnected) ActionTone.Success else ActionTone.Danger,
+                        onClick = { context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
+                    )
+                )
             )
         },
         floatingActionButton = {

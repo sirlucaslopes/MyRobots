@@ -35,13 +35,10 @@ fun QuickCommandScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Biblioteca: ${viewModel.manufacturer.displayName}") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Voltar")
-                    }
-                }
+            my.robots.core.designsystem.AppTopBar(
+                title = "Comandos rápidos",
+                subtitle = "Biblioteca ${viewModel.manufacturer.displayName}",
+                onBack = onBack
             )
         },
         floatingActionButton = {

@@ -300,6 +300,20 @@ vira backup no banco quando a lista de robôs abre (sincronização do `RobotVie
 - **`:core:designsystem`**: `Theme.kt`, `Color.kt`, `Shape.kt`, `Type.kt` — o tema visual
   (`MyRobotsTheme`) usado em todo o app — e `HeartbeatIndicator.kt` (`HeartbeatDot` e o texto
   de cada `HeartbeatState`). Depende de `:core:model`.
+  - **`AppTopBar` (padrão de todas as telas):** a barra do título tem só voltar, o título numa
+    linha (com subtítulo opcional, ex.: "R10 · 259 programas · 3 marcados") e, à direita,
+    **só o ⋮** com as opções menos usadas. **Todas as outras ações ficam na linha de ações
+    logo abaixo** (`ActionStrip`, sempre com `ActionStripHeight` = 64 dp): cada ação
+    (`BarAction`) tem ícone e nome, repartindo a largura (mínimo de 54 dp; com mais ações, a
+    linha rola de lado). Ação de liga/desliga ligada (lupa aberta, modo de edição) ganha a
+    pílula de destaque; desabilitada fica apagada; `ActionTone` dá a cor (`Primary` para a
+    ação principal, `Danger` para excluir/limpar, `Success` para conectado); `badge` marca
+    alteração não salva; `menu` abre um menu ancorado na ação. O parâmetro `below` põe algo
+    embaixo (campo de busca, barra de edição). Título, ações e busca usam a mesma cor
+    (`surface`) e formam um bloco só, com uma linha divisória embaixo. Tela nova usa o
+    `AppTopBar`, nunca um `TopAppBar` com ícones ao lado do título.
+  - `FormDialog`, `RobotPickerSheet`: janela de formulário que não fica atrás do teclado e a
+    lista de robôs para enviar.
 - **`:core:common`**:
   - `FileUtil`: resolve o nome de um arquivo a partir de uma `Uri` do Android, limpa nomes de
     arquivo e separa as seções AS conhecidas (`sanitizeAsContent`).

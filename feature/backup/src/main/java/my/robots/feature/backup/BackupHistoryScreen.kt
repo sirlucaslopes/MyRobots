@@ -30,6 +30,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import my.robots.core.common.ExternalAsFile
+import my.robots.core.designsystem.ActionTone
+import my.robots.core.designsystem.AppTopBar
+import my.robots.core.designsystem.BarAction
 import my.robots.core.model.BackupSummary
 import java.io.File
 import java.text.SimpleDateFormat
@@ -123,32 +126,20 @@ fun BackupHistoryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Histórico de Backups") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { 
+            AppTopBar(
+                title = "Histórico de backups",
+                onBack = onBack,
+                actions = listOf(
+                    BarAction(Icons.Default.Sync, "Ler pasta", tone = ActionTone.Primary, onClick = {
                         viewModel.syncBackupsWithFileSystem()
                         Toast.makeText(context, "Sincronizando com a pasta raiz...", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.SmartToy,
-                            contentDescription = "Sincronizar Arquivos",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(onClick = { viewModel.toggleSortOrder() }) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Sort,
-                            contentDescription = "Ordenar",
-                            tint = if (isDescending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
+                    }),
+                    BarAction(
+                        Icons.AutoMirrored.Filled.Sort,
+                        if (isDescending) "Mais novos" else "Mais antigos",
+                        onClick = { viewModel.toggleSortOrder() }
+                    )
+                )
             )
         },
         floatingActionButton = {
