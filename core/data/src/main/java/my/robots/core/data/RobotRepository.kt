@@ -107,8 +107,12 @@ class RobotRepository(
         // conhece. Mudou de projeto: o robô cai em "fora do layout" no projeto novo.
         val positioned = when {
             current == null -> robot
+            // mudou de projeto: sai do layout e perde o mestre (o par era do projeto antigo)
             current.project != robot.project -> robot.copy(layoutRow = null, layoutCol = null, serialNumber = current.serialNumber)
-            else -> robot.copy(layoutRow = current.layoutRow, layoutCol = current.layoutCol, serialNumber = current.serialNumber)
+            else -> robot.copy(
+                layoutRow = current.layoutRow, layoutCol = current.layoutCol,
+                serialNumber = current.serialNumber, masterRobotId = current.masterRobotId
+            )
         }
         robotDao.updateRobot(toDb(positioned))
         if (current != null && current.project != robot.project) projectDao.deleteLayoutIfEmpty(current.project)
@@ -154,6 +158,18 @@ class RobotRepository(
         robotPositions: Map<Int, Pair<Int?, Int?>>,
         equipment: List<ProjectEquipment>
     ) = projectDao.saveLayout(layout, robotPositions, equipment)
+
+    /**
+     * Grava a configuração mestre/escravo do projeto [slaveProject]: o projeto mestre (null =
+     * desfaz), a variável de offset da base e o mestre de cada robô (robô escravo -> robô
+     * mestre; null = sem par). Tudo numa transação.
+     */
+    suspend fun saveMasterConfig(
+        slaveProject: String,
+        masterProject: String?,
+        baseOffset: String,
+        pairs: Map<Int, Int?>
+    ) = projectDao.saveMasterConfig(slaveProject, masterProject, baseOffset, pairs)
 
     /**
      * Renomeia o projeto nos robôs, no layout e nos equipamentos (numa transação).

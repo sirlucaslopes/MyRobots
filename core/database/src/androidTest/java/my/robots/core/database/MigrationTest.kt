@@ -127,4 +127,32 @@ class MigrationTest {
             close()
         }
     }
+
+    /**
+     * 6 -> 7: robô sem mestre, projeto sem mestre e offset padrão; schema igual ao 7.json.
+     */
+    @Test
+    fun migracao6Para7ValidaContraOSchema() {
+        helper.createDatabase(dbName, 6).apply {
+            execSQL(
+                "INSERT INTO robots (id, name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword, layoutRow, layoutCol, serialNumber) " +
+                    "VALUES (1, 'R14', '172.20.32.41', 23, 'Top Coat CAT', 'KAWASAKI', 0, 'as', '', 1, 0, '3771')"
+            )
+            execSQL("INSERT INTO project_layouts (projectName, rowCount, colCount) VALUES ('Top Coat CAT', 2, 2)")
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 7, true, MIGRATION_6_7).apply {
+            query("SELECT masterRobotId, serialNumber FROM robots WHERE id = 1").use { c ->
+                c.moveToFirst()
+                assertEquals(true, c.isNull(0))
+                assertEquals("3771", c.getString(1))
+            }
+            query("SELECT masterProject, baseOffset FROM project_layouts").use { c ->
+                c.moveToFirst()
+                assertEquals(true, c.isNull(0))
+                assertEquals("top_offset", c.getString(1))
+            }
+            close()
+        }
+    }
 }

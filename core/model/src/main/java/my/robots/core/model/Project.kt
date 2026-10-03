@@ -11,16 +11,23 @@ import androidx.room.PrimaryKey
  * - rowCount / colCount: linhas e colunas da grade ("rows" não é usado porque ROWS é
  *   palavra-chave do SQLite). Um projeto sem linha nesta tabela usa o padrão 2×2, e a linha
  *   só é criada na primeira edição.
+ * - masterProject: projeto mestre deste (este é o escravo; ex.: Top Coat é escravo do Primer).
+ *   null = projeto sem mestre.
+ * - baseOffset: variável somada à base dos programas transferidos do mestre: "BASE fr_[100]"
+ *   no mestre vira "BASE fr_[100]+top_offset" aqui. Só vale com masterProject.
  */
 @Entity(tableName = "project_layouts")
 data class ProjectLayout(
     @PrimaryKey val projectName: String,
     val rowCount: Int = DEFAULT_ROWS,
-    val colCount: Int = DEFAULT_COLS
+    val colCount: Int = DEFAULT_COLS,
+    val masterProject: String? = null,
+    val baseOffset: String = DEFAULT_BASE_OFFSET
 ) {
     companion object {
         const val DEFAULT_ROWS = 2
         const val DEFAULT_COLS = 2
+        const val DEFAULT_BASE_OFFSET = "top_offset"
     }
 }
 

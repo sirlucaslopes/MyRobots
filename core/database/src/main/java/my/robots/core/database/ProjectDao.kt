@@ -63,7 +63,9 @@ abstract class ProjectDao {
         robotPositions: Map<Int, Pair<Int?, Int?>>,
         equipment: List<ProjectEquipment>
     ) {
-        upsertLayout(layout)
+        // só a grade muda aqui: o projeto mestre e o offset continuam os gravados
+        val current = layoutNow(layout.projectName)
+        upsertLayout(current?.copy(rowCount = layout.rowCount, colCount = layout.colCount) ?: layout)
         robotPositions.forEach { (id, pos) -> setRobotPosition(id, pos.first, pos.second) }
         deleteEquipment(layout.projectName)
         insertEquipment(equipment.map { it.copy(id = 0, projectName = layout.projectName) })
@@ -80,6 +82,28 @@ abstract class ProjectDao {
         renameRobotsProject(oldName, newName)
         if (countLayouts(newName) > 0) deleteLayout(oldName) else renameLayout(oldName, newName)
         renameEquipment(oldName, newName)
+    }
+
+    @Query("UPDATE robots SET masterRobotId = :masterId WHERE id = :robotId")
+    protected abstract suspend fun setMaster(robotId: Int, masterId: Int?)
+
+    @Query("SELECT * FROM project_layouts WHERE projectName = :projectName")
+    protected abstract suspend fun layoutNow(projectName: String): ProjectLayout?
+
+    /**
+     * Configuração mestre/escravo do projeto escravo: o projeto mestre (null = sem mestre), a
+     * variável de offset e o mestre de cada robô. Cria a linha do layout se não existir.
+     */
+    @Transaction
+    open suspend fun saveMasterConfig(
+        slaveProject: String,
+        masterProject: String?,
+        baseOffset: String,
+        pairs: Map<Int, Int?>
+    ) {
+        val layout = layoutNow(slaveProject) ?: ProjectLayout(slaveProject)
+        upsertLayout(layout.copy(masterProject = masterProject, baseOffset = baseOffset))
+        pairs.forEach { (robotId, masterId) -> setMaster(robotId, if (masterProject == null) null else masterId) }
     }
 
     /** Apaga o layout e os equipamentos de um projeto que ficou sem robôs. */

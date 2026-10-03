@@ -46,5 +46,17 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+/**
+ * 6 -> 7 (v1.2): projetos mestre/escravo. Cada robô pode ter um robô mestre, e cada projeto um
+ * projeto mestre e a variável de offset somada à base dos programas transferidos.
+ */
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE robots ADD COLUMN masterRobotId INTEGER DEFAULT NULL")
+        db.execSQL("ALTER TABLE project_layouts ADD COLUMN masterProject TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE project_layouts ADD COLUMN baseOffset TEXT NOT NULL DEFAULT 'top_offset'")
+    }
+}
+
 /** Todas as migrações, na ordem. Fica no fim porque usa as declaradas acima. */
-val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6)
+val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
