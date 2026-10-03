@@ -351,7 +351,11 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   (comentários em verde, textos entre aspas em laranja, seções `.PROGRAM`/`.END`/`.TRANS`
   em amarelo, comandos de movimento em azul, sinais/esperas em verde-água, outras
   palavras-chave em roxo, números em verde-claro).
-- Barra do topo: lupa (busca com destaque amarelo no texto), lápis (liga/desliga o modo de
+- **Pesquisa** (lupa): destaca o texto em amarelo e mostra uma barra com "N de M" e setas para
+  ir de uma linha encontrada à outra (a lista rola até ela, que fica marcada). O botão
+  **"Comandos"** lista as instruções do catálogo que existem no arquivo, com quantas vezes
+  aparecem, como a pesquisa de instrução do teach pendant; tocar em uma pesquisa por ela.
+- Barra do topo: lupa (pesquisa), lápis (liga/desliga o modo de
   edição) e disquete (chama `onSave` com as linhas juntas por `\n` — o padrão não faz nada,
   então uma tela somente-leitura simplesmente não grava).
 - **O texto nunca é editável direto na área de código** (não é mais um campo de texto livre
@@ -366,15 +370,29 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   - **Copiar** (1+ marcadas): manda o texto das linhas para a área de transferência.
   - **Colar** (exatamente 1 marcada): insere o texto da área de transferência acima da
     linha marcada — se o que foi copiado tiver várias linhas, todas entram de uma vez.
-  - **Alterar** (exatamente 1 marcada): abre `LineEditDialog` só com o texto daquela linha,
-    para editar isolado, sem risco de mexer em outra parte do arquivo.
-  - **Inserir** (exatamente 1 marcada): abre a mesma janela vazia; o texto digitado vira uma
-    linha nova acima da marcada, empurrando o resto do arquivo para baixo.
+  - **Alterar** (exatamente 1 marcada, ou **segurar a linha**, que já liga o modo de edição):
+    se a linha é uma instrução do catálogo `AsInstructions` (`:core:common`), abre
+    `InstructionEditDialog`, como o CHANGE do teach pendant: o grupo, as outras instruções do
+    grupo para trocar (levando os valores; ex.: SPRAY_SPEED → AIRCUT_SPEED, SPRAY → PRE_SPRAY,
+    LMOVE XYZ1 → XYZ2), um campo por parâmetro (ON/OFF em botões, números com a unidade) e a
+    prévia da linha. Recuo e comentário (`;...`) voltam iguais. "Editar como texto" (e qualquer
+    linha fora do catálogo, como comentários e IF) abre `LineEditDialog` com o texto da linha.
+  - **Inserir** (exatamente 1 marcada): escolhe o grupo e a instrução (`InstructionPickerDialog`,
+    como a lista do pendant) e preenche os campos; ou "Texto livre". A linha nova entra acima da
+    marcada, com o mesmo recuo dela.
+  - **Catálogo** (`AsInstructions`, grupos do Manual de Operação 5.3): SPRAY_SPEED,
+    AIRCUT_SPEED, SPRAY_JSPEED, AIRCUT_JSPEED, SPRAY, PRE_SPRAY, DOUT, ACCEL, SMOOTH_RANGE,
+    CALL_DBK, CALL_PGM, TWAIT, TIMER_WAIT, UC_JUMP, LABEL, GUN, LMOVE XYZ1/XYZ2 e JMOVE JOINT,
+    no formato de texto dos backups. Reconhece 99,6% dessas instruções nos programas do R10.
+- O voltar do sistema fecha primeiro a pesquisa, depois o modo de edição, e só então sai.
   - **Excluir** (1+ marcadas): remove as linhas marcadas.
 - É usado em quatro rotas diferentes no `:app` (ver seção 13): código completo, um programa
   só, só as variáveis, e arquivo aberto de fora do app (somente leitura).
 
-**Pendências / Próximos passos:** nenhuma pendência conhecida.
+**Pendências / Próximos passos:** os 4 dígitos do início do LMOVE/JMOVE (`0004`, `0000`) são
+editados como um texto só, porque o manual não explica o que cada dígito significa. Faltam no
+catálogo as instruções de Data Bank por sinal (FLOWRATE etc.), comparação e salto condicional,
+que não aparecem nos backups atuais.
 
 ---
 

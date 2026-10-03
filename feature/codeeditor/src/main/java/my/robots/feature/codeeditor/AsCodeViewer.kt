@@ -201,6 +201,18 @@ fun AsCodeViewer(
         scope.launch { listState.animateScrollToItem(searchMatches[currentMatch]) }
     }
 
+    // Voltar do sistema: primeiro fecha a pesquisa, depois sai do modo de edição; só então
+    // sai do editor (igual ao botão de voltar da barra do topo para a pesquisa)
+    androidx.activity.compose.BackHandler(enabled = isSearchActive || isEditMode) {
+        if (isSearchActive) {
+            isSearchActive = false
+            searchQuery = ""
+        } else {
+            isEditMode = false
+            selectedLines = emptySet()
+        }
+    }
+
     fun openChange(index: Int) {
         forceTextEdit = false
         lineDialog = LineDialogAction.Change(index)
@@ -681,6 +693,8 @@ fun CodeLinesList(
         )
     }
     val horizontalScrollState = rememberScrollState()
+    // largura da coluna de números pelo maior número (um arquivo FULL passa de 10.000 linhas)
+    val numberWidth = (lines.size.toString().length * 9 + 18).dp
 
     LazyColumn(
         state = listState,
@@ -688,6 +702,7 @@ fun CodeLinesList(
     ) {
         itemsIndexed(lines) { index, line ->
             CodeLineRow(
+                numberWidth = numberWidth,
                 lineNumber = index + 1,
                 text = line,
                 isEditMode = isEditMode,
@@ -710,6 +725,7 @@ fun CodeLinesList(
  */
 @Composable
 fun CodeLineRow(
+    numberWidth: androidx.compose.ui.unit.Dp = 48.dp,
     lineNumber: Int,
     text: String,
     isEditMode: Boolean,
@@ -758,8 +774,10 @@ fun CodeLineRow(
                 color = Color(0xFF858585),
                 textAlign = TextAlign.End
             ),
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier
-                .width(48.dp)
+                .width(numberWidth)
                 .background(Color(0xFF252526))
                 .padding(vertical = 2.dp, horizontal = 8.dp)
         )

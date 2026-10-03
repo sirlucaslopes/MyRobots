@@ -60,12 +60,13 @@ fun InstructionEditDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     siblings.forEach { s ->
-                        FilterChip(selected = s === def, onClick = { if (s !== def) switchTo(s) }, label = { Text(s.label) })
+                        // o nome da instrução (curto, como no pendant); a descrição vai embaixo
+                        val chipText = if (s.keyword == "LMOVE") s.label.removePrefix("Linear ") else s.keyword
+                        FilterChip(selected = s === def, onClick = { if (s !== def) switchTo(s) }, label = { Text(chipText) })
                     }
                 }
-            } else {
-                Text(def.label, style = MaterialTheme.typography.titleMedium)
             }
+            Text(def.label, style = MaterialTheme.typography.titleMedium)
             InstructionFields(def, values)
             Text("Como vai ficar", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
