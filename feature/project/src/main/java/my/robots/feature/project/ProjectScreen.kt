@@ -40,6 +40,7 @@ import my.robots.core.designsystem.label
 import my.robots.core.model.EquipmentType
 import my.robots.core.model.HeartbeatState
 import my.robots.core.model.ProjectEquipment
+import my.robots.core.model.ProjectLayout
 import my.robots.core.model.Robot
 
 /**
@@ -65,6 +66,7 @@ fun ProjectScreen(
     onBack: () -> Unit,
     onOpenRobot: (Robot) -> Unit,
     onOpenTerminal: () -> Unit,
+    onOpenRobotTerminal: (Robot) -> Unit,
     onRenamed: (String) -> Unit
 ) {
     val view by viewModel.view.collectAsState()
@@ -72,6 +74,19 @@ fun ProjectScreen(
     val selected by viewModel.selected.collectAsState()
     val connected by viewModel.connectedIds.collectAsState()
     val heartbeats by viewModel.heartbeats.collectAsState()
+    val tasks by viewModel.tasks.collectAsState()
+    val running by viewModel.action.collectAsState()
+    val lastAction by viewModel.lastAction.collectAsState()
+    val pairs by viewModel.pairs.collectAsState()
+    val pairViews by viewModel.pairViews.collectAsState()
+    val layout by viewModel.layout.collectAsState()
+    val allRobots by viewModel.allRobots.collectAsState()
+    val otherProjects by viewModel.otherProjects.collectAsState()
+    val programChoices by viewModel.programChoices.collectAsState()
+    var showBackupAll by remember { mutableStateOf(false) }
+    var showCommandAll by remember { mutableStateOf(false) }
+    var showTransfer by remember { mutableStateOf(false) }
+    var showMasterConfig by remember { mutableStateOf(false) }
 
     val editing = draft != null
     val shown = draft ?: view
@@ -110,6 +125,10 @@ fun ProjectScreen(
                             DropdownMenuItem(
                                 text = { Text("Renomear projeto") },
                                 onClick = { menuOpen = false; showRename = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Projeto mestre…") },
+                                onClick = { menuOpen = false; showMasterConfig = true }
                             )
                             DropdownMenuItem(
                                 text = { Text("Terminal Geral") },
@@ -151,10 +170,25 @@ fun ProjectScreen(
                     onConnectAll = viewModel::connectAll,
                     onDisconnectAll = viewModel::disconnectAll
                 )
+                GroupActionsCard(
+                    running = running,
+                    lastAction = lastAction,
+                    tasks = tasks,
+                    hasPairs = pairs.isNotEmpty(),
+                    onBackup = { showBackupAll = true },
+                    onCommand = { showCommandAll = true },
+                    onTransfer = {
+                        viewModel.loadProgramChoices(pairs.map { it.master })
+                        showTransfer = true
+                    },
+                    onCancel = viewModel::cancelAction,
+                    onClear = viewModel::clearTasks
+                )
             }
 
             CabinGrid(
                 view = v,
+                pairLabels = if (editing) emptyMap() else pairLabels(pairs, viewModel.projectName),
                 editing = editing,
                 selected = selected,
                 connected = connected,
@@ -183,6 +217,20 @@ fun ProjectScreen(
             )
 
             if (!editing) {
+                pairViews.forEach { pv ->
+                    OutlinedCard(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) { MasterSlaveDiagram(pv, viewModel.projectName) }
+                    }
+                }
+                if (v.robots.isNotEmpty()) {
+                    MiniTerminals(
+                        robots = v.inCabinOrder,
+                        tasks = tasks,
+                        heartbeats = heartbeats,
+                        history = viewModel::history,
+                        onOpen = onOpenRobotTerminal
+                    )
+                }
                 Text(
                     "Toque num robô para conectar ou desconectar. Segure para abrir o painel dele.",
                     style = MaterialTheme.typography.bodySmall,
@@ -212,6 +260,55 @@ fun ProjectScreen(
             validate = viewModel::validateNewName,
             onConfirm = { name -> showRename = false; viewModel.rename(name, onRenamed) },
             onDismiss = { showRename = false }
+        )
+    }
+    val current = view
+    if (showBackupAll && current != null) {
+        RobotChooserDialog(
+            title = "Backup de todos",
+            explanation = "Cada robô faz SAVE/FULL e o arquivo entra como backup dele. Quem não estiver conectado é conectado antes.",
+            confirmLabel = "Fazer backup",
+            robots = current.inCabinOrder,
+            connected = connected,
+            askCommand = false,
+            onConfirm = { robots, _ -> showBackupAll = false; viewModel.backupAll(robots) },
+            onDismiss = { showBackupAll = false }
+        )
+    }
+    if (showCommandAll && current != null) {
+        RobotChooserDialog(
+            title = "Comando para todos",
+            explanation = "O mesmo comando em cada robô escolhido, depois de conectar. A resposta aparece no mini terminal de cada um.",
+            confirmLabel = "Enviar",
+            robots = current.inCabinOrder,
+            connected = connected,
+            askCommand = true,
+            onConfirm = { robots, cmd -> showCommandAll = false; viewModel.commandAll(robots, cmd) },
+            onDismiss = { showCommandAll = false }
+        )
+    }
+    if (showTransfer && pairs.isNotEmpty()) {
+        TransferDialog(
+            pairs = pairs,
+            offsets = pairViews.associate { it.slaveName to it.offset },
+            programs = programChoices,
+            onConfirm = { selected, programs, withFrames ->
+                showTransfer = false
+                viewModel.transfer(selected, programs, withFrames)
+            },
+            onDismiss = { showTransfer = false }
+        )
+    }
+    if (showMasterConfig && current != null) {
+        MasterConfigDialog(
+            projectName = viewModel.projectName,
+            robots = current.inCabinOrder,
+            otherProjects = otherProjects,
+            allRobots = allRobots,
+            currentMaster = layout?.masterProject,
+            currentOffset = layout?.baseOffset ?: ProjectLayout.DEFAULT_BASE_OFFSET,
+            onSave = { master, offset, map -> showMasterConfig = false; viewModel.saveMasterConfig(master, offset, map) },
+            onDismiss = { showMasterConfig = false }
         )
     }
     if (showAddEquipment) {
@@ -279,6 +376,7 @@ private fun EditToolbar(
 @Composable
 private fun CabinGrid(
     view: CabinView,
+    pairLabels: Map<Int, String>,
     editing: Boolean,
     selected: Int?,
     connected: Set<Int>,
@@ -348,6 +446,7 @@ private fun CabinGrid(
                         if (robot != null) {
                             RobotCell(
                                 robot = robot,
+                                pairLabel = pairLabels[robot.id],
                                 isConnected = robot.id in connected,
                                 heartbeat = heartbeats[robot.id] ?: HeartbeatState.DISCONNECTED,
                                 isSelected = robot.id == selected,
@@ -385,6 +484,7 @@ private fun CabinGrid(
 @Composable
 private fun RobotCell(
     robot: Robot,
+    pairLabel: String? = null,
     isConnected: Boolean,
     heartbeat: HeartbeatState,
     isSelected: Boolean,
@@ -427,6 +527,18 @@ private fun RobotCell(
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center
             )
+            // par mestre/escravo: "← R10" no escravo, "→ R14" no mestre
+            if (pairLabel != null) {
+                Text(
+                    pairLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }

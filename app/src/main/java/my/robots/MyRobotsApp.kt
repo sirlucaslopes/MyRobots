@@ -14,6 +14,7 @@ import my.robots.core.data.RobotRepository
 import my.robots.core.data.security.KeystoreSecretCipher
 import my.robots.core.data.storage.RobotFilesStorage
 import my.robots.core.data.ControllerChecks
+import my.robots.core.data.ProjectOperations
 
 /**
  * Classe que o Android cria UMA vez quando o app abre (antes de qualquer tela).
@@ -36,6 +37,10 @@ class MyRobotsApp : Application() {
      * Checagens depois do login em qualquer robô: série (ID), relógio e memória (FREE).
      */
     lateinit var controllerChecks: ControllerChecks
+    /**
+     * Ações em grupo da tela de Projeto (backup de todos, comando para todos, mestre -> escravo).
+     */
+    lateinit var projectOperations: ProjectOperations
     /**
      * Área para tarefas de longa duração ligadas ao app (não a uma tela).
      */
@@ -83,6 +88,7 @@ class MyRobotsApp : Application() {
         terminalManager = KawasakiTerminalManager(this, filesStorage)
         controllerChecks = ControllerChecks(this, terminalManager, robotRepository, applicationScope)
         controllerChecks.start()
+        projectOperations = ProjectOperations(robotRepository, terminalManager, controllerChecks)
 
         migrateFilesToNewFolderOnce()
 

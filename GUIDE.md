@@ -693,8 +693,10 @@ pela rede (telnet), porque é o protocolo do controlador.
 
 ## 15. `:feature:project` — Tela de Projeto (cabine)
 
-**Arquivos:** `ProjectScreen.kt`, `ProjectViewModel.kt` (com a `ProjectViewModelFactory`). As regras
-da grade ficam em `LayoutOps` (`:core:common`, pacote `layout`, testadas na JVM).
+**Arquivos:** `ProjectScreen.kt`, `GroupPanels.kt` (ações em grupo, mini terminais, mestre/escravo),
+`ProjectViewModel.kt` (com a `ProjectViewModelFactory`). As regras da grade ficam em `LayoutOps`
+(`:core:common`, pacote `layout`, testadas na JVM). As ações em grupo rodam no `ProjectOperations`
+(`:core:data`) e a troca da base no `AsMasterTransfer` (`:core:common`, testado na JVM).
 
 Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`).
 
@@ -706,6 +708,44 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
 - Equipamentos como faixas entre as linhas, com setas do sentido do fluxo.
 - **Fora do layout:** robôs sem vaga (todos, antes de montar a cabine), também com LED.
 - **Modo avançado:** cartão (e item do menu) que abre o Terminal Geral do projeto.
+- No robô de um par mestre/escravo, a vaga mostra "← R10" (escravo) ou "→ R14" (mestre).
+
+### Ações em grupo
+- Cartão com **Backup de todos**, **Comando** e, se o projeto tiver pares, **Mestre → escravo**.
+  Cada uma abre a lista dos robôs (todos marcados) para escolher. Uma ação por vez.
+- Todas rodam ao mesmo tempo, um robô por conexão, e **sempre conectam antes** (`ControllerChecks.
+  connectAndWait`: login e checagens). Um robô que falha não para os outros.
+- **Backup de todos:** `SAVE/FULL <robô>_<aaaammdd_hhmm>` em cada robô; espera o arquivo chegar
+  inteiro (`KawasakiTerminalManager.getSave`) e o prompt voltar, e registra o arquivo como backup
+  (`syncRobotFolder`). Mostra o nome e o tamanho.
+- **Comando:** o mesmo comando em cada robô, esperando o prompt voltar.
+- O cartão mostra "N de M terminados", falhas e avisos, uma barra de progresso e **Parar**
+  (cancela no app; o que o robô já começou, como um SAVE, segue nele) ou **Limpar**.
+- A espera do prompt usa um contador que só aumenta (`getPromptCount`), porque o histórico do
+  terminal guarda só as últimas 1000 linhas e um SAVE/FULL passa disso.
+- As ações vivem no ViewModel da tela: sair do projeto (voltar) cancela a que estiver rodando.
+
+### Terminais
+- Um **mini terminal** por robô, dois por linha, na ordem da cabine: LED, nome, as últimas 5
+  linhas do terminal e o andamento da ação em grupo (borda e texto: cinza na fila, azul rodando,
+  verde pronto, amarelo com aviso, vermelho com falha). Tocar abre o terminal do robô.
+
+### Mestre / escravo
+- Menu ⋮ → **Projeto mestre…**, aberto no projeto **escravo** (ex.: no Top Coat): escolhe o projeto
+  mestre (Primer), a variável de **offset** somada na base (padrão `top_offset`) e o robô mestre
+  de cada robô. Ao escolher o mestre, os pares vêm pela **mesma vaga na cabine** (R10 → R14,
+  R12 → R16...); dá para trocar cada um. "Nenhum" desfaz. Grava em `ProjectLayout.masterProject/
+  baseOffset` e `Robot.masterRobotId` (banco versão 7).
+- **Desenho:** nos dois projetos aparece um cartão com o layout do mestre em cima e o do escravo
+  embaixo, e uma seta de cada mestre até o seu escravo. As setas correm pelos corredores à esquerda
+  das colunas, sem passar por cima dos robôs. Pares com robô fora do layout ficam listados embaixo.
+- **Mestre → escravo:** escolhe os pares, os programas (lista do último backup dos mestres, com
+  busca) e se o frame da base vai junto. Para cada par: tira os programas do último backup do
+  mestre (`AsProgramBlocks`, nome exato), troca cada `BASE fr_[N]` por `BASE fr_[N]+<offset>`
+  (`BASE NULL`, bases numéricas e as que já somam o offset ficam iguais), junta as linhas da
+  `.TRANS` dos frames usados, conecta no escravo, grava `transfer_<programa>.as` na pasta dele e
+  manda `LOAD`. Avisa (amarelo) programa ou frame que não existe no mestre e offset que não aparece
+  no último backup do escravo; LOAD com erro fica vermelho.
 - Conexão e heartbeat são observados com um coletor por robô (`watchedIds`), como no popup de
   robôs conectados.
 
@@ -731,6 +771,7 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
 - **Renomear projeto** (menu): muda o nome nos robôs, no layout e nos equipamentos. Se já existir
   um projeto com o nome novo, os robôs passam para ele, que mantém o próprio layout.
 
-**Pendências / Próximos passos:** as ações em lote do projeto (backup de todos, buscar e copiar
-programa, verificar erros) são a Fase 2.2 do plano e dependem da infraestrutura da 2.0. Arrastar
-robôs na grade pode vir depois, em cima das mesmas funções do `LayoutOps`.
+**Pendências / Próximos passos:** a transferência mestre → escravo só foi testada até a montagem
+do arquivo e a janela (os robôs da cabine não estavam ao alcance); falta rodar com um par real.
+Buscar programa em todos e verificar erros (Fase 2.2) ainda não existem. Arrastar robôs na grade
+pode vir depois, em cima das mesmas funções do `LayoutOps`.

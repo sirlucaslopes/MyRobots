@@ -190,13 +190,14 @@ class MainActivity : ComponentActivity() {
                             val encodedProject = backStackEntry.arguments?.getString("projectName") ?: ""
                             val projectName = URLDecoder.decode(encodedProject, StandardCharsets.UTF_8.toString())
                             val projectViewModel: ProjectViewModel = viewModel(
-                                factory = ProjectViewModelFactory(repository, terminalManager, projectName)
+                                factory = ProjectViewModelFactory(repository, terminalManager, app.projectOperations, projectName)
                             )
                             ProjectScreen(
                                 viewModel = projectViewModel,
                                 onBack = { navController.popBackStack() },
                                 onOpenRobot = { robot -> navController.navigate("robot_dashboard/${robot.id}/-1") },
                                 onOpenTerminal = { navController.navigate("multi_terminal/$encodedProject") },
+                                onOpenRobotTerminal = { robot -> navController.navigate("robot_dashboard/${robot.id}/-1?feature=Terminal") },
                                 onRenamed = { newName ->
                                     val encodedNew = URLEncoder.encode(newName, StandardCharsets.UTF_8.toString())
                                     navController.navigate("project/$encodedNew") {

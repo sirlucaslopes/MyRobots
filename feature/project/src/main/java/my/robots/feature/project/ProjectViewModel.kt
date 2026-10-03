@@ -3,7 +3,17 @@ package my.robots.feature.project
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,7 +25,13 @@ import kotlinx.coroutines.launch
 import my.robots.core.common.layout.CabinState
 import my.robots.core.common.layout.Cell
 import my.robots.core.common.layout.LayoutOps
+import my.robots.core.common.FileUtil
+import my.robots.core.common.ascode.AsProgramBlocks
+import my.robots.core.data.ProjectOperations
+import my.robots.core.data.ProjectOperations.MasterSlavePair
 import my.robots.core.data.RobotRepository
+import my.robots.core.data.RobotTask
+import my.robots.core.data.TaskState
 import my.robots.core.model.EquipmentType
 import my.robots.core.model.HeartbeatState
 import my.robots.core.model.ProjectEquipment
@@ -35,7 +51,23 @@ data class CabinView(
     val robotsById: Map<Int, Robot> = robots.associateBy { it.id }
     /** Robôs sem vaga na grade, na ordem do nome. */
     val outside: List<Robot> = robots.filter { it.id !in cabin.placed }.sortedBy { it.name }
+    /** Todos os robôs na ordem da cabine (linha, coluna) e depois os de fora. */
+    val inCabinOrder: List<Robot> =
+        robots.filter { it.id in cabin.placed }.sortedWith(compareBy({ cabin.placed[it.id]!!.row }, { cabin.placed[it.id]!!.col })) + outside
 }
+
+/**
+ * Um projeto mestre e um escravo, com os pares de robôs entre eles e a variável de offset que
+ * o escravo soma na base. É o que o desenho das setas mestre -> escravo mostra.
+ */
+data class ProjectPairView(
+    val masterName: String,
+    val master: CabinView,
+    val slaveName: String,
+    val slave: CabinView,
+    val pairs: List<MasterSlavePair>,
+    val offset: String
+)
 
 /**
  * Cérebro da tela de Projeto.
@@ -46,27 +78,73 @@ data class CabinView(
  *   ao `ConnectedRobotsViewModel`.
  * - Edição: [startEdit] copia o layout para [draft]; as funções de edição mexem só nessa
  *   cópia; [save] grava tudo numa transação e [cancelEdit] descarta.
+ * - Ações em grupo (backup de todos, comando para todos, mestre -> escravo) pelo
+ *   ProjectOperations, com o andamento de cada robô em [tasks].
+ * - Pares mestre/escravo: [pairs] e [pairViews] (para o desenho com setas).
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class ProjectViewModel(
     private val repository: RobotRepository,
     private val terminalManager: KawasakiTerminalManager,
+    private val operations: ProjectOperations,
     val projectName: String
 ) : ViewModel() {
 
     private val robots = repository.allRobots.map { all -> all.filter { it.project == projectName } }
 
-    /** Layout como está gravado, já saneado. */
-    val view: StateFlow<CabinView?> = combine(
-        robots,
-        repository.getProjectLayout(projectName),
-        repository.getProjectEquipment(projectName)
+    /** A cabine de um projeto (robôs, grade e equipamentos), já saneada. */
+    private fun cabinOf(project: String): Flow<CabinView> = combine(
+        repository.allRobots.map { all -> all.filter { it.project == project } },
+        repository.getProjectLayout(project),
+        repository.getProjectEquipment(project)
     ) { robots, layout, equipment ->
         val positions = robots.associate { r ->
             r.id to if (r.layoutRow != null && r.layoutCol != null) Cell(r.layoutRow!!, r.layoutCol!!) else null
         }
         val cabin = LayoutOps.sanitize(layout.rowCount, layout.colCount, positions, equipment.map { it.position })
         CabinView(cabin, equipment.mapIndexed { i, e -> e.copy(position = cabin.bandPositions[i]) }, robots)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    }
+
+    /** Layout como está gravado, já saneado. */
+    val view: StateFlow<CabinView?> = cabinOf(projectName)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Layout gravado deste projeto (traz o projeto mestre e o offset, se houver). */
+    val layout: StateFlow<ProjectLayout?> = repository.getProjectLayout(projectName)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    /** Todos os robôs do app (os pares mestre/escravo ligam projetos diferentes). */
+    val allRobots: StateFlow<List<Robot>> = repository.allRobots
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Os outros projetos, para escolher o mestre. */
+    val otherProjects: StateFlow<List<String>> = repository.allRobots
+        .map { all -> all.map { it.project }.filter { it.isNotBlank() && it != projectName }.distinct().sorted() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Pares em que este projeto entra, como mestre ou como escravo. */
+    val pairs: StateFlow<List<MasterSlavePair>> = repository.allRobots.map { all ->
+        val byId = all.associateBy { it.id }
+        all.mapNotNull { slave ->
+            val master = slave.masterRobotId?.let { byId[it] } ?: return@mapNotNull null
+            if (master.project == projectName || slave.project == projectName) MasterSlavePair(master, slave) else null
+        }.sortedBy { it.master.name }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Um desenho por par de projetos (mestre -> escravo) em que este projeto entra. */
+    val pairViews: StateFlow<List<ProjectPairView>> = pairs
+        .map { list -> list.groupBy { it.master.project to it.slave.project } }
+        .distinctUntilChanged()
+        .flatMapLatest { groups ->
+            if (groups.isEmpty()) flowOf(emptyList())
+            else combine(groups.map { (projects, ps) ->
+                val (m, s) = projects
+                combine(cabinOf(m), cabinOf(s), repository.getProjectLayout(s)) { mv, sv, sl ->
+                    ProjectPairView(m, mv, s, sv, ps, sl.baseOffset)
+                }
+            }) { it.toList() }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _draft = MutableStateFlow<CabinView?>(null)
     /** Cópia em edição (null = modo visualização). */
@@ -119,6 +197,115 @@ class ProjectViewModel(
     fun disconnectAll() {
         val list = view.value?.robots ?: return
         list.filter { it.id in _connectedIds.value }.forEach { terminalManager.disconnect(it.id, clearHistory = false) }
+    }
+
+    /** Linhas do terminal do robô (para os mini terminais). */
+    fun history(robotId: Int): StateFlow<List<String>> = terminalManager.getHistory(robotId)
+
+    // ---------- Ações em grupo ----------
+
+    private val _tasks = MutableStateFlow<Map<Int, RobotTask>>(emptyMap())
+    /** Andamento da última ação em grupo, por robô. */
+    val tasks: StateFlow<Map<Int, RobotTask>> = _tasks.asStateFlow()
+
+    private val _action = MutableStateFlow<String?>(null)
+    /** Nome da ação em grupo em andamento (null = nenhuma). */
+    val action: StateFlow<String?> = _action.asStateFlow()
+
+    private val _lastAction = MutableStateFlow<String?>(null)
+    /** Nome da última ação em grupo (continua depois que ela termina, junto com [tasks]). */
+    val lastAction: StateFlow<String?> = _lastAction.asStateFlow()
+
+    private var actionJob: Job? = null
+
+    /**
+     * Roda uma ação em grupo: marca os robôs como "na fila" e repassa o andamento de cada um
+     * para [tasks]. Só uma ação por vez.
+     */
+    private fun runAction(title: String, robotIds: List<Int>, block: suspend ((Int, RobotTask) -> Unit) -> Unit) {
+        if (actionJob?.isActive == true || robotIds.isEmpty()) return
+        _action.value = title
+        _lastAction.value = title
+        _tasks.value = robotIds.associateWith { RobotTask(TaskState.WAITING, "Na fila") }
+        actionJob = viewModelScope.launch {
+            try {
+                block { id, task -> _tasks.update { it + (id to task) } }
+            } finally {
+                _action.value = null
+            }
+        }
+    }
+
+    /** Para a ação em grupo; o que estava em andamento no robô (um SAVE, por exemplo) segue lá. */
+    fun cancelAction() {
+        actionJob?.cancel()
+        _tasks.update { all -> all.mapValues { (_, t) -> if (t.finished) t else RobotTask(TaskState.FAILED, "Cancelado") } }
+    }
+
+    fun clearTasks() {
+        if (actionJob?.isActive == true) return
+        _tasks.value = emptyMap()
+        _lastAction.value = null
+    }
+
+    /** Backup (SAVE/FULL) de cada robô escolhido. */
+    fun backupAll(robots: List<Robot>) =
+        runAction("Backup de todos", robots.map { it.id }) { operations.backupAll(robots, it) }
+
+    /** O mesmo comando em cada robô escolhido. */
+    fun commandAll(robots: List<Robot>, command: String) {
+        val cmd = command.trim()
+        if (cmd.isEmpty()) return
+        runAction("Comando: $cmd", robots.map { it.id }) { operations.commandAll(robots, cmd, it) }
+    }
+
+    /**
+     * Manda [programs] de cada mestre para o seu escravo, com o offset do projeto escravo
+     * somado nas bases e, se [withFrames], os frames das bases.
+     */
+    fun transfer(selected: List<MasterSlavePair>, programs: List<String>, withFrames: Boolean) {
+        if (programs.isEmpty()) return
+        runAction("Mestre → escravo: ${programs.joinToString()}", selected.map { it.slave.id }) { update ->
+            coroutineScope {
+                selected.groupBy { it.slave.project }.map { (project, group) ->
+                    async {
+                        val offset = repository.getProjectLayout(project).first().baseOffset
+                        operations.transferToSlaves(group, programs, withFrames, offset, update)
+                    }
+                }.awaitAll()
+            }
+        }
+    }
+
+    private val _programChoices = MutableStateFlow<List<String>?>(null)
+    /** Programas do último backup dos mestres (null = carregando). */
+    val programChoices: StateFlow<List<String>?> = _programChoices.asStateFlow()
+
+    /** Lista os programas do último backup de cada mestre (sem repetir, na ordem do backup). */
+    fun loadProgramChoices(masters: List<Robot>) {
+        _programChoices.value = null
+        viewModelScope.launch {
+            val names = linkedSetOf<String>()
+            masters.distinctBy { it.id }.forEach { m ->
+                val latest = repository.getBackupsSummary(m.id).first()
+                    .filter { !FileUtil.isTransferFile(it.fileName) && it.programsCount > 0 }
+                    .maxByOrNull { it.timestamp }
+                latest?.let { repository.getBackupById(it.id) }?.let { names += AsProgramBlocks.list(it.content) }
+            }
+            _programChoices.value = names.toList()
+        }
+    }
+
+    // ---------- Mestre / escravo ----------
+
+    /**
+     * Grava este projeto como escravo de [masterProject] (null = sem mestre), com a variável de
+     * offset da base e o mestre de cada robô daqui (robô -> robô do mestre, null = sem par).
+     */
+    fun saveMasterConfig(masterProject: String?, offset: String, robotMasters: Map<Int, Int?>) {
+        viewModelScope.launch {
+            repository.saveMasterConfig(projectName, masterProject, offset.trim().ifBlank { ProjectLayout.DEFAULT_BASE_OFFSET }, robotMasters)
+        }
     }
 
     // ---------- Edição ----------
@@ -266,12 +453,13 @@ class ProjectViewModel(
 class ProjectViewModelFactory(
     private val repository: RobotRepository,
     private val terminalManager: KawasakiTerminalManager,
+    private val operations: ProjectOperations,
     private val projectName: String
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ProjectViewModel::class.java)) {
-            return ProjectViewModel(repository, terminalManager, projectName) as T
+            return ProjectViewModel(repository, terminalManager, operations, projectName) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

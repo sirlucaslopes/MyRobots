@@ -165,11 +165,12 @@ class ControllerChecks(
      */
     suspend fun sendAndAwaitPrompt(robotId: Int, command: String, timeoutMs: Long = 60_000): Boolean =
         lock(robotId).withLock {
-            val history = terminal.getHistory(robotId)
-            fun prompts() = history.value.count { it.trim() == ">" }
-            val before = prompts()
+            // contador de prompts do terminal (só aumenta): funciona mesmo depois de uma saída
+            // maior que o histórico guardado, como a de um SAVE/FULL
+            val prompts = terminal.getPromptCount(robotId)
+            val before = prompts.value
             terminal.sendCommand(robotId, command)
-            awaitCount(robotId, before, timeoutMs) { prompts() }
+            awaitCount(robotId, before, timeoutMs) { prompts.value }
         }
 
     /** Espera as checagens do robô terminarem (até [timeoutMs]). */
@@ -244,7 +245,7 @@ class ControllerChecks(
         } else {
             typeLine(robotId, AsControllerReplies.setClockCommand(setTo()))
         }
-        if (!awaitCount(robotId, before) { prompts() }) return
+        if (!awaitCount(robotId, before.toLong()) { prompts().toLong() }) return
         val robotTime = AsControllerReplies.parseClock(history.value.joinToString("\n"))
         // sai da pergunta "Change?" sem mudar nada
         terminal.sendCommand(robotId, "")
@@ -292,7 +293,7 @@ class ControllerChecks(
     }
 
     /** Espera [count] passar de [before] (uma resposta nova chegou), até [timeoutMs]. */
-    private suspend fun awaitCount(robotId: Int, before: Int, timeoutMs: Long = 5_000, count: () -> Int): Boolean {
+    private suspend fun awaitCount(robotId: Int, before: Long, timeoutMs: Long = 5_000, count: () -> Long): Boolean {
         var waited = 0L
         while (waited < timeoutMs) {
             if (!terminal.getConnectionStatus(robotId).value) return false

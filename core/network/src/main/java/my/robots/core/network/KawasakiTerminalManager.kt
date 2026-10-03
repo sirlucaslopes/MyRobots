@@ -66,6 +66,13 @@ class KawasakiTerminalManager(
     )
 
     /**
+     * Arquivo que o robô mandou com SAVE.
+     * - fileName: o nome gravado na pasta; bytes: o tamanho; finishedAt: quando terminou (null =
+     *   ainda recebendo); ok: false se o arquivo não pôde ser aberto para gravar.
+     */
+    data class SaveEvent(val fileName: String, val bytes: Long, val finishedAt: Long?, val ok: Boolean = true)
+
+    /**
      * Tudo o que o app precisa lembrar sobre a conexão de UM robô.
      *
      * - socket / outputStream: o "cano" de rede aberto (entrada e saída).
@@ -90,6 +97,13 @@ class KawasakiTerminalManager(
         var lastActivityAt: Long = 0L,
         var heartbeatJob: Job? = null,
         var isSaving: Boolean = false,
+        // Quantas vezes o prompt ">" apareceu no fim do terminal desde a conexão. Só aumenta:
+        // o histórico guarda só as últimas linhas, então contar ">" nele falha depois de uma
+        // saída longa (um SAVE/FULL tem milhares de linhas).
+        val prompts: MutableStateFlow<Long> = MutableStateFlow(0L),
+        var atPrompt: Boolean = false,
+        // SAVE em andamento ou o último que terminou (para quem espera um SAVE acabar)
+        val save: MutableStateFlow<SaveEvent?> = MutableStateFlow(null),
         var saveFileOutputStream: OutputStream? = null,
         var currentFileName: String? = null,
         var isLoading: Boolean = false,
@@ -122,6 +136,12 @@ class KawasakiTerminalManager(
      * DISCONNECTED. A tela observa esse valor para mostrar o indicador de pulso.
      */
     fun getHeartbeat(robotId: Int) = getOrCreateState(robotId).heartbeat.asStateFlow()
+
+    /** Quantas vezes o prompt ">" voltou no terminal do robô (só aumenta). */
+    fun getPromptCount(robotId: Int) = getOrCreateState(robotId).prompts.asStateFlow()
+
+    /** SAVE em andamento (finishedAt = null) ou o último que terminou, do robô. */
+    fun getSave(robotId: Int) = getOrCreateState(robotId).save.asStateFlow()
 
     /**
      * Deixa um arquivo na fila para ser enviado ao robô assim que ele conectar.
@@ -420,6 +440,7 @@ class KawasakiTerminalManager(
                 if (state.isSaving) {
                     state.saveFileOutputStream?.write(content)
                     state.saveFileOutputStream?.flush()
+                    state.save.value = state.save.value?.let { it.copy(bytes = it.bytes + content.size) }
                 }
                 appendLog(robotId, String(content, charset))
             }
@@ -444,14 +465,17 @@ class KawasakiTerminalManager(
         val safeName = TransferFileNames.safeName(fileName)
         if (safeName == null) {
             state.isSaving = false
+            state.save.value = SaveEvent(fileName.take(60), 0, System.currentTimeMillis(), ok = false)
             appendLog(robotId, "\n>>> SAVE recusado: nome de arquivo inválido vindo do robô (\"${fileName.take(60)}\")")
             return
         }
         try {
             state.saveFileOutputStream = files.openOutput(state.robotName, safeName)
             state.isSaving = true
+            state.save.value = SaveEvent(safeName, 0, null)
         } catch (e: Exception) {
             state.isSaving = false
+            state.save.value = SaveEvent(safeName, 0, System.currentTimeMillis(), ok = false)
             appendLog(robotId, "\n>>> Erro ao gravar $safeName: ${e.message}")
         }
     }
@@ -464,6 +488,7 @@ class KawasakiTerminalManager(
         state.isSaving = false
         try { state.saveFileOutputStream?.close() } catch (e: Exception) {}
         state.saveFileOutputStream = null
+        state.save.value = state.save.value?.copy(finishedAt = System.currentTimeMillis())
     }
 
     /**
@@ -563,6 +588,11 @@ class KawasakiTerminalManager(
             }
         }
         state.history.value = currentHistory.takeLast(1000)
+
+        // o prompt voltou (a última linha virou ">" e antes não era): conta mais um
+        val nowAtPrompt = currentHistory.lastOrNull()?.trim() == ">"
+        if (nowAtPrompt && !state.atPrompt) state.prompts.value += 1
+        state.atPrompt = nowAtPrompt
     }
 
     /**
