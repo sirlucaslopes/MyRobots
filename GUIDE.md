@@ -345,47 +345,49 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 
 ## 9. `:feature:codeeditor` — `AsCodeViewer`
 
-**Arquivo:** `AsCodeViewer.kt`
+**Arquivos:** `AsCodeViewer.kt`, `InstructionDialogs.kt`, `PointTransform.kt`
 
 - Editor de texto completo com numeração de linha e destaque de sintaxe da linguagem AS
   (comentários em verde, textos entre aspas em laranja, seções `.PROGRAM`/`.END`/`.TRANS`
   em amarelo, comandos de movimento em azul, sinais/esperas em verde-água, outras
   palavras-chave em roxo, números em verde-claro).
-- **Pesquisa** (lupa): destaca o texto em amarelo e mostra uma barra com "N de M" e setas para
-  ir de uma linha encontrada à outra (a lista rola até ela, que fica marcada). O botão
-  **"Comandos"** lista as instruções do catálogo que existem no arquivo, com quantas vezes
-  aparecem, como a pesquisa de instrução do teach pendant; tocar em uma pesquisa por ela.
-- Barra do topo: lupa (pesquisa), lápis (liga/desliga o modo de
-  edição) e disquete (chama `onSave` com as linhas juntas por `\n` — o padrão não faz nada,
-  então uma tela somente-leitura simplesmente não grava).
-- **O texto nunca é editável direto na área de código** (não é mais um campo de texto livre
-  — foi assim numa versão anterior, mas digitar dentro de um arquivo gigante rolando na tela
-  do celular era fácil de errar sem querer). Cada linha é uma linha de uma `LazyColumn`
-  (`CodeLinesList`/`CodeLineRow`), colorida com `highlightAsCode` só para as linhas visíveis
-  na tela — por isso funciona liso mesmo em arquivo com dezenas de milhares de linhas, sem
-  precisar degradar o destaque de sintaxe como a versão antiga fazia.
-- **Modo de edição** (ícone de lápis): cada linha ganha uma caixa de seleção (pode marcar
-  mais de uma, em qualquer ordem) e aparece uma barra de ações embaixo da barra do topo
-  (`LineActionsToolbar`), agindo sobre o que estiver marcado:
-  - **Copiar** (1+ marcadas): manda o texto das linhas para a área de transferência.
-  - **Colar** (exatamente 1 marcada): insere o texto da área de transferência acima da
-    linha marcada — se o que foi copiado tiver várias linhas, todas entram de uma vez.
-  - **Alterar** (exatamente 1 marcada, ou **segurar a linha**, que já liga o modo de edição):
-    se a linha é uma instrução do catálogo `AsInstructions` (`:core:common`), abre
-    `InstructionEditDialog`, como o CHANGE do teach pendant: o grupo, as outras instruções do
-    grupo para trocar (levando os valores; ex.: SPRAY_SPEED → AIRCUT_SPEED, SPRAY → PRE_SPRAY,
-    LMOVE XYZ1 → XYZ2), um campo por parâmetro (ON/OFF em botões, números com a unidade) e a
-    prévia da linha. Recuo e comentário (`;...`) voltam iguais. "Editar como texto" (e qualquer
-    linha fora do catálogo, como comentários e IF) abre `LineEditDialog` com o texto da linha.
-  - **Inserir** (exatamente 1 marcada): escolhe o grupo e a instrução (`InstructionPickerDialog`,
-    como a lista do pendant) e preenche os campos; ou "Texto livre". A linha nova entra acima da
-    marcada, com o mesmo recuo dela.
-  - **Catálogo** (`AsInstructions`, grupos do Manual de Operação 5.3): SPRAY_SPEED,
-    AIRCUT_SPEED, SPRAY_JSPEED, AIRCUT_JSPEED, SPRAY, PRE_SPRAY, DOUT, ACCEL, SMOOTH_RANGE,
-    CALL_DBK, CALL_PGM, TWAIT, TIMER_WAIT, UC_JUMP, LABEL, GUN, LMOVE XYZ1/XYZ2 e JMOVE JOINT,
-    no formato de texto dos backups. Reconhece 99,6% dessas instruções nos programas do R10.
+- **Barra do topo:** voltar, nome do arquivo, lupa, lápis, disquete (chama `onSave` com as
+  linhas juntas por quebra de linha; numa tela somente-leitura o padrão não grava) e ⋮.
+- **Lupa** abre uma barra embaixo (`SearchNavigationBar`): campo de texto, botão pesquisar,
+  setas para a linha encontrada anterior/próxima e "N de M". A pesquisa só roda no botão (ou
+  no "pesquisar" do teclado, que fecha); tocar de novo com o mesmo texto vai para a próxima. A
+  linha encontrada fica em destaque. O ícone de lista dentro do campo abre **"Comandos"**: as
+  instruções do catálogo que existem no arquivo, com quantas vezes aparecem, como a pesquisa de
+  instrução do teach pendant.
+- **O texto nunca é editável direto na área de código.** Cada linha é uma linha de uma
+  `LazyColumn` (`CodeLinesList`/`CodeLineRow`), colorida com `highlightAsCode` só nas linhas
+  visíveis, então funciona liso em arquivo com dezenas de milhares de linhas. A coluna de
+  números se ajusta ao tamanho do arquivo.
+- **Lápis** liga o modo de edição: cada linha ganha uma caixa de seleção e abre a barra de
+  edição (`LineActionsToolbar`): marcar linhas em lote (todas, limpar, da marcada para
+  cima/baixo, entre duas), **copiar** (1+), **colar** (1, entra acima da marcada), **Edit** (1),
+  **excluir** (1+) e, à direita, **desfazer** e **refazer**. As duas barras (pesquisa e
+  edição) podem ficar abertas juntas.
+- **Edit** pergunta o que fazer com a linha marcada (`EditChoiceDialog`):
+  - **Editar** (também segurando a linha): se for uma instrução do catálogo `AsInstructions`
+    (`:core:common`), abre `InstructionEditDialog`, como o CHANGE do teach pendant: o grupo,
+    as outras instruções do grupo para trocar (levando os valores; ex.: SPRAY_SPEED →
+    AIRCUT_SPEED, SPRAY → PRE_SPRAY, LMOVE XYZ1 → XYZ2), um campo por parâmetro (ON/OFF em
+    botões, números com a unidade) e a prévia da linha. Recuo e comentário (`;...`) voltam
+    iguais. "Editar como texto" (e linhas fora do catálogo, como comentários e IF) abre
+    `LineEditDialog`.
+  - **Inserir**: a linha nova entra no lugar da marcada, que desce junto com as de baixo.
+  - **Adicionar**: a linha nova entra logo depois da marcada.
+  Nos dois, escolhe-se o grupo e a instrução (`InstructionPickerDialog`, como a lista do
+  pendant) ou "Texto livre"; a linha nova usa o recuo da marcada.
+- **Catálogo** (`AsInstructions`, grupos do Manual de Operação 5.3): SPRAY_SPEED, AIRCUT_SPEED,
+  SPRAY_JSPEED, AIRCUT_JSPEED, SPRAY, PRE_SPRAY, DOUT, ACCEL, SMOOTH_RANGE, CALL_DBK, CALL_PGM,
+  TWAIT, TIMER_WAIT, UC_JUMP, LABEL, GUN, LMOVE XYZ1/XYZ2 e JMOVE JOINT, no formato de texto
+  dos backups. Reconhece 99,6% dessas instruções nos programas do R10.
+- **⋮ "Conversão de programa"** (`ProgramConversionMenu`): deslocar e espelhar pontos
+  (`PointTransform.kt`), sobre as linhas marcadas no modo de edição; sem linhas marcadas, o
+  menu mostra a dica.
 - O voltar do sistema fecha primeiro a pesquisa, depois o modo de edição, e só então sai.
-  - **Excluir** (1+ marcadas): remove as linhas marcadas.
 - É usado em quatro rotas diferentes no `:app` (ver seção 13): código completo, um programa
   só, só as variáveis, e arquivo aberto de fora do app (somente leitura).
 

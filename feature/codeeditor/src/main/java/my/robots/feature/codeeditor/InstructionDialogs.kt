@@ -118,13 +118,14 @@ private fun InstructionFields(def: InstructionDef, values: MutableList<String>) 
  */
 @Composable
 fun InstructionPickerDialog(
+    title: String = "Inserir instrução",
     onPick: (InstructionDef) -> Unit,
     onFreeText: () -> Unit,
     onDismiss: () -> Unit
 ) {
     var group by remember { mutableStateOf<String?>(null) }
     FormDialog(
-        title = if (group == null) "Inserir instrução" else group!!,
+        title = if (group == null) title else group!!,
         onDismiss = onDismiss,
         content = {
             if (group == null) {

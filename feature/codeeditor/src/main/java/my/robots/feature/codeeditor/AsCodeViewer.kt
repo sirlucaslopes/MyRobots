@@ -27,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -50,7 +51,8 @@ import kotlinx.coroutines.withContext
  */
 private sealed class LineDialogAction {
     data class Change(val index: Int) : LineDialogAction()
-    data class Insert(val beforeIndex: Int) : LineDialogAction()
+    /** Linha nova na posição [beforeIndex]; [after] = "Adicionar" (depois da marcada) em vez de "Inserir". */
+    data class Insert(val beforeIndex: Int, val refIndex: Int, val after: Boolean) : LineDialogAction()
 }
 
 /** Quantos passos de desfazer ficam guardados (o mais antigo cai fora depois disso). */
@@ -123,6 +125,11 @@ fun AsCodeViewer(
     var selectedLines by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var lineDialog by remember { mutableStateOf<LineDialogAction?>(null) }
     var searchQuery by remember { mutableStateOf("") }
+    // o que está sendo digitado; vira searchQuery ao tocar em pesquisar (num arquivo FULL,
+    // pesquisar a cada letra seria pesado)
+    var searchInput by remember { mutableStateOf("") }
+    var showEditChoice by remember { mutableStateOf(false) }
+    var showConversionMenu by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     // linha encontrada em destaque (posição dentro de searchMatches)
     var currentMatch by remember { mutableStateOf(0) }
@@ -207,6 +214,7 @@ fun AsCodeViewer(
         if (isSearchActive) {
             isSearchActive = false
             searchQuery = ""
+            searchInput = ""
         } else {
             isEditMode = false
             selectedLines = emptySet()
@@ -217,78 +225,46 @@ fun AsCodeViewer(
         forceTextEdit = false
         lineDialog = LineDialogAction.Change(index)
     }
-    fun openInsert(index: Int) {
+    /** Inserir: a linha nova fica no lugar da marcada (que desce). Adicionar: logo depois dela. */
+    fun openInsert(index: Int, after: Boolean = false) {
         insertDef = null
         insertAsText = false
-        lineDialog = LineDialogAction.Insert(index)
+        lineDialog = LineDialogAction.Insert(if (after) index + 1 else index, index, after)
     }
 
     Scaffold(
         topBar = {
             Column {
                 TopAppBar(
-                    title = {
-                        if (isSearchActive) {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                modifier = Modifier.fillMaxWidth().padding(end = 16.dp),
-                                placeholder = { Text("Pesquisar...") },
-                                trailingIcon = {
-                                    IconButton(onClick = { isSearchActive = false; searchQuery = "" }) {
-                                        Icon(Icons.Default.Close, null)
-                                    }
-                                },
-                                singleLine = true,
-                                textStyle = LocalTextStyle.current.copy(fontSize = 16.sp)
-                            )
-                        } else {
-                            Text(fileName)
-                        }
-                    },
+                    title = { Text(fileName, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
                     navigationIcon = {
-                        IconButton(onClick = {
-                            if (isSearchActive) {
-                                isSearchActive = false
-                                searchQuery = ""
-                            } else {
-                                onBack()
-                            }
-                        }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Voltar")
                         }
                     },
                     actions = {
-                        if (!isSearchActive) {
-                            IconButton(onClick = { isSearchActive = true }) {
-                                Icon(Icons.Default.Search, null)
+                        // lupa: abre/fecha a barra de pesquisa
+                        IconToggleButton(
+                            checked = isSearchActive,
+                            onCheckedChange = { on ->
+                                isSearchActive = on
+                                if (!on) { searchQuery = ""; searchInput = "" }
                             }
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = "Pesquisar",
+                                tint = if (isSearchActive) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                         }
-                        IconButton(onClick = { undo() }, enabled = undoStack.isNotEmpty()) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Undo,
-                                contentDescription = "Desfazer",
-                                tint = if (undoStack.isNotEmpty()) LocalContentColor.current else disabledTint
-                            )
-                        }
-                        IconButton(onClick = { redo() }, enabled = redoStack.isNotEmpty()) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Redo,
-                                contentDescription = "Refazer",
-                                tint = if (redoStack.isNotEmpty()) LocalContentColor.current else disabledTint
-                            )
-                        }
-                        IconButton(
+                        // lápis: abre/fecha a barra de edição
+                        IconToggleButton(
+                            checked = isEditMode,
                             enabled = !isLoadingLines,
-                            onClick = {
-                                isEditMode = !isEditMode
+                            onCheckedChange = { on ->
+                                isEditMode = on
                                 selectedLines = emptySet()
                             }
                         ) {
-                            Icon(
-                                imageVector = if (isEditMode) Icons.Default.EditOff else Icons.Default.Edit,
-                                contentDescription = if (isEditMode) "Sair do Modo de Edição" else "Modo de Edição"
-                            )
+                            Icon(Icons.Default.Edit, contentDescription = "Modo de edição",
+                                tint = if (isEditMode) MaterialTheme.colorScheme.primary else LocalContentColor.current)
                         }
                         IconButton(
                             enabled = !isSaving && !isLoadingLines,
@@ -303,18 +279,36 @@ fun AsCodeViewer(
                         ) {
                             SaveIcon(isSaving = isSaving, isDirty = isDirty, isNewFile = isNewFile)
                         }
+                        // ⋮: conversão de programa (deslocar, espelhar...)
+                        Box {
+                            IconButton(onClick = { showConversionMenu = true }) {
+                                Icon(Icons.Default.MoreVert, contentDescription = "Conversão de programa")
+                            }
+                            ProgramConversionMenu(
+                                expanded = showConversionMenu,
+                                hasSelection = hasSelection,
+                                onDismiss = { showConversionMenu = false },
+                                onShift = { showConversionMenu = false; showShiftDialog = true },
+                                onMirror = { showConversionMenu = false; showMirrorDialog = true }
+                            )
+                        }
                     }
                 )
 
                 if (isSearchActive) {
                     SearchNavigationBar(
+                        input = searchInput,
+                        onInputChange = { searchInput = it },
+                        onSearch = {
+                            if (searchInput == searchQuery) goToMatch(1) else searchQuery = searchInput
+                        },
                         query = searchQuery,
                         matchCount = searchMatches.size,
                         current = currentMatch,
                         lines = lines,
                         onPrev = { goToMatch(-1) },
                         onNext = { goToMatch(1) },
-                        onPickCommand = { searchQuery = it }
+                        onPickCommand = { searchInput = it; searchQuery = it }
                     )
                 }
                 if (isEditMode) {
@@ -352,14 +346,15 @@ fun AsCodeViewer(
                                 selectedLines = emptySet()
                             }
                         },
-                        onChange = { openChange(selectedLines.first()) },
-                        onInsert = { openInsert(selectedLines.first()) },
+                        onEdit = { showEditChoice = true },
                         onDelete = {
                             updateLines(lines.filterIndexed { index, _ -> index !in selectedLines })
                             selectedLines = emptySet()
                         },
-                        onShiftPoints = { showShiftDialog = true },
-                        onMirrorPoints = { showMirrorDialog = true }
+                        canUndo = undoStack.isNotEmpty(),
+                        canRedo = redoStack.isNotEmpty(),
+                        onUndo = ::undo,
+                        onRedo = ::redo
                     )
                 }
             }
@@ -390,6 +385,17 @@ fun AsCodeViewer(
                     openChange(index)
                 },
                 modifier = Modifier.padding(padding)
+            )
+        }
+
+        if (showEditChoice && selectedLines.size == 1) {
+            val index = selectedLines.first()
+            EditChoiceDialog(
+                lineNumber = index + 1,
+                onEdit = { showEditChoice = false; openChange(index) },
+                onInsert = { showEditChoice = false; openInsert(index) },
+                onAdd = { showEditChoice = false; openInsert(index, after = true) },
+                onDismiss = { showEditChoice = false }
             )
         }
 
@@ -424,18 +430,22 @@ fun AsCodeViewer(
                 is LineDialogAction.Insert -> {
                     val chosen = insertDef
                     when {
-                        insertAsText -> LineEditDialog(title = "Inserir Linha", initialText = "", onDismiss = close, onSave = ::saveLine)
+                        insertAsText -> LineEditDialog(
+                            title = if (action.after) "Adicionar linha" else "Inserir linha",
+                            initialText = "", onDismiss = close, onSave = ::saveLine
+                        )
                         chosen == null -> InstructionPickerDialog(
+                            title = if (action.after) "Adicionar instrução" else "Inserir instrução",
                             onPick = { insertDef = it },
                             onFreeText = { insertAsText = true },
                             onDismiss = close
                         )
                         else -> {
                             // a linha nova entra com o mesmo recuo da linha marcada
-                            val reference = lines.getOrElse(action.beforeIndex) { "" }
+                            val reference = lines.getOrElse(action.refIndex) { "" }
                             val indent = reference.takeWhile { it == ' ' || it == '\t' }.ifEmpty { "  " }
                             InstructionEditDialog(
-                                title = "Inserir: ${chosen.label}",
+                                title = (if (action.after) "Adicionar: " else "Inserir: ") + chosen.label,
                                 start = ParsedInstruction(chosen, chosen.defaults(), indent, ""),
                                 onEditAsText = { insertAsText = true },
                                 onDismiss = close,
@@ -480,12 +490,17 @@ fun AsCodeViewer(
 }
 
 /**
- * Barra embaixo do campo de pesquisa: "N de M" com setas para ir de uma linha encontrada à
- * outra, e "Comandos", que lista as instruções do catálogo que existem no arquivo (com quantas
- * vezes aparecem), como a pesquisa de instrução do teach pendant. Escolher uma pesquisa por ela.
+ * Barra de pesquisa (abre na lupa): campo de texto, botão pesquisar, setas para a linha
+ * encontrada anterior/próxima e "N de M". No campo, o ícone de lista abre "Comandos": as
+ * instruções do catálogo que existem no arquivo (com quantas vezes aparecem), como a pesquisa
+ * de instrução do teach pendant. A pesquisa só roda ao tocar em pesquisar (ou no teclado);
+ * tocar de novo com o mesmo texto vai para a próxima.
  */
 @Composable
 private fun SearchNavigationBar(
+    input: String,
+    onInputChange: (String) -> Unit,
+    onSearch: () -> Unit,
     query: String,
     matchCount: Int,
     current: Int,
@@ -495,6 +510,9 @@ private fun SearchNavigationBar(
     onPickCommand: (String) -> Unit
 ) {
     var showCommands by remember { mutableStateOf(false) }
+    // ao pesquisar, o teclado fecha para a lista aparecer inteira
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val search = { keyboard?.hide(); onSearch() }
     // instruções do arquivo: contadas só quando a lista abre
     val commands = remember(showCommands, lines) {
         if (!showCommands) emptyList()
@@ -504,36 +522,149 @@ private fun SearchNavigationBar(
         }
     }
     Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box {
-                TextButton(onClick = { showCommands = true }) {
-                    Icon(Icons.Default.ManageSearch, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Comandos")
-                }
-                DropdownMenu(expanded = showCommands, onDismissRequest = { showCommands = false }) {
-                    if (commands.isEmpty()) {
-                        DropdownMenuItem(text = { Text("Nenhuma instrução conhecida") }, onClick = { showCommands = false })
+        Row(
+            modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInputChange,
+                placeholder = { Text("Pesquisar...") },
+                singleLine = true,
+                textStyle = LocalTextStyle.current.copy(fontSize = 15.sp),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSearch = { search() }),
+                trailingIcon = {
+                    Box {
+                        IconButton(onClick = { showCommands = true }) {
+                            Icon(Icons.Default.ManageSearch, contentDescription = "Comandos do arquivo")
+                        }
+                        DropdownMenu(expanded = showCommands, onDismissRequest = { showCommands = false }) {
+                            if (commands.isEmpty()) {
+                                DropdownMenuItem(text = { Text("Nenhuma instrução conhecida") }, onClick = { showCommands = false })
+                            }
+                            commands.forEach { (k, n) ->
+                                DropdownMenuItem(
+                                    text = { Text("$k  ($n)") },
+                                    onClick = { showCommands = false; keyboard?.hide(); onPickCommand("$k ") }
+                                )
+                            }
+                        }
                     }
-                    commands.forEach { (k, n) ->
-                        DropdownMenuItem(
-                            text = { Text("$k  ($n)") },
-                            onClick = { showCommands = false; onPickCommand("$k ") }
-                        )
-                    }
-                }
+                },
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = search, enabled = input.isNotBlank()) {
+                Icon(Icons.Default.Search, contentDescription = "Pesquisar", tint = MaterialTheme.colorScheme.primary)
             }
-            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onPrev, enabled = matchCount > 0, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.KeyboardArrowUp, "Anterior")
+            }
+            IconButton(onClick = onNext, enabled = matchCount > 0, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.KeyboardArrowDown, "Próxima")
+            }
             Text(
                 when {
-                    query.isBlank() -> ""
-                    matchCount == 0 -> "Nada encontrado"
-                    else -> "${current + 1} de $matchCount"
+                    query.isBlank() -> "–"
+                    matchCount == 0 -> "0"
+                    else -> "${current + 1} de\n$matchCount"
                 },
-                style = MaterialTheme.typography.labelLarge
+                style = MaterialTheme.typography.labelMedium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(min = 44.dp)
             )
-            IconButton(onClick = onPrev, enabled = matchCount > 0) { Icon(Icons.Default.KeyboardArrowUp, "Anterior") }
-            IconButton(onClick = onNext, enabled = matchCount > 0) { Icon(Icons.Default.KeyboardArrowDown, "Próxima") }
+        }
+    }
+}
+
+/**
+ * Menu ⋮ "Conversão de programa": funções que transformam as linhas marcadas no modo de edição
+ * (deslocar e espelhar pontos, ver PointTransform.kt). Sem linhas marcadas, só mostra a dica.
+ */
+@Composable
+private fun ProgramConversionMenu(
+    expanded: Boolean,
+    hasSelection: Boolean,
+    onDismiss: () -> Unit,
+    onShift: () -> Unit,
+    onMirror: () -> Unit
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        Text(
+            "Conversão de programa",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+        )
+        if (!hasSelection) {
+            Text(
+                "Marque as linhas no modo de edição (lápis).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp).widthIn(max = 240.dp)
+            )
+        }
+        DropdownMenuItem(
+            text = { Text("Deslocar pontos") },
+            leadingIcon = { Icon(Icons.Default.OpenWith, null) },
+            enabled = hasSelection,
+            onClick = onShift
+        )
+        DropdownMenuItem(
+            text = { Text("Espelhar pontos") },
+            leadingIcon = { Icon(Icons.Default.Flip, null) },
+            enabled = hasSelection,
+            onClick = onMirror
+        )
+    }
+}
+
+/**
+ * "Edit" da barra de edição: o que fazer com a linha marcada.
+ * - Editar: altera a linha (por campos, se for uma instrução conhecida, ou como texto).
+ * - Inserir: a linha nova entra no lugar da marcada, que desce junto com as de baixo.
+ * - Adicionar: a linha nova entra logo depois da marcada.
+ */
+@Composable
+private fun EditChoiceDialog(
+    lineNumber: Int,
+    onEdit: () -> Unit,
+    onInsert: () -> Unit,
+    onAdd: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Linha $lineNumber") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                EditChoiceRow(Icons.Default.EditNote, "Editar", "Alterar o comando ou o texto desta linha", onEdit)
+                EditChoiceRow(Icons.Default.VerticalAlignTop, "Inserir", "Linha nova aqui; esta e as de baixo descem", onInsert)
+                EditChoiceRow(Icons.Default.PlaylistAdd, "Adicionar", "Linha nova logo depois desta", onAdd)
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
+}
+
+@Composable
+private fun EditChoiceRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp, horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -571,11 +702,10 @@ private fun SaveIcon(isSaving: Boolean, isDirty: Boolean, isNewFile: Boolean) {
 }
 
 /**
- * Barra de ações do modo de edição: marcar linhas em lote, copiar/colar/alterar/inserir/
- * excluir/deslocar/espelhar, agindo sobre as linhas marcadas. Alterar/Inserir/Colar exigem
- * exatamente uma linha marcada (é o ponto de referência); Copiar/Excluir/Deslocar/Espelhar
- * aceitam uma ou mais (esse conjunto marcado É o "intervalo de linhas" que as funções de
- * ponto enxergam). A barra rola de lado se não couber na largura da tela.
+ * Barra de edição (abre no lápis): marcar linhas em lote, copiar, colar, Edit (Editar /
+ * Inserir / Adicionar), excluir e, à direita, desfazer e refazer. Colar e Edit exigem
+ * exatamente uma linha marcada; copiar e excluir aceitam várias. Deslocar e espelhar pontos
+ * ficam no menu ⋮ "Conversão de programa" e agem sobre as linhas marcadas aqui.
  */
 @Composable
 fun LineActionsToolbar(
@@ -590,21 +720,21 @@ fun LineActionsToolbar(
     onSelectRange: () -> Unit,
     onCopy: () -> Unit,
     onPaste: () -> Unit,
-    onChange: () -> Unit,
-    onInsert: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onShiftPoints: () -> Unit,
-    onMirrorPoints: () -> Unit
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit
 ) {
     var showSelectionMenu by remember { mutableStateOf(false) }
 
     Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
-                .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 4.dp, vertical = 4.dp)
                 .fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Box {
                 IconButton(onClick = { showSelectionMenu = true }) {
@@ -643,20 +773,19 @@ fun LineActionsToolbar(
             IconButton(onClick = onPaste, enabled = hasSingleSelection) {
                 Icon(Icons.Default.ContentPaste, "Colar", tint = if (hasSingleSelection) LocalContentColor.current else disabledTint)
             }
-            IconButton(onClick = onChange, enabled = hasSingleSelection) {
-                Icon(Icons.Default.EditNote, "Alterar Linha", tint = if (hasSingleSelection) MaterialTheme.colorScheme.primary else disabledTint)
-            }
-            IconButton(onClick = onInsert, enabled = hasSingleSelection) {
-                Icon(Icons.Default.PlaylistAdd, "Inserir Linha", tint = if (hasSingleSelection) MaterialTheme.colorScheme.primary else disabledTint)
+            // Edit: pergunta Editar / Inserir / Adicionar na linha marcada
+            IconButton(onClick = onEdit, enabled = hasSingleSelection) {
+                Icon(Icons.Default.EditNote, "Editar, inserir ou adicionar", tint = if (hasSingleSelection) MaterialTheme.colorScheme.primary else disabledTint)
             }
             IconButton(onClick = onDelete, enabled = hasSelection) {
                 Icon(Icons.Default.Delete, "Excluir", tint = if (hasSelection) MaterialTheme.colorScheme.error else disabledTint)
             }
-            IconButton(onClick = onShiftPoints, enabled = hasSelection) {
-                Icon(Icons.Default.OpenWith, "Deslocar Pontos", tint = if (hasSelection) MaterialTheme.colorScheme.primary else disabledTint)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onUndo, enabled = canUndo) {
+                Icon(Icons.AutoMirrored.Filled.Undo, "Desfazer", tint = if (canUndo) LocalContentColor.current else disabledTint)
             }
-            IconButton(onClick = onMirrorPoints, enabled = hasSelection) {
-                Icon(Icons.Default.Flip, "Espelhar Pontos", tint = if (hasSelection) MaterialTheme.colorScheme.primary else disabledTint)
+            IconButton(onClick = onRedo, enabled = canRedo) {
+                Icon(Icons.AutoMirrored.Filled.Redo, "Refazer", tint = if (canRedo) LocalContentColor.current else disabledTint)
             }
         }
     }
