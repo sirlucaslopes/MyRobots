@@ -22,6 +22,8 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 .\gradlew.bat :core:database:connectedDebugAndroidTest          # Room migration test (needs a phone/emulator)
 ```
 
+- **Protocol test suite**: `python tools/protocolo/rodar_testes.py` (add `--kroset 127.0.0.1:9105` or `--kroset nao`, `--celular`). It starts a fake Kawasaki controller in Python, runs every JVM test plus the protocol tests against the fake and K-ROSET, and writes `tools/protocolo/relatorios/ultimo.md`. Run it after any change to the terminal, SAVE/LOAD or `RobotCommands`, and read the report instead of the Gradle log. See GUIDE.md section 3.
+- Never leave a controller waiting: every SAVE/LOAD goes through `RobotCommands` (`loadFile`/`saveFile`), and a question the controller asks mid-transfer must be answered (it hangs until restarted otherwise).
 - Builds need internet; `--offline` fails because the KSP/Room processors aren't cached.
 - Redirect long Gradle output to a file instead of piping into `Select-Object -First N`, which closes the pipe early.
 - If a build fails because `classes.jar` is "utilizado por outro processo", a daemon (often Android Studio's, after a build-file change) is holding it: run `.\gradlew.bat --stop` and retry.

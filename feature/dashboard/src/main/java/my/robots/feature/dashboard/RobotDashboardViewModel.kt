@@ -333,12 +333,12 @@ class RobotDashboardViewModel(
                 if (r != null) checks.connectAndWait(r)
                 
                 if (isConnected.value) {
-                    // grava o arquivo na pasta do robô de destino e manda o robô carregar
+                    // cópia na pasta do robô (registro) e LOAD conferido, saindo da memória
                     repository.saveFileToRobotFolder(robotId, pending.fileName, pending.content)
-                    
-                    delay(1500)
-                    terminalManager.sendCommand(robotId, "LOAD ${pending.fileName}")
                     terminalManager.clearPendingTransfer(robotId)
+                    val result = checks.commands.loadFile(robotId, pending.fileName, pending.content)
+                    val verdict = if (result.ok) "LOAD conferido" else "LOAD NÃO conferido"
+                    terminalManager.appendLog(robotId, "\n>>> $verdict: ${result.message}\n")
                 }
                 _isLoading.value = false
             }
@@ -419,24 +419,14 @@ class RobotDashboardViewModel(
                     return@launch
                 }
                 set(target.id, SendProgress(SendState.SENDING))
-                if (!repository.saveFileToRobotFolder(target.id, fileName, content)) {
-                    set(target.id, SendProgress(SendState.FAILED, "Não gravou o arquivo"))
-                    return@launch
-                }
-                delay(500)
-                val ok = checks.sendAndAwaitPrompt(target.id, "LOAD $fileName")
-                // "File load completed. (N errors)": 0 = deu certo; sem essa linha, vale o prompt
-                val errors = AsControllerReplies.parseLoadErrors(
-                    terminalManager.getHistory(target.id).value.takeLast(30).joinToString("\n")
-                )
+                // cópia na pasta do robô, para registro; o LOAD sai da memória e é conferido
+                // (pedido do arquivo, bytes todos, fim da transferência e "0 errors")
+                repository.saveFileToRobotFolder(target.id, fileName, content)
+                val result = checks.commands.loadFile(target.id, fileName, content)
                 set(
                     target.id,
-                    when {
-                        !ok -> SendProgress(SendState.FAILED, "Sem resposta ao LOAD: veja o terminal")
-                        errors == null -> SendProgress(SendState.DONE, "LOAD terminou")
-                        errors == 0 -> SendProgress(SendState.DONE, "LOAD sem erros")
-                        else -> SendProgress(SendState.FAILED, "LOAD com $errors erro(s): veja o terminal")
-                    }
+                    if (result.ok) SendProgress(SendState.DONE, result.message)
+                    else SendProgress(SendState.FAILED, result.message)
                 )
             }
         }

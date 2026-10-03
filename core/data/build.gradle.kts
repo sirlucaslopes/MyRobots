@@ -32,3 +32,12 @@ dependencies {
 
     testImplementation(libs.junit)
 }
+
+// Testes do protocolo (tools/protocolo/rodar_testes.py): o endereço do controlador falso, o do
+// K-ROSET e a pasta dos registros chegam como -P e viram propriedades do teste. Sem elas, os
+// testes do protocolo ficam "pulados" e o build normal não depende de rede.
+tasks.withType<Test>().configureEach {
+    listOf("protocolo.falso", "protocolo.kroset", "protocolo.saida").forEach { key ->
+        project.findProperty(key)?.let { systemProperty(key, it.toString()) }
+    }
+}

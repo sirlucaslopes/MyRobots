@@ -4,11 +4,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import my.robots.core.common.FileUtil
-import my.robots.core.common.ascode.AsControllerReplies
 import my.robots.core.common.ascode.AsMasterTransfer
 import my.robots.core.common.ascode.AsProgramBlocks
 import my.robots.core.model.Robot
@@ -52,24 +50,17 @@ class ProjectOperations(
                 val fileName = "${FileUtil.sanitizeFileName(robot.name).replace(".as", "")}_$stamp"
                 if (!connect(robot, onUpdate)) return@async
                 onUpdate(robot.id, RobotTask(TaskState.RUNNING, "SAVE/FULL…"))
-                val before = terminal.getSave(robot.id).value
-                val ok = checks.sendAndAwaitPrompt(robot.id, "SAVE/FULL $fileName", SAVE_TIMEOUT_MS)
-                val save = terminal.getSave(robot.id).value
-                val received = save != null && save !== before && save.finishedAt != null && save.ok &&
-                    save.fileName.startsWith(fileName, ignoreCase = true)
-                when {
-                    received -> {
-                        val imported = repository.syncRobotFolder(robot)
-                        val kb = save!!.bytes / 1024
-                        onUpdate(
-                            robot.id,
-                            if (imported > 0) RobotTask(TaskState.DONE, "${save.fileName} · $kb KB")
-                            else RobotTask(TaskState.WARNING, "${save.fileName} recebido, mas não entrou como backup")
-                        )
-                    }
-                    !ok -> onUpdate(robot.id, RobotTask(TaskState.FAILED, "SAVE sem resposta: veja o terminal"))
-                    else -> onUpdate(robot.id, RobotTask(TaskState.FAILED, "O robô não mandou o arquivo: veja o terminal"))
+                val result = checks.commands.saveFile(robot.id, "SAVE/FULL $fileName", fileName, SAVE_TIMEOUT_MS)
+                if (!result.ok) {
+                    onUpdate(robot.id, RobotTask(TaskState.FAILED, result.message))
+                    return@async
                 }
+                val imported = repository.syncRobotFolder(robot)
+                onUpdate(
+                    robot.id,
+                    if (imported > 0) RobotTask(TaskState.DONE, result.message)
+                    else RobotTask(TaskState.WARNING, "${result.fileName} recebido, mas não entrou como backup")
+                )
             }
         }.awaitAll()
     }
@@ -118,21 +109,14 @@ class ProjectOperations(
                 onUpdate(slave.id, RobotTask(TaskState.RUNNING, "Enviando ${prepared.summary}…"))
                 val fileName = if (programs.size == 1) "transfer_${FileUtil.sanitizeFileName(programs[0]).replace(".as", "")}.as"
                 else "transfer_batch_${System.currentTimeMillis()}.as"
-                if (!repository.saveFileToRobotFolder(slave.id, fileName, prepared.file)) {
-                    onUpdate(slave.id, RobotTask(TaskState.FAILED, "Não gravou o arquivo na pasta do ${slave.name}"))
-                    return@async
-                }
-                delay(500)
-                val ok = checks.sendAndAwaitPrompt(slave.id, "LOAD $fileName", LOAD_TIMEOUT_MS)
-                val errors = AsControllerReplies.parseLoadErrors(
-                    terminal.getHistory(slave.id).value.takeLast(30).joinToString("\n")
-                )
+                // cópia na pasta do escravo, para registro (o LOAD sai da memória)
+                repository.saveFileToRobotFolder(slave.id, fileName, prepared.file)
+                val result = checks.commands.loadFile(slave.id, fileName, prepared.file, LOAD_TIMEOUT_MS)
                 val base = "${master.name} → ${slave.name}: ${prepared.summary}"
                 onUpdate(
                     slave.id,
                     when {
-                        !ok -> RobotTask(TaskState.FAILED, "Sem resposta ao LOAD: veja o terminal")
-                        errors != null && errors > 0 -> RobotTask(TaskState.FAILED, "LOAD com $errors erro(s): veja o terminal")
+                        !result.ok -> RobotTask(TaskState.FAILED, result.message)
                         prepared.warnings.isNotEmpty() -> RobotTask(TaskState.WARNING, "$base · ${prepared.warnings.joinToString(" · ")}")
                         else -> RobotTask(TaskState.DONE, base)
                     }

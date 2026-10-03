@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import my.robots.core.common.ascode.AsControllerReplies
 import my.robots.core.common.ascode.AsFreeMemory
@@ -30,6 +29,13 @@ data class ClockIssue(
     val phoneTime: LocalDateTime,
     val offsetSeconds: Long,
     val fixFailed: Boolean = false
+)
+
+/** Pergunta de um controlador no meio de uma transferência (ver [ControllerChecks.questions]). */
+data class RobotQuestion(
+    val robotId: Int,
+    val robotName: String,
+    val question: KawasakiTerminalManager.ControllerQuestion
 )
 
 /**
@@ -65,6 +71,8 @@ data class SerialMismatch(
 class ControllerChecks(
     context: Context,
     private val terminal: KawasakiTerminalManager,
+    /** Comando/LOAD/SAVE com o resultado conferido; a trava de cada robô é a dele. */
+    val commands: RobotCommands,
     private val repository: RobotRepository,
     private val scope: CoroutineScope
 ) {
@@ -75,7 +83,6 @@ class ControllerChecks(
 
     private val prefs = context.applicationContext.getSharedPreferences("controller_memory", Context.MODE_PRIVATE)
     private val memories = mutableMapOf<Int, MutableStateFlow<ControllerMemory?>>()
-    private val locks = mutableMapOf<Int, Mutex>()
     private val watched = mutableSetOf<Int>()
 
     private val _busy = MutableStateFlow<Set<Int>>(emptySet())
@@ -85,6 +92,16 @@ class ControllerChecks(
     private val _clockIssues = MutableStateFlow<List<ClockIssue>>(emptyList())
     /** Relógios a corrigir, esperando a resposta do usuário. */
     val clockIssues: StateFlow<List<ClockIssue>> = _clockIssues.asStateFlow()
+
+    private val _questions = MutableStateFlow<List<RobotQuestion>>(emptyList())
+    /**
+     * Perguntas dos controladores no meio de um SAVE/LOAD (ex.: passo com erro de sintaxe),
+     * esperando a resposta do usuário. Enquanto não houver resposta, o controlador fica parado.
+     */
+    val questions: StateFlow<List<RobotQuestion>> = _questions.asStateFlow()
+
+    /** Responde a pergunta do controlador com a tecla escolhida. */
+    fun answerQuestion(question: RobotQuestion, key: String) = terminal.answerQuestion(question.robotId, key)
 
     private val _serialMismatches = MutableStateFlow<List<SerialMismatch>>(emptyList())
     /** Séries diferentes da cadastrada, esperando a resposta do usuário. */
@@ -100,6 +117,14 @@ class ControllerChecks(
     private fun watch(robotId: Int) {
         if (!watched.add(robotId)) return
         scope.launch {
+            terminal.getQuestion(robotId).collect { q ->
+                val name = if (q != null) repository.getRobotById(robotId)?.name ?: "Robô" else ""
+                _questions.update { list ->
+                    list.filterNot { it.robotId == robotId } + listOfNotNull(q?.let { RobotQuestion(robotId, name, it) })
+                }
+            }
+        }
+        scope.launch {
             var wasConnected = false
             terminal.getConnectionStatus(robotId).collect { connected ->
                 if (connected && !wasConnected) scope.launch { runChecks(robotId) }
@@ -108,7 +133,7 @@ class ControllerChecks(
         }
     }
 
-    private fun lock(robotId: Int) = synchronized(locks) { locks.getOrPut(robotId) { Mutex() } }
+    private fun lock(robotId: Int) = commands.lock(robotId)
 
     /** Última leitura de memória do robô (null se nunca foi lida). */
     fun lastMemory(robotId: Int): StateFlow<ControllerMemory?> =
@@ -164,14 +189,7 @@ class ControllerChecks(
      * ter feito uma pergunta: ver o terminal).
      */
     suspend fun sendAndAwaitPrompt(robotId: Int, command: String, timeoutMs: Long = 60_000): Boolean =
-        lock(robotId).withLock {
-            // contador de prompts do terminal (só aumenta): funciona mesmo depois de uma saída
-            // maior que o histórico guardado, como a de um SAVE/FULL
-            val prompts = terminal.getPromptCount(robotId)
-            val before = prompts.value
-            terminal.sendCommand(robotId, command)
-            awaitCount(robotId, before, timeoutMs) { prompts.value }
-        }
+        commands.sendAndAwaitPrompt(robotId, command, timeoutMs)
 
     /** Espera as checagens do robô terminarem (até [timeoutMs]). */
     suspend fun awaitReady(robotId: Int, timeoutMs: Long = 20_000): Boolean {

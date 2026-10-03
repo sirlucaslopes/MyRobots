@@ -130,11 +130,39 @@ projeto que ficou sem robôs (`deleteLayoutIfEmpty`).
   - Conectar/desconectar por robô (uma conexão cada), com histórico de até 1000 linhas por robô.
   - Login automático: observa o texto do robô por "login:"/"user:" e "password:" e digita
     sozinho, letra por letra (o controlador perde caractere se receber tudo de uma vez).
-  - Entende o protocolo de transferência de arquivo do controlador: quando o robô manda um
-    `SAVE`, grava o arquivo na pasta do robô; quando pede um `LOAD`, envia o arquivo da pasta
-    do robô em blocos de 512 bytes. Os arquivos passam pela `RobotFileStore` (seção 14).
-    **Atenção:** um bloco do protocolo só é interpretado se chegar inteiro no mesmo pacote de
-    rede — se vier partido em dois pacotes, é descartado.
+  - Entende o protocolo de transferência de arquivo do controlador (conferido byte a byte com
+    o K-ROSET em 03/10/2026). O robô manda blocos `05 02 <tipo> <conteúdo> 17` misturados com o
+    texto:
+    - **LOAD:** `A<arquivo>` → o app responde `02 A "    0" 17`; a cada `C` o app manda
+      `02 C "    0" <até 512 bytes> 17` e, no fim, `02 C "    0" 1A 17`; o robô fecha com `E`
+      (o app responde `E`) e escreve "File load completed. (N errors)".
+    - **SAVE:** `B<arquivo>` → o app responde `B`; vários `D<texto>` (gravados na pasta do
+      robô, sem ir para a tela: o terminal mostra só "Recebendo…" e "recebido (N KB)"); `E` no
+      fim (o app responde `E`) e "File save completed.".
+  - **Regras para nunca deixar o controlador preso** (um controlador esperando o app trava e
+    só volta reiniciando; aconteceu num LOAD em 03/10/2026):
+    - todo pedido `C` recebe resposta. Sem o arquivo (não achado, nome inválido, ou o app sem
+      LOAD em andamento), a resposta é o fim de arquivo: o controlador termina o LOAD vazio
+      ("0 errors") e o app marca como **falha**;
+    - o arquivo do LOAD sai da memória (`stageLoad`, usado pelo `RobotCommands`), não depende
+      da pasta; LOAD digitado à mão no terminal usa a pasta do robô;
+    - os bytes saem por uma **fila única** por conexão (antes, cada envio era uma tarefa
+      paralela e os bytes podiam sair fora de ordem);
+    - bloco partido entre dois pacotes de rede é **juntado** antes de ser lido (o K-ROSET manda
+      o texto em pedaços de 1 a 16 bytes);
+    - **pergunta do controlador no meio da transferência** (ex.: passo com erro de sintaxe:
+      "STEP syntax error. (0:Change to comment and continue, 1:Delete program and abort)", ou o
+      "Load?" do `LOAD/Q`): vira `getQuestion` e o app espera a resposta (`answerQuestion`).
+      Foi isso que travou o controlador: o app não respondia e o controlador ficava parado
+      na pergunta. A pergunta aparece em qualquer tela (janela do `ControllerChecks.questions`
+      no `MainActivity`), com as opções do controlador; não dá para fechar sem escolher;
+    - transferência sem nenhum bloco do robô por 30 s (`transferStallMs`) e **sem pergunta
+      pendente** é encerrada pelo app (LOAD: manda o fim de arquivo; SAVE: fecha o arquivo como
+      incompleto);
+    - **desconectar no meio de um SAVE/LOAD fica adiado** até o fim (fechar a conexão no meio
+      deixa o controlador esperando); a conexão que cai no meio avisa no terminal.
+  - `getSave`/`getLoad`: o último SAVE e LOAD de cada robô (arquivo, bytes, terminou, ok e o
+    motivo); `getTransfer`/`isTransferring`: se há um em andamento.
   - **O nome do arquivo que o robô manda é validado** (`TransferFileNames.safeName`: só
     `[A-Za-z0-9_.-]`, sem `..`, até 100 caracteres). Ele vem da rede: sem essa conferência, um
     aparelho respondendo no IP do robô podia pedir um `LOAD` de
@@ -160,8 +188,37 @@ projeto que ficou sem robôs (`deleteLayoutIfEmpty`).
   (LOAD) passa pelo terminal. A antiga `RobotApiService` (Retrofit, apontando para
   `http://localhost/`) foi removida na v1.2.
 
-**Pendências / Próximos passos:** tratar blocos de handshake partidos entre pacotes de rede
-(Fase 2.0 de `docs/PLANO_V1_2.md`).
+**Pendências / Próximos passos:** os backups são gravados em UTF-8 e o controlador fala
+ISO-8859-1: um comentário com acento vindo do robô pode virar caractere inválido no backup.
+O manual diz que LOAD de um programa que já existe é recusado; no K-ROSET ele foi sobrescrito.
+Conferir num robô real (o protocolo de testes cobre o K-ROSET).
+
+### Protocolo de testes (`tools/protocolo/`)
+Roda sozinho e escreve um relatório; ninguém precisa acompanhar.
+
+```
+python tools/protocolo/rodar_testes.py                    # K-ROSET em 127.0.0.1:9205
+python tools/protocolo/rodar_testes.py --kroset 127.0.0.1:9105
+python tools/protocolo/rodar_testes.py --kroset nao       # só o controlador falso
+python tools/protocolo/rodar_testes.py --celular          # também instala e abre no celular
+```
+
+- **`controlador_falso.py`**: imita o terminal AS do K-ROSET byte a byte e provoca as falhas
+  que o K-ROSET não faz quando a gente quer. O cenário vai no usuário do login: `normal`,
+  `fragmentado` (pacotes de 1 a 3 bytes), `erro_load` (2 errors), `recusa_load`, `corta_load`
+  e `corta_save` (queda no meio), `para_load` (robô para de pedir), `pede_dados` (pedido `C`
+  sem LOAD) e `pergunta_load` (erro de sintaxe com a pergunta 0/1). Ele registra **"preso"**
+  sempre que pede algo e o app não responde: é o alerta principal do relatório.
+- **Testes** (JUnit, no PC, com o mesmo código do app: `KawasakiTerminalManager` +
+  `RobotCommands`), em `core/data/src/test/.../protocolo/`: `ControladorFalsoTest` (F01–F18) e
+  `KRosetTest` (K01–K99, usa o programa `pgtesteapp` e o apaga no fim; uma conexão só).
+  Sem as propriedades `protocolo.*` (o build normal), esses testes ficam pulados.
+- **`rodar_testes.py`**: sobe o controlador falso, roda todos os testes JVM com `--rerun`,
+  junta os XML do JUnit, os eventos do falso e o terminal de cada teste que falhou, e grava
+  `tools/protocolo/relatorios/<data>/relatorio.md` (cópia em `relatorios/ultimo.md`, fora do
+  git). Sai com código 0 só sem falha e sem "preso".
+- Teste novo de protocolo: um cenário no `controlador_falso.py` (se precisar) e um `@Test` no
+  `ControladorFalsoTest` ou no `KRosetTest`.
 
 ---
 
@@ -192,6 +249,21 @@ Principais responsabilidades:
   dos arquivos" (seção 7) e o botão "Arquivos" do terminal (seção 10).
 - Não há nenhum dado simulado: `performBackup` (que criava um backup de exemplo quando a API
   de teste falhava), `getRobotLogs` e `getRobotStatus` foram removidos na v1.2.
+
+### Conversa em vários passos (`RobotCommands`)
+Classe sem Android (roda nos testes do protocolo). Uma **trava por robô**, a mesma das
+checagens do login, para nunca misturar respostas:
+- `sendAndAwaitPrompt`: manda o comando e espera o prompt voltar (contador de prompts do
+  terminal, que só aumenta).
+- `loadFile(robô, arquivo, texto)`: deixa o arquivo pronto na memória (ISO-8859-1), manda
+  `LOAD` e só devolve **ok** com as quatro provas: o robô pediu este arquivo, ele foi inteiro, o
+  robô fechou a transferência e respondeu "File load completed. (0 errors)" sem pergunta no
+  meio. "0 errors" sozinho não basta (o controlador diz isso também para um arquivo vazio).
+  Pergunta no meio: com `answer`, responde; sem, espera a tela.
+- `saveFile(robô, comando, nome)`: manda o `SAVE…` e confere o arquivo recebido (nome, fim da
+  transferência e "File save completed.").
+Todos os envios do app passam por aqui: "Enviar para robôs" do painel, a fila de transferência
+pendente, o backup de todos e o mestre → escravo da tela de Projeto.
 
 ### Checagens depois do login (`ControllerChecks`)
 
@@ -489,6 +561,10 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   (`deletePrograms`), para não perder uma exclusão por causa de outra sendo salva ao mesmo
   tempo. "Duplicar" continua por linha, pois é uma ação de um programa só (copia o bloco com
   `AsProgramBlocks` e troca só o nome no cabeçalho, mantendo parâmetros, data e comentário).
+- **Lupa (Programas, Variáveis e Data Bank)**: na barra do topo; abre um campo embaixo dela
+  que filtra os cartões enquanto se digita ("N de M"). Programas: nome, comentário ou grupo;
+  Variáveis: nome ou valor; Data Bank: número (DB12), comentário ou um valor igual. O
+  "Selecionar todos" marca só o que aparece. Voltar ou o X fecha a busca; sair da seção limpa.
 - **Variáveis**: no mesmo estilo de Programas e Data Bank. Agrupadas por tipo (Posições/TRANS,
   Reais, Textos, Inteiros...), cada grupo abre e fecha e mostra quantas tem; dentro dele, em
   ordem de nome. Cada cartão (`VariableCard`) tem caixa de seleção, nome (os que começam com `!`
@@ -549,9 +625,9 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   por projeto ("Marcar todos" por projeto), com LED, estado e série. **Marcam-se um ou mais
   robôs** e "Enviar para N robôs". Para cada robô, ao mesmo tempo (`sendFileToRobots`):
   conecta se preciso e espera o login e as checagens (`ControllerChecks.connectAndWait`), grava
-  o arquivo na pasta dele (`transfer_<nome>.as`, `var_<nome>.as`, `db_<n>.as`...), manda `LOAD`
-  e espera o prompt voltar (`ControllerChecks.sendAndAwaitPrompt`). O resultado vem da linha
-  "File load completed. (N errors)": 0 erros = "LOAD sem erros"; mais = falha com a contagem.
+  uma cópia na pasta dele (`transfer_<nome>.as`, `var_<nome>.as`, `db_<n>.as`...) e faz o LOAD
+  conferido (`RobotCommands.loadFile`, seção 4): ✓ só com o arquivo inteiro, a transferência
+  fechada e "0 errors"; qualquer outra coisa é ✗ com o motivo.
   Cada linha mostra o andamento (Conectando…, Enviando…, ✓ ou ✗ com o motivo) e no fim
   aparece "N de M enviados". Um robô que falha não para os outros. O envio fica no painel
   aberto (não navega para outro robô).

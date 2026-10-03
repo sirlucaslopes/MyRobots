@@ -664,10 +664,43 @@ private fun RobotPickerDialog(
 private fun ControllerCheckDialogs(checks: ControllerChecks) {
     val mismatches by checks.serialMismatches.collectAsState()
     val clockIssues by checks.clockIssues.collectAsState()
+    val questions by checks.questions.collectAsState()
     val mismatch = mismatches.firstOrNull()
     val clock = clockIssues.firstOrNull()
+    val question = questions.firstOrNull()
 
-    if (mismatch != null) {
+    if (question != null) {
+        // pergunta no meio de um SAVE/LOAD: o controlador fica parado até a resposta, então
+        // não dá para fechar a janela sem escolher
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("${question.robotName} está esperando uma resposta") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "O controlador parou no meio da transferência" +
+                            (question.question.fileName?.let { " de $it" } ?: "") + " e perguntou:"
+                    )
+                    Text(
+                        question.question.text,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    )
+                    Text(
+                        "Enquanto não houver resposta, o robô não aceita outro comando. O envio será marcado como falha " +
+                            "em qualquer caso; confira o programa no robô depois.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    question.question.options.forEach { (key, label) ->
+                        OutlinedButton(onClick = { checks.answerQuestion(question, key) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("$key: $label")
+                        }
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    } else if (mismatch != null) {
         AlertDialog(
             onDismissRequest = {},
             title = { Text("Série diferente no ${mismatch.robotName}") },

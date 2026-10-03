@@ -32,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -212,6 +213,9 @@ fun RobotDashboardScreen(
     // Busca nos três logs do controlador (Erros, Operação, Edição).
     var isLogSearchActive by remember { mutableStateOf(false) }
     var logSearchQuery by remember { mutableStateOf("") }
+    // lupa das listas (Programas, Variáveis, Data Bank): campo embaixo da barra do topo
+    var listSearchOpen by rememberSaveable { mutableStateOf(false) }
+    var listSearchQuery by rememberSaveable { mutableStateOf("") }
     val isLogFeature = activeFeature == DashboardFeature.ErrorLog ||
         activeFeature == DashboardFeature.OperationLog ||
         activeFeature == DashboardFeature.ProgramEditLog
@@ -228,9 +232,33 @@ fun RobotDashboardScreen(
         if (activeFeature != DashboardFeature.Variables) {
             selectedVarNames = emptySet()
         }
+        if (activeFeature != DashboardFeature.Programs && activeFeature != DashboardFeature.Variables &&
+            activeFeature != DashboardFeature.DataBank) {
+            listSearchOpen = false
+            listSearchQuery = ""
+        }
         if (!isLogFeature) {
             isLogSearchActive = false
             logSearchQuery = ""
+        }
+    }
+
+    val listQuery = listSearchQuery.trim()
+    val shownPrograms = remember(programs, listQuery) {
+        if (listQuery.isEmpty()) programs
+        else programs.filter { p ->
+            p.name.contains(listQuery, true) || p.comment.contains(listQuery, true) || p.group.contains(listQuery, true)
+        }
+    }
+    val shownVariables = remember(variables, listQuery) {
+        if (listQuery.isEmpty()) variables
+        else variables.filter { v -> v.name.contains(listQuery, true) || v.value.contains(listQuery, true) }
+    }
+    val shownDataBank = remember(dataBankEntries, listQuery) {
+        if (listQuery.isEmpty()) dataBankEntries
+        else dataBankEntries.filter { e ->
+            "DB${e.num}".contains(listQuery, true) || e.num == listQuery || e.comment.contains(listQuery, true) ||
+                listOf(e.frate, e.pattern, e.atomize, e.hvolt, e.speed, e.jspeed).any { it == listQuery }
         }
     }
 
@@ -250,6 +278,11 @@ fun RobotDashboardScreen(
     
     BackHandler(enabled = canGoBackToHome) {
         activeFeature = null
+    }
+    // voltar fecha a busca da lista antes de sair da seção
+    BackHandler(enabled = listSearchOpen) {
+        listSearchOpen = false
+        listSearchQuery = ""
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -351,10 +384,20 @@ fun RobotDashboardScreen(
                                 Text(if (isConnected) "Desconectar" else "Conectar", fontSize = 12.sp)
                             }
                         } else if (activeFeature == DashboardFeature.Programs) {
-                            // Seleciona/desmarca todos os programas de uma vez.
-                            val allSelected = programs.isNotEmpty() && selectedProgramNames.size == programs.size
                             IconButton(onClick = {
-                                selectedProgramNames = if (allSelected) emptySet() else programs.map { it.name }.toSet()
+                                listSearchOpen = !listSearchOpen
+                                if (!listSearchOpen) listSearchQuery = ""
+                            }) {
+                                Icon(
+                                    Icons.Default.Search, "Pesquisar",
+                                    tint = if (listSearchOpen) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                )
+                            }
+                            // Seleciona/desmarca todos os programas que aparecem (com a busca, só os achados).
+                            val allSelected = shownPrograms.isNotEmpty() && shownPrograms.all { it.name in selectedProgramNames }
+                            IconButton(onClick = {
+                                val names = shownPrograms.map { it.name }.toSet()
+                                selectedProgramNames = if (allSelected) selectedProgramNames - names else selectedProgramNames + names
                             }) {
                                 Icon(
                                     imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
@@ -403,9 +446,19 @@ fun RobotDashboardScreen(
                                 )
                             }
                         } else if (activeFeature == DashboardFeature.Variables) {
-                            val allSelected = variables.isNotEmpty() && selectedVarNames.size == variables.size
                             IconButton(onClick = {
-                                selectedVarNames = if (allSelected) emptySet() else variables.map { it.name }.toSet()
+                                listSearchOpen = !listSearchOpen
+                                if (!listSearchOpen) listSearchQuery = ""
+                            }) {
+                                Icon(
+                                    Icons.Default.Search, "Pesquisar",
+                                    tint = if (listSearchOpen) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                )
+                            }
+                            val allSelected = shownVariables.isNotEmpty() && shownVariables.all { it.name in selectedVarNames }
+                            IconButton(onClick = {
+                                val names = shownVariables.map { it.name }.toSet()
+                                selectedVarNames = if (allSelected) selectedVarNames - names else selectedVarNames + names
                             }) {
                                 Icon(
                                     imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
@@ -445,9 +498,19 @@ fun RobotDashboardScreen(
                                 )
                             }
                         } else if (activeFeature == DashboardFeature.DataBank) {
-                            val allSelected = dataBankEntries.isNotEmpty() && selectedDbNums.size == dataBankEntries.size
                             IconButton(onClick = {
-                                selectedDbNums = if (allSelected) emptySet() else dataBankEntries.map { it.num }.toSet()
+                                listSearchOpen = !listSearchOpen
+                                if (!listSearchOpen) listSearchQuery = ""
+                            }) {
+                                Icon(
+                                    Icons.Default.Search, "Pesquisar",
+                                    tint = if (listSearchOpen) MaterialTheme.colorScheme.primary else LocalContentColor.current
+                                )
+                            }
+                            val allSelected = shownDataBank.isNotEmpty() && shownDataBank.all { it.num in selectedDbNums }
+                            IconButton(onClick = {
+                                val nums = shownDataBank.map { it.num }.toSet()
+                                selectedDbNums = if (allSelected) selectedDbNums - nums else selectedDbNums + nums
                             }) {
                                 Icon(
                                     imageVector = if (allSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
@@ -553,8 +616,12 @@ fun RobotDashboardScreen(
                             viewModel = viewModel,
                             onQuickCommandsClick = onQuickCommandsClick
                         )
-                        DashboardFeature.Programs -> ProgramsPanel(
-                            programs = programs,
+                        DashboardFeature.Programs -> WithListSearch(
+                            open = listSearchOpen, query = listSearchQuery, onQuery = { listSearchQuery = it },
+                            shown = shownPrograms.size, total = programs.size,
+                            onClose = { listSearchOpen = false; listSearchQuery = "" }
+                        ) { ProgramsPanel(
+                            programs = shownPrograms,
                             listState = programsListState,
                             collapsedGroups = collapsedProgramGroups.toSet(),
                             onToggleGroup = { g ->
@@ -572,9 +639,13 @@ fun RobotDashboardScreen(
                                 if (latestBackup != null) onProgramClick(latestBackup!!, prog.name)
                             },
                             onDuplicate = { prog -> programToDuplicate = prog }
-                        )
-                        DashboardFeature.Variables -> VariablesPanel(
-                            variables = variables,
+                        ) }
+                        DashboardFeature.Variables -> WithListSearch(
+                            open = listSearchOpen, query = listSearchQuery, onQuery = { listSearchQuery = it },
+                            shown = shownVariables.size, total = variables.size,
+                            onClose = { listSearchOpen = false; listSearchQuery = "" }
+                        ) { VariablesPanel(
+                            variables = shownVariables,
                             selectedNames = selectedVarNames,
                             onToggleSelect = { name ->
                                 selectedVarNames = if (name in selectedVarNames) selectedVarNames - name else selectedVarNames + name
@@ -585,16 +656,20 @@ fun RobotDashboardScreen(
                             },
                             listState = variablesListState,
                             viewModel = viewModel
-                        )
-                        DashboardFeature.DataBank -> DataBankPanel(
-                            entries = dataBankEntries,
+                        ) }
+                        DashboardFeature.DataBank -> WithListSearch(
+                            open = listSearchOpen, query = listSearchQuery, onQuery = { listSearchQuery = it },
+                            shown = shownDataBank.size, total = dataBankEntries.size,
+                            onClose = { listSearchOpen = false; listSearchQuery = "" }
+                        ) { DataBankPanel(
+                            entries = shownDataBank,
                             selectedNums = selectedDbNums,
                             onToggleSelect = { num ->
                                 selectedDbNums = if (num in selectedDbNums) selectedDbNums - num else selectedDbNums + num
                             },
                             listState = dataBankListState,
                             viewModel = viewModel
-                        )
+                        ) }
                         DashboardFeature.FullCode -> { /* já tratado em onFeatureClick: abre o editor em outra tela */ }
                         DashboardFeature.ErrorLog -> ErrorLogPanel(
                             entries = filteredErrorLog,
@@ -2440,4 +2515,54 @@ fun DuplicateProgramDialog(
             TextButton(onClick = { onDismiss() }) { Text("Cancelar") }
         }
     )
+}
+
+/**
+ * Lupa das listas (Programas, Variáveis, Data Bank): quando aberta, um campo embaixo da barra
+ * do topo filtra os cartões enquanto se digita e mostra "N de M". O conteúdo da seção vem
+ * embaixo, inteiro.
+ */
+@Composable
+private fun WithListSearch(
+    open: Boolean,
+    query: String,
+    onQuery: (String) -> Unit,
+    shown: Int,
+    total: Int,
+    onClose: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Column(Modifier.fillMaxSize()) {
+        if (open) {
+            val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+            LaunchedEffect(Unit) { focus.requestFocus() }
+            Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = onQuery,
+                        placeholder = { Text("Pesquisar na lista...") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f).focusRequester(focus)
+                    )
+                    Text(
+                        if (query.isBlank()) "$total" else "$shown de $total",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Fechar busca") }
+                }
+            }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) { content() }
+        if (open && query.isNotBlank() && shown == 0) {
+            Text(
+                "Nada encontrado para \"$query\".",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+    }
 }
