@@ -468,7 +468,12 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   ordem de nome. Cada cartão (`VariableCard`) tem caixa de seleção, nome (os que começam com `!`
   em amarelo-escuro) e o valor: nas posições, `X, Y, Z, O, A, T` em grade (e `JT7`/`JT8` quando
   existem); nas outras, o valor inteiro. Editar e duplicar por cartão (tocar também edita); "+"
-  cria uma posição nova. A barra do topo tem selecionar todas, enviar, compartilhar e excluir
+  cria uma variável nova e **pergunta o tipo** (AS Language Reference Manual, 3.4): posição em
+  transformação (`.TRANS`, X..T e eixos extras), posição em juntas (`#nome`, `.JOINTS`, JT1..JTn
+  pelos eixos do robô), real (`.REALS`, `nome = valor`) ou texto (`$nome`, `.STRINGS`, gravado
+  entre aspas). O prefixo é posto sozinho, e a variável entra antes do `.END` da seção do tipo
+  (a seção é criada no fim do arquivo se não existir). Editar também só troca linhas de dentro
+  das seções de variáveis. A barra do topo tem selecionar todas, enviar, compartilhar e excluir
   as marcadas. Enviar e compartilhar usam `variablesContent`, que tira do backup as linhas das
   variáveis escolhidas dentro das suas seções (`.TRANS ... .END`, `.REALS ... .END`); excluir
   várias é uma gravação só (`deleteVariables`) e só mexe nas linhas de dentro das seções de

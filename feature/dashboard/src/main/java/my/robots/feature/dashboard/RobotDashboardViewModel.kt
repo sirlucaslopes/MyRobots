@@ -52,13 +52,28 @@ data class RobotProgram(
  * Uma variável lida do backup.
  * - name: nome da variável.
  * - value: valor como texto (ex.: "0 0 0 0 0 0" para uma posição).
- * - type: TRANS, REALS, STRINGS, INTEGER... ou FRAME (posição escrita sem "=").
+ * - type: FRAME (posição em transformação, linha sem "=" na .TRANS), JOINTS (posição em juntas,
+ *   nome com "#", na .JOINTS), REALS, STRINGS (nome com "$", valor entre aspas), INTEGER...
+ *
+ * Os tipos e prefixos seguem o AS Language Reference Manual (3.4): "pick" (transformação),
+ * "#pick" (juntas), "count" (real) e "$count" (texto). No arquivo de SAVE, cada tipo fica na sua
+ * seção: .TRANS, .JOINTS, .REALS e .STRINGS.
  */
 data class RobotVariable(
     val name: String,
     val value: String = "0.000",
     val type: String = "TRANS"
-)
+) {
+    /** Seção do backup onde a variável fica. */
+    val section: String get() = when (type) {
+        "FRAME", "TRANS" -> ".TRANS"
+        "JOINTS" -> ".JOINTS"
+        else -> ".$type"
+    }
+
+    /** Linha da variável no backup: posições com espaço, as outras com " = ". */
+    val line: String get() = if (type == "FRAME" || type == "JOINTS") "$name $value" else "$name = $value"
+}
 
 /**
  * Uma linha do Data Bank (seção .sprdb), como "DB1 28 10 50 -1 -1 -1 "comentário"".
@@ -690,7 +705,7 @@ class RobotDashboardViewModel(
                 // --- Passo 3: separar variáveis e Data Bank ---
                 if (trimmed.startsWith(".") && !trimmed.equals(".END", ignoreCase = true) && !isReadingProgram) {
                     val upper = trimmed.uppercase()
-                    if (upper in listOf(".TRANS", ".REALS", ".STRINGS", ".INTEGER", ".POS")) {
+                    if (upper in listOf(".TRANS", ".JOINTS", ".REALS", ".STRINGS", ".INTEGER", ".POS")) {
                         currentSection = upper
                     } else if (upper == ".SPRDB") {
                         isReadingDataBank = true
@@ -713,7 +728,8 @@ class RobotDashboardViewModel(
                         } else {
                             val parts = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }
                             if (parts.size >= 2) {
-                                variablesList.add(RobotVariable(name = parts[0], value = parts.drop(1).joinToString(" "), type = "FRAME"))
+                                val posType = if (currentSection == ".JOINTS") "JOINTS" else "FRAME"
+                                variablesList.add(RobotVariable(name = parts[0], value = parts.drop(1).joinToString(" "), type = posType))
                             }
                         }
                     }
@@ -866,35 +882,34 @@ class RobotDashboardViewModel(
     }
 
     /**
-     * Cria uma variável com o nome e valor informados dentro da seção .TRANS do backup
-     * (cria a seção se não existir). Também é usado para criar uma variável nova.
+     * Cria uma cópia da variável com outro nome (mesmo tipo e valor).
      */
-    fun duplicateVariable(variable: RobotVariable, newName: String) {
+    fun duplicateVariable(variable: RobotVariable, newName: String) = createVariable(variable.copy(name = newName))
+
+    /**
+     * Cria a variável na seção do tipo dela (.TRANS, .JOINTS, .REALS ou .STRINGS), antes do
+     * ".END" da seção. Se o backup não tiver essa seção, ela é criada no fim do arquivo.
+     */
+    fun createVariable(variable: RobotVariable) {
         val summary = _latestBackup.value ?: return
         viewModelScope.launch {
             _isLoading.value = true
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
             val newContent = withContext(Dispatchers.Default) {
                 val lines = fullBackup.content.lines().toMutableList()
-                val separator = if (variable.type == "FRAME") " " else " = "
-                val newVarLine = "$newName$separator${variable.value}"
-                
                 var insertIndex = -1
+                var inSection = false
                 for (i in lines.indices) {
-                    if (lines[i].trim().equals(".TRANS", ignoreCase = true)) {
-                        insertIndex = i + 1
-                    }
-                    if (insertIndex != -1 && lines[i].trim().equals(".END", ignoreCase = true)) {
-                        insertIndex = i
-                        break
-                    }
+                    val upper = lines[i].trim().uppercase()
+                    if (upper == variable.section) inSection = true
+                    else if (inSection && upper == ".END") { insertIndex = i; break }
                 }
-                
                 if (insertIndex != -1) {
-                    lines.add(insertIndex, newVarLine)
+                    lines.add(insertIndex, variable.line)
                 } else {
-                    lines.add(".TRANS")
-                    lines.add(newVarLine)
+                    while (lines.isNotEmpty() && lines.last().isBlank()) lines.removeAt(lines.lastIndex)
+                    lines.add(variable.section)
+                    lines.add(variable.line)
                     lines.add(".END")
                 }
                 lines.joinToString("\n")
@@ -945,20 +960,26 @@ class RobotDashboardViewModel(
             _isLoading.value = true
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
             val newContent = withContext(Dispatchers.Default) {
-                val lines = fullBackup.content.lines()
+                // só dentro das seções de variáveis: uma linha de programa que comece com o
+                // mesmo nome não pode ser trocada
                 val result = StringBuilder()
-                for (line in lines) {
+                var inSection = false
+                var replaced = false
+                for (line in fullBackup.content.lines()) {
                     val trimmed = line.trim()
-                    if (trimmed.startsWith("$oldName =") || 
-                        trimmed.startsWith("$oldName=") ||
-                        trimmed.startsWith("$oldName ")) {
-                        val separator = if (updated.type == "FRAME") " " else " = "
-                        result.append("${updated.name}$separator${updated.value}").append("\n")
-                    } else {
-                        result.append(line).append("\n")
+                    val upper = trimmed.uppercase()
+                    when {
+                        upper in VARIABLE_SECTIONS -> inSection = true
+                        upper == ".END" -> inSection = false
+                        inSection && !replaced && variableNameOf(trimmed) == oldName -> {
+                            result.append(updated.line).append("\n")
+                            replaced = true
+                            continue
+                        }
                     }
+                    result.append(line).append("\n")
                 }
-                result.toString()
+                result.toString().trimEnd('\n')
             }
             saveBackupContent(newContent)
         }

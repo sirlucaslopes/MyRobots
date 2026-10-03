@@ -32,6 +32,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -1278,6 +1279,7 @@ fun DataBankDuplicateDialog(
 /** Nome de cada tipo de variável nos grupos da seção Variáveis. */
 private fun variableGroupName(type: String) = when (type) {
     "FRAME" -> "Posições (TRANS)"
+    "JOINTS" -> "Posições em juntas (JOINTS)"
     "TRANS" -> "TRANS"
     "REALS" -> "Reais (REALS)"
     "STRINGS" -> "Textos (STRINGS)"
@@ -1407,7 +1409,7 @@ fun VariablesPanel(
             isNew = true,
             onDismiss = { showCreateDialog = false },
             onSave = { newVar ->
-                viewModel?.duplicateVariable(newVar, newVar.name)
+                viewModel?.createVariable(newVar)
                 showCreateDialog = false
             }
         )
@@ -1448,13 +1450,13 @@ private fun VariableCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (variable.type == "FRAME") {
+                if (variable.type == "FRAME" || variable.type == "JOINTS") {
                     val values = remember(variable.value) {
                         variable.value.split(Regex("\\s+")).filter { it.isNotBlank() }
                     }
-                    val labels = listOf("X", "Y", "Z", "O", "A", "T", "JT7", "JT8")
-                    // JT7/JT8 só aparecem quando a posição tem esses valores
-                    val shown = labels.indices.filter { it < 6 || it < values.size }
+                    // um rótulo por valor: X..T e eixos extras, ou JT1..JTn nas posições em juntas
+                    val labels = poseLabels(variable.type, maxOf(values.size, if (variable.type == "JOINTS") 1 else 6))
+                    val shown = labels.indices.toList()
                     shown.chunked(3).forEach { row ->
                         Row {
                             row.forEach { i ->
@@ -1494,8 +1496,29 @@ private fun VariableCard(
 }
 
 /**
+ * Tipos de variável que o app sabe criar, com o prefixo do nome e a seção do backup
+ * (AS Language Reference Manual, 3.4): posição em transformação (sem prefixo, .TRANS), posição
+ * em juntas ("#", .JOINTS), real (sem prefixo, .REALS) e texto ("$", .STRINGS).
+ */
+private enum class NewVariableKind(val label: String, val type: String, val prefix: String, val hint: String) {
+    TRANS("Posição (X, Y, Z, O, A, T)", "FRAME", "", "Pose em coordenadas cartesianas. Ex.: pick"),
+    JOINTS("Posição em juntas (JT1…)", "JOINTS", "#", "Ângulo de cada eixo. O nome começa com #. Ex.: #pick"),
+    REAL("Real (número)", "REALS", "", "Um número. Ex.: count = 10"),
+    STRING("Texto", "STRINGS", "$", "Texto entre aspas. O nome começa com \$. Ex.: \$nome = \"R10\"")
+}
+
+/** Rótulos dos valores de uma posição: X..T (+ eixos extras) ou JT1..JTn. */
+private fun poseLabels(type: String, count: Int): List<String> =
+    if (type == "JOINTS") List(count) { "JT${it + 1}" }
+    else listOf("X", "Y", "Z", "O", "A", "T").take(count) + List((count - 6).coerceAtLeast(0)) { "JT${it + 7}" }
+
+/**
  * Janela para criar ou editar uma variável.
- * Posição (FRAME): 8 campos (X, Y, Z, O, A, T, JT7, JT8). Outros tipos: um campo só.
+ *
+ * Criando, primeiro se escolhe o tipo (posição, posição em juntas, real ou texto); o prefixo do
+ * nome ("#" ou "$") é posto sozinho. Posições têm um campo por valor (X..T e eixos extras, ou
+ * JT1..JTn, conforme os eixos do robô lidos do backup); real e texto têm um campo só. O texto é
+ * gravado entre aspas.
  */
 @Composable
 fun VariableEditDialog(
@@ -1505,69 +1528,120 @@ fun VariableEditDialog(
     onDismiss: () -> Unit,
     onSave: (RobotVariable) -> Unit
 ) {
-    var name by remember { mutableStateOf(variable.name) }
-    var type by remember { mutableStateOf(variable.type) }
-    
-    val initialValues = remember(variable.value) { 
-        val parts = variable.value.split(Regex("\\s+")).filter { it.isNotBlank() }
-        List(8) { parts.getOrNull(it) ?: "0.000" }
+    val axes = viewModel?.robotInfo?.collectAsState()?.value?.axes ?: 6
+    var kind by remember {
+        mutableStateOf(
+            when (variable.type) {
+                "JOINTS" -> NewVariableKind.JOINTS
+                "REALS" -> NewVariableKind.REAL
+                "STRINGS" -> NewVariableKind.STRING
+                else -> NewVariableKind.TRANS
+            }
+        )
     }
-    val componentValues = remember { mutableStateListOf(*initialValues.toTypedArray()) }
+    val prefix = if (isNew) kind.prefix else ""
+    var name by remember { mutableStateOf(if (isNew) "" else variable.name) }
+    val fullName = if (isNew) prefix + name.removePrefix(prefix) else name
 
-    val nameError = if (viewModel != null) remember(name) { viewModel.validateVariableName(name, isNew) } else null
+    val isPose = kind.type == "FRAME" || kind.type == "JOINTS"
+    val existingParts = remember(variable.value) { variable.value.split(Regex("\\s+")).filter { it.isNotBlank() } }
+    // quantos valores a posição tem: os que já existem, ou os eixos do robô numa posição nova
+    val poseCount = if (!isNew && existingParts.isNotEmpty()) existingParts.size
+    else if (kind.type == "JOINTS") axes else maxOf(6, axes)
+    val poseValues = remember(kind) {
+        mutableStateListOf(*Array(poseCount) { existingParts.getOrNull(it)?.takeIf { !isNew } ?: "0.000" })
+    }
+    var single by remember(kind) {
+        mutableStateOf(
+            when {
+                isNew -> if (kind.type == "STRINGS") "" else "0"
+                kind.type == "STRINGS" -> variable.value.trim().removeSurrounding("\"")
+                else -> variable.value
+            }
+        )
+    }
+
+    val nameError = if (viewModel != null) remember(fullName) { viewModel.validateVariableName(fullName, isNew) } else null
 
     FormDialog(
         onDismiss = onDismiss,
-        title = if (isNew) "Nova Variável" else "Editar: ${variable.name}",
+        title = if (isNew) "Nova variável" else "Editar: ${variable.name}",
         content = {
-            Column(modifier = Modifier) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Nome") },
-                    isError = nameError != null,
-                    supportingText = { nameError?.let { Text(it) } },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                if (type == "FRAME") {
-                    Text("Componentes Espaciais", style = MaterialTheme.typography.labelMedium)
-                    val labels = listOf("X", "Y", "Z", "O", "A", "T", "JT7", "JT8")
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        labels.chunked(2).forEachIndexed { rowIndex, pair ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                pair.forEachIndexed { colIndex, label ->
-                                    val index = rowIndex * 2 + colIndex
-                                    OutlinedTextField(
-                                        value = componentValues[index],
-                                        onValueChange = { componentValues[index] = it },
-                                        label = { Text(label) },
-                                        modifier = Modifier.weight(1f),
-                                        singleLine = true
-                                    )
-                                }
+            if (isNew) {
+                Text("Tipo", style = MaterialTheme.typography.labelLarge)
+                NewVariableKind.entries.forEach { k ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { kind = k },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(selected = kind == k, onClick = { kind = k })
+                        Column {
+                            Text(k.label)
+                            if (kind == k) {
+                                Text(k.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
-                } else {
-                    OutlinedTextField(
-                        value = componentValues[0],
-                        onValueChange = { componentValues[0] = it },
-                        label = { Text("Valor") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
+                Spacer(Modifier.height(4.dp))
+            }
+            OutlinedTextField(
+                value = if (isNew) name.removePrefix(prefix) else name,
+                onValueChange = { name = it.removePrefix(prefix) },
+                label = { Text("Nome") },
+                prefix = if (prefix.isNotEmpty()) ({ Text(prefix) }) else null,
+                isError = nameError != null && name.isNotEmpty(),
+                supportingText = { if (name.isNotEmpty()) nameError?.let { Text(it) } },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            if (isPose) {
+                Text(
+                    if (kind.type == "JOINTS") "Ângulos dos eixos (graus)" else "Coordenadas (mm e graus)",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                poseLabels(kind.type, poseValues.size).chunked(2).forEachIndexed { row, pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        pair.forEachIndexed { col, label ->
+                            val i = row * 2 + col
+                            OutlinedTextField(
+                                value = poseValues[i],
+                                onValueChange = { poseValues[i] = it },
+                                label = { Text(label) },
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = single,
+                    onValueChange = { single = it },
+                    label = { Text(if (kind.type == "STRINGS") "Texto" else "Valor") },
+                    singleLine = kind.type != "STRINGS",
+                    keyboardOptions = if (kind.type == "REALS") androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                    ) else androidx.compose.foundation.text.KeyboardOptions.Default,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         },
         confirmButton = {
             Button(
-                onClick = { 
-                    val newValue = if (type == "FRAME") componentValues.joinToString(" ") else componentValues[0]
-                    onSave(variable.copy(name = name, value = newValue, type = type))
+                onClick = {
+                    val value = when {
+                        isPose -> poseValues.joinToString(" ") { it.trim().ifEmpty { "0" } }
+                        kind.type == "STRINGS" -> "\"" + single.replace("\"", "'") + "\""
+                        else -> single.trim()
+                    }
+                    onSave(RobotVariable(name = fullName, value = value, type = kind.type))
                 },
-                enabled = nameError == null && name.isNotBlank()
+                enabled = nameError == null && name.isNotBlank() && (isPose || kind.type == "STRINGS" || single.isNotBlank())
             ) { Text("Salvar") }
         },
         dismissButton = {
