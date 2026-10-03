@@ -1,6 +1,13 @@
 package my.robots.feature.codeeditor
 
 import my.robots.core.designsystem.FormDialog
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.pointer.pointerInput
+import my.robots.core.common.ascode.AsInstructions
+import my.robots.core.common.ascode.InstructionDef
+import my.robots.core.common.ascode.ParsedInstruction
 import android.widget.Toast
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -78,15 +85,21 @@ private const val MAX_UNDO_STEPS = 50
  * - Copiar: manda o texto das linhas marcadas (uma ou mais) para a área de transferência.
  * - Colar: insere o texto que estiver na área de transferência acima da linha marcada
  *   (pode ter várias linhas; todas entram, empurrando o resto do arquivo para baixo).
- * - Alterar: abre uma janela só com o texto da linha marcada (exige exatamente uma),
- *   para editar isolado, sem risco de mexer em outra parte do arquivo.
- * - Inserir: abre a mesma janela, vazia; o texto digitado vira uma linha nova acima da
- *   marcada.
+ * - Alterar (ou segurar a linha): se a linha é uma instrução conhecida (AsInstructions: SPRAY,
+ *   SPRAY_SPEED, LMOVE, TWAIT, CALL_DBK...), abre a edição campo a campo, como o CHANGE do
+ *   teach pendant, com as outras instruções do mesmo grupo para trocar. Senão, ou em "Editar
+ *   como texto", abre a janela com o texto da linha.
+ * - Inserir: escolhe o grupo e a instrução (como a lista do pendant) ou "Texto livre"; a linha
+ *   nova entra acima da marcada, com o mesmo recuo.
  * - Excluir: remove todas as linhas marcadas.
  * - Deslocar/Espelhar Pontos: veem PointTransform.kt. Agem sobre os pontos usados pelos
  *   comandos LMOVE/JMOVE dentro das linhas marcadas (o "intervalo" é a seleção) — só altera
  *   pontos que pertencem exclusivamente ao programa das linhas escolhidas, pulando os que
  *   também são usados em outro programa.
+ *
+ * Pesquisa (lupa): destaca o texto e mostra "N de M" com setas para ir de uma linha encontrada à
+ * outra (a lista rola até ela). O botão "Comandos" lista as instruções que existem no arquivo,
+ * como a pesquisa de instrução do pendant.
  *
  * Toda mudança (manual ou pelas funções de ponto) passa por updateLines(), que alimenta uma
  * pilha de desfazer/refazer (ícones no topo, sempre visíveis).
@@ -111,6 +124,13 @@ fun AsCodeViewer(
     var lineDialog by remember { mutableStateOf<LineDialogAction?>(null) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+    // linha encontrada em destaque (posição dentro de searchMatches)
+    var currentMatch by remember { mutableStateOf(0) }
+    val listState = rememberLazyListState()
+    // edição de instrução: força o texto livre, ou a instrução escolhida no "Inserir"
+    var forceTextEdit by remember { mutableStateOf(false) }
+    var insertDef by remember { mutableStateOf<InstructionDef?>(null) }
+    var insertAsText by remember { mutableStateOf(false) }
     var isDirty by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var showShiftDialog by remember { mutableStateOf(false) }
@@ -156,6 +176,39 @@ fun AsCodeViewer(
         isLoadingLines = true
         lines = withContext(Dispatchers.Default) { content.lines() }
         isLoadingLines = false
+    }
+
+    // linhas que casam com a pesquisa (só o índice), refeitas em segundo plano
+    var searchMatches by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var lastSearch by remember { mutableStateOf("") }
+    LaunchedEffect(lines, searchQuery) {
+        searchMatches = if (searchQuery.isBlank()) emptyList() else withContext(Dispatchers.Default) {
+            lines.indices.filter { lines[it].contains(searchQuery, ignoreCase = true) }
+        }
+        if (searchQuery != lastSearch) {
+            // pesquisa nova: vai para a primeira linha encontrada
+            lastSearch = searchQuery
+            currentMatch = 0
+            searchMatches.firstOrNull()?.let { listState.scrollToItem(it) }
+        } else {
+            // só o texto mudou (edição): mantém o resultado atual
+            currentMatch = currentMatch.coerceIn(0, (searchMatches.size - 1).coerceAtLeast(0))
+        }
+    }
+    fun goToMatch(delta: Int) {
+        if (searchMatches.isEmpty()) return
+        currentMatch = (currentMatch + delta).mod(searchMatches.size)
+        scope.launch { listState.animateScrollToItem(searchMatches[currentMatch]) }
+    }
+
+    fun openChange(index: Int) {
+        forceTextEdit = false
+        lineDialog = LineDialogAction.Change(index)
+    }
+    fun openInsert(index: Int) {
+        insertDef = null
+        insertAsText = false
+        lineDialog = LineDialogAction.Insert(index)
     }
 
     Scaffold(
@@ -241,6 +294,17 @@ fun AsCodeViewer(
                     }
                 )
 
+                if (isSearchActive) {
+                    SearchNavigationBar(
+                        query = searchQuery,
+                        matchCount = searchMatches.size,
+                        current = currentMatch,
+                        lines = lines,
+                        onPrev = { goToMatch(-1) },
+                        onNext = { goToMatch(1) },
+                        onPickCommand = { searchQuery = it }
+                    )
+                }
                 if (isEditMode) {
                     LineActionsToolbar(
                         hasSelection = hasSelection,
@@ -276,8 +340,8 @@ fun AsCodeViewer(
                                 selectedLines = emptySet()
                             }
                         },
-                        onChange = { lineDialog = LineDialogAction.Change(selectedLines.first()) },
-                        onInsert = { lineDialog = LineDialogAction.Insert(selectedLines.first()) },
+                        onChange = { openChange(selectedLines.first()) },
+                        onInsert = { openInsert(selectedLines.first()) },
                         onDelete = {
                             updateLines(lines.filterIndexed { index, _ -> index !in selectedLines })
                             selectedLines = emptySet()
@@ -305,30 +369,70 @@ fun AsCodeViewer(
                     selectedLines = if (index in selectedLines) selectedLines - index else selectedLines + index
                 },
                 searchQuery = searchQuery,
+                listState = listState,
+                currentMatchLine = searchMatches.getOrNull(currentMatch),
+                onLongPress = { index ->
+                    // segurar a linha: como o CHANGE do pendant
+                    isEditMode = true
+                    selectedLines = setOf(index)
+                    openChange(index)
+                },
                 modifier = Modifier.padding(padding)
             )
         }
 
         lineDialog?.let { action ->
-            val initialText = when (action) {
-                is LineDialogAction.Change -> lines.getOrElse(action.index) { "" }
-                is LineDialogAction.Insert -> ""
+            fun saveLine(newText: String) {
+                updateLines(
+                    when (action) {
+                        is LineDialogAction.Change -> lines.toMutableList().apply { this[action.index] = newText }
+                        is LineDialogAction.Insert -> lines.toMutableList().apply { add(action.beforeIndex, newText) }
+                    }
+                )
+                selectedLines = emptySet()
+                lineDialog = null
             }
-            LineEditDialog(
-                title = if (action is LineDialogAction.Change) "Alterar Linha" else "Inserir Linha",
-                initialText = initialText,
-                onDismiss = { lineDialog = null },
-                onSave = { newText ->
-                    updateLines(
-                        when (action) {
-                            is LineDialogAction.Change -> lines.toMutableList().apply { this[action.index] = newText }
-                            is LineDialogAction.Insert -> lines.toMutableList().apply { add(action.beforeIndex, newText) }
-                        }
-                    )
-                    selectedLines = emptySet()
-                    lineDialog = null
+            val close = { lineDialog = null }
+            when (action) {
+                is LineDialogAction.Change -> {
+                    val current = lines.getOrElse(action.index) { "" }
+                    val parsed = if (forceTextEdit) null else AsInstructions.parse(current)
+                    if (parsed != null) {
+                        InstructionEditDialog(
+                            title = "Alterar linha ${action.index + 1}",
+                            start = parsed,
+                            onEditAsText = { forceTextEdit = true },
+                            onDismiss = close,
+                            onSave = ::saveLine
+                        )
+                    } else {
+                        LineEditDialog(title = "Alterar Linha", initialText = current, onDismiss = close, onSave = ::saveLine)
+                    }
                 }
-            )
+                is LineDialogAction.Insert -> {
+                    val chosen = insertDef
+                    when {
+                        insertAsText -> LineEditDialog(title = "Inserir Linha", initialText = "", onDismiss = close, onSave = ::saveLine)
+                        chosen == null -> InstructionPickerDialog(
+                            onPick = { insertDef = it },
+                            onFreeText = { insertAsText = true },
+                            onDismiss = close
+                        )
+                        else -> {
+                            // a linha nova entra com o mesmo recuo da linha marcada
+                            val reference = lines.getOrElse(action.beforeIndex) { "" }
+                            val indent = reference.takeWhile { it == ' ' || it == '\t' }.ifEmpty { "  " }
+                            InstructionEditDialog(
+                                title = "Inserir: ${chosen.label}",
+                                start = ParsedInstruction(chosen, chosen.defaults(), indent, ""),
+                                onEditAsText = { insertAsText = true },
+                                onDismiss = close,
+                                onSave = ::saveLine
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         if (showShiftDialog) {
@@ -359,6 +463,65 @@ fun AsCodeViewer(
                     showMirrorDialog = false
                 }
             )
+        }
+    }
+}
+
+/**
+ * Barra embaixo do campo de pesquisa: "N de M" com setas para ir de uma linha encontrada à
+ * outra, e "Comandos", que lista as instruções do catálogo que existem no arquivo (com quantas
+ * vezes aparecem), como a pesquisa de instrução do teach pendant. Escolher uma pesquisa por ela.
+ */
+@Composable
+private fun SearchNavigationBar(
+    query: String,
+    matchCount: Int,
+    current: Int,
+    lines: List<String>,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onPickCommand: (String) -> Unit
+) {
+    var showCommands by remember { mutableStateOf(false) }
+    // instruções do arquivo: contadas só quando a lista abre
+    val commands = remember(showCommands, lines) {
+        if (!showCommands) emptyList()
+        else AsInstructions.all.map { it.keyword }.distinct().mapNotNull { k ->
+            val n = lines.count { it.trimStart().startsWith("$k ", ignoreCase = true) }
+            if (n > 0) k to n else null
+        }
+    }
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box {
+                TextButton(onClick = { showCommands = true }) {
+                    Icon(Icons.Default.ManageSearch, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Comandos")
+                }
+                DropdownMenu(expanded = showCommands, onDismissRequest = { showCommands = false }) {
+                    if (commands.isEmpty()) {
+                        DropdownMenuItem(text = { Text("Nenhuma instrução conhecida") }, onClick = { showCommands = false })
+                    }
+                    commands.forEach { (k, n) ->
+                        DropdownMenuItem(
+                            text = { Text("$k  ($n)") },
+                            onClick = { showCommands = false; onPickCommand("$k ") }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                when {
+                    query.isBlank() -> ""
+                    matchCount == 0 -> "Nada encontrado"
+                    else -> "${current + 1} de $matchCount"
+                },
+                style = MaterialTheme.typography.labelLarge
+            )
+            IconButton(onClick = onPrev, enabled = matchCount > 0) { Icon(Icons.Default.KeyboardArrowUp, "Anterior") }
+            IconButton(onClick = onNext, enabled = matchCount > 0) { Icon(Icons.Default.KeyboardArrowDown, "Próxima") }
         }
     }
 }
@@ -501,6 +664,9 @@ fun CodeLinesList(
     selectedLines: Set<Int>,
     onToggleSelect: (Int) -> Unit,
     searchQuery: String,
+    listState: LazyListState = rememberLazyListState(),
+    currentMatchLine: Int? = null,
+    onLongPress: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val keywords = remember {
@@ -508,12 +674,16 @@ fun CodeLinesList(
             ".PROGRAM", ".END", "CALL", "IF", "THEN", "ELSE", "ENDIF",
             "FOR", "TO", "STEP", "ENDFOR", "WHILE", "DO", "ENDWHILE",
             "WAIT", "SIGNAL", "SPEED", "ACCEL", "LMOVE", "JMOVE", "PRINT", "SIG",
-            ".TRANS", ".REALS", ".STRINGS", ".INTEGER", ".POS", "GOTO", "CASE", "VALUE"
+            ".TRANS", ".REALS", ".STRINGS", ".INTEGER", ".POS", "GOTO", "CASE", "VALUE",
+            "SPRAY", "PRE_SPRAY", "SPRAY_SPEED", "AIRCUT_SPEED", "SPRAY_JSPEED", "AIRCUT_JSPEED",
+            "ACCEL", "SMOOTH_RANGE", "CALL_DBK", "CALL_PGM", "TWAIT", "TIMER_WAIT", "UC_JUMP",
+            "LABEL", "GUN", "DOUT"
         )
     }
     val horizontalScrollState = rememberScrollState()
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxSize().background(Color(0xFF1E1E1E))
     ) {
         itemsIndexed(lines) { index, line ->
@@ -522,7 +692,9 @@ fun CodeLinesList(
                 text = line,
                 isEditMode = isEditMode,
                 isSelected = index in selectedLines,
+                isCurrentMatch = index == currentMatchLine,
                 onToggleSelect = { onToggleSelect(index) },
+                onLongPress = { onLongPress(index) },
                 keywords = keywords,
                 searchQuery = searchQuery,
                 horizontalScrollState = horizontalScrollState
@@ -542,7 +714,9 @@ fun CodeLineRow(
     text: String,
     isEditMode: Boolean,
     isSelected: Boolean,
+    isCurrentMatch: Boolean = false,
     onToggleSelect: () -> Unit,
+    onLongPress: () -> Unit = {},
     keywords: Set<String>,
     searchQuery: String,
     horizontalScrollState: ScrollState
@@ -552,7 +726,14 @@ fun CodeLineRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (isSelected) Color(0xFF264F78) else Color.Transparent),
+            .background(
+                when {
+                    isSelected -> Color(0xFF264F78)
+                    isCurrentMatch -> Color(0xFF4B4318)   // linha da pesquisa em destaque
+                    else -> Color.Transparent
+                }
+            )
+            .pointerInput(Unit) { detectTapGestures(onLongPress = { onLongPress() }) },
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Espaço da caixa de seleção sempre reservado (mesmo fora do modo de edição), pra
