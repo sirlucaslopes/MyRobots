@@ -7,7 +7,7 @@ K-ROSET ganha uma porta própria no PC; no app, cadastre cada robô com o IP do 
 dele (a tabela aparece ao iniciar).
 
 Mapa padrão (o K-ROSET usa 9105, 9205, ... 9905 para os controladores 1 a 9):
-    controlador 1  -> porta 23    (K-ROSET 9105; a mesma de antes, o C01 continua igual)
+    controlador 1  -> porta 2301  (K-ROSET 9105)
     controlador 2  -> porta 2302  (K-ROSET 9205)
     controlador 3  -> porta 2303  (K-ROSET 9305)
     ...
@@ -17,7 +17,7 @@ Todas as portas abrem mesmo com o controlador desligado: ligue-o no K-ROSET e co
 Uso (só biblioteca padrão, Python 3.8+):
     python tools/kroset_ponte.py                        # todos os controladores (mapa acima)
     python tools/kroset_ponte.py --pares 2302:9205      # só os pares escolhidos (celular:K-ROSET)
-    python tools/kroset_ponte.py --pares 23:9105,2302:9205
+    python tools/kroset_ponte.py --pares 2301:9105,2302:9205
     python tools/kroset_ponte.py --log                  # grava o tráfego em kroset_trafego.log
     python tools/kroset_ponte.py --firewall             # libera as portas no Firewall (pede admin)
 
@@ -49,8 +49,8 @@ def mostrar(texto):
 
 
 def porta_do_celular(n):
-    """Porta no PC para o controlador N: 23 para o 1 (a de sempre), 2302..2309 para os outros."""
-    return 23 if n == 1 else 2300 + n
+    """Porta no PC para o controlador N: 2301..2309."""
+    return 2300 + n
 
 
 def mapa_padrao():
@@ -58,7 +58,7 @@ def mapa_padrao():
 
 
 def ler_pares(texto):
-    """"23:9105,2302:9205" -> [(23, 9105), (2302, 9205)]."""
+    """"2301:9105,2302:9205" -> [(2301, 9105), (2302, 9205)]."""
     pares = []
     for item in texto.split(","):
         item = item.strip()
