@@ -355,13 +355,14 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   celular (SSID e IP, atualizados a cada 3 s). Sem linha de ações. No **⋮**: **Ordenar A-Z**
   (liga/desliga, com ✓; ordena projetos e robôs), os dados do Wi-Fi, **Configurar Wi-Fi** (abre
   as configurações do Android) e **Pasta dos arquivos** (ver abaixo).
-- **Legenda** no topo da lista (`HeartbeatLegend`, `:core:designsystem`): o LED verde (Ativo:
-  conectado e respondendo), amarelo (Sem resposta: conectado, quieto há 8 s), cinza
-  (Desconectado) e o botão verde (conectado).
+- **Legenda** no topo da lista (`HeartbeatLegend`, `:core:designsystem`), só do status da
+  conexão: LED verde **Conectado** (respondendo), amarelo **Sem sinal** (conectado, mas quieto
+  há 8 s) e cinza **Desligado** (sem conexão). Os três nomes têm 9 letras e são os mesmos em
+  todo o app (`HeartbeatState.label()`): lista, cabine do projeto, painel e lista de envio.
 - **Faixa do projeto:** nome, "N de M conectados" (em verde se algum estiver), **Conectar
   todos**/**Desconectar todos** e o ícone de grade que abre a **tela de Projeto** (seção 15).
 - **Cartão do robô:** LED de pulso (`HeartbeatDot`), nome e série (Nº), `ip:porta`, o estado
-  (Ativo/Sem resposta/Desconectado, na cor do LED), o botão **Conectar** (azul) ou
+  (Conectado/Sem sinal/Desligado, na cor do LED), o botão **Conectar** (azul) ou
   **Desconectar** (verde), o terminal (abre o painel na seção Terminal) e um **⋮** com Editar e
   Excluir (com confirmação). Dá para conectar quantos robôs quiser, cada um com a sua conexão.
 - Botão "+" abre `RobotDialog` para cadastrar um robô novo.

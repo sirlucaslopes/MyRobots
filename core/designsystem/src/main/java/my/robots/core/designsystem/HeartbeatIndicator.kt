@@ -30,12 +30,14 @@ import androidx.compose.ui.unit.dp
 import my.robots.core.model.HeartbeatState
 
 /**
- * Texto curto para cada estado de heartbeat ("Ativo", "Sem resposta", "Desconectado").
+ * Nome de cada estado da conexão, o mesmo em todo o app e todos com 9 letras, para as telas
+ * ficarem alinhadas: "Conectado" (respondendo), "Sem sinal" (conectado, mas quieto) e
+ * "Desligado" (sem conexão).
  */
 fun HeartbeatState.label(): String = when (this) {
-    HeartbeatState.ALIVE -> "Ativo"
-    HeartbeatState.STALE -> "Sem resposta"
-    HeartbeatState.DISCONNECTED -> "Desconectado"
+    HeartbeatState.ALIVE -> "Conectado"
+    HeartbeatState.STALE -> "Sem sinal"
+    HeartbeatState.DISCONNECTED -> "Desligado"
 }
 
 /**
@@ -79,20 +81,20 @@ fun HeartbeatDot(state: HeartbeatState, modifier: Modifier = Modifier) {
 /** O que cada cor do LED quer dizer, para a legenda. */
 fun HeartbeatState.meaning(): String = when (this) {
     HeartbeatState.ALIVE -> "conectado e respondendo"
-    HeartbeatState.STALE -> "conectado, sem resposta há 8 s"
-    HeartbeatState.DISCONNECTED -> "sem conexão"
+    HeartbeatState.STALE -> "conectado, mas sem resposta há 8 s"
+    HeartbeatState.DISCONNECTED -> "sem conexão com o robô"
 }
 
 /**
- * Legenda das cores, numa faixa compacta: o LED de cada estado com o nome (o que cada um quer
- * dizer fica no [meaning], para leitores de tela) e o botão verde de "conectado".
+ * Legenda do status da conexão: o LED de cada estado com o nome, numa linha. O que cada um
+ * quer dizer ([meaning]) vai para os leitores de tela.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HeartbeatLegend(modifier: Modifier = Modifier) {
     FlowRow(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         HeartbeatState.entries.forEach { state ->
@@ -104,11 +106,6 @@ fun HeartbeatLegend(modifier: Modifier = Modifier) {
                 Spacer(Modifier.width(6.dp))
                 Text(state.label(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(width = 16.dp, height = 10.dp).background(SuccessGreen, androidx.compose.foundation.shape.RoundedCornerShape(5.dp)))
-            Spacer(Modifier.width(6.dp))
-            Text("Botão verde: conectado", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

@@ -2362,7 +2362,7 @@ private fun ConnectionRow(isConnected: Boolean, heartbeat: HeartbeatState, onTog
         HeartbeatDot(state = heartbeat)
         Spacer(Modifier.width(10.dp))
         Text(
-            if (isConnected) "Conectado · ${heartbeat.label()}" else "Desconectado",
+            if (isConnected) heartbeat.label() else HeartbeatState.DISCONNECTED.label(),
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f)
         )

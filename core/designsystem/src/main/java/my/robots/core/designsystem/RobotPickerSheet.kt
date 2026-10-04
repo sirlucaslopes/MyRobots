@@ -111,7 +111,7 @@ fun RobotPickerSheet(
                             }
                             ProgressLabel(
                                 progress = progress[robot.id],
-                                idleText = if (robot.id in connectedIds) heartbeat.label() else "Desconectado"
+                                idleText = if (robot.id in connectedIds) heartbeat.label() else HeartbeatState.DISCONNECTED.label()
                             )
                         }
                     }
