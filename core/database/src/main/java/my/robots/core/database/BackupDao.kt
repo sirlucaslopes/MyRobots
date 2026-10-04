@@ -64,10 +64,47 @@ interface BackupDao {
     suspend fun getBackupsSummaryById(id: Int): BackupSummary?
 
     /**
-     * Busca um backup completo (com o texto) pelo id. Devolve null se não existir.
+     * Busca um backup completo (com o texto) pelo id, numa linha só. Falha com backup grande
+     * (a linha não cabe no CursorWindow): use [getBackupChunked].
      */
     @Query("SELECT * FROM backups WHERE id = :id")
     suspend fun getBackupById(id: Int): Backup?
+
+    /** Tamanho do texto do backup, em caracteres (null se não existir). */
+    @Query("SELECT length(content) FROM backups WHERE id = :id")
+    suspend fun getContentLength(id: Int): Int?
+
+    /** Um pedaço do texto do backup: [len] caracteres a partir de [start] (começa em 1). */
+    @Query("SELECT substr(content, :start, :len) FROM backups WHERE id = :id")
+    suspend fun getContentPart(id: Int, start: Int, len: Int): String?
+
+    /**
+     * Backup completo lido em pedaços de [CHUNK] caracteres: cada consulta traz uma linha
+     * pequena, então qualquer tamanho de backup cabe no CursorWindow, mesmo com vários sendo
+     * lidos ao mesmo tempo (o SAVE/FULL de um robô de pintura passa de 4 MB).
+     */
+    @Transaction
+    suspend fun getBackupChunked(id: Int): Backup? {
+        val summary = getBackupsSummaryById(id) ?: return null
+        val length = getContentLength(id) ?: 0
+        val text = StringBuilder(length)
+        var start = 1
+        while (start <= length) {
+            text.append(getContentPart(id, start, CHUNK).orEmpty())
+            start += CHUNK
+        }
+        return Backup(
+            id = summary.id, robotId = summary.robotId, backupName = summary.backupName,
+            fileName = summary.fileName, content = text.toString(),
+            programsCount = summary.programsCount, variablesCount = summary.variablesCount,
+            framesCount = summary.framesCount, memoryUsage = summary.memoryUsage, timestamp = summary.timestamp
+        )
+    }
+
+    companion object {
+        /** Tamanho de cada pedaço do texto (caracteres): bem abaixo dos 2 MB do CursorWindow. */
+        const val CHUNK = 512 * 1024
+    }
     
     /**
      * Apaga um backup usando só o id dele.

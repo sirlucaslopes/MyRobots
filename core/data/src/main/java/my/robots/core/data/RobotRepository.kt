@@ -270,7 +270,8 @@ class RobotRepository(
      * na leitura do banco — sem isso, abrir um backup grande derrubava o app inteiro.
      */
     suspend fun getBackupById(id: Int): Backup? = try {
-        backupDao.getBackupById(id)
+        // em pedaços: um backup FULL grande não cabe numa linha do CursorWindow
+        backupDao.getBackupChunked(id)
     } catch (e: Exception) {
         e.printStackTrace()
         null
@@ -417,7 +418,7 @@ class RobotRepository(
         backupSummaries.forEach { summary ->
             if (summary.programsCount == 0 && summary.variablesCount == 0) {
                 // carrega um por vez, só quando precisa, para não estourar a memória
-                val backup = backupDao.getBackupById(summary.id)
+                val backup = backupDao.getBackupChunked(summary.id)
                 if (backup != null) {
                     val updated = calculateAndApplyMetadata(backup)
                     if (updated.programsCount > 0 || updated.variablesCount > 0) {

@@ -158,7 +158,7 @@ internal fun RobotChooserDialog(
 }
 
 @Composable
-private fun CheckRow(checked: Boolean, text: String, supporting: String? = null, onToggle: () -> Unit) {
+internal fun CheckRow(checked: Boolean, text: String, supporting: String? = null, onToggle: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -176,121 +176,7 @@ private fun CheckRow(checked: Boolean, text: String, supporting: String? = null,
     }
 }
 
-/**
- * Transferência mestre -> escravo: quais pares, quais programas (do último backup dos
- * mestres) e se o frame da base vai junto. Explica a troca da base pelo offset.
- */
-@Composable
-internal fun TransferDialog(
-    pairs: List<MasterSlavePair>,
-    configs: Map<String, MasterSlaveConfig>,
-    offsets: Map<String, String>,
-    programs: List<String>?,
-    onConfirm: (List<MasterSlavePair>, List<String>, Boolean, Boolean) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var chosenPairs by remember { mutableStateOf(pairs.map { it.slave.id }.toSet()) }
-    var chosenPrograms by remember { mutableStateOf(listOf<String>()) }
-    // o que vale de início vem da configuração Mestre / Escravo do projeto escravo
-    val config = configs[pairs.firstOrNull()?.slave?.project] ?: MasterSlaveConfig()
-    var withFrames by remember { mutableStateOf(config.sendFrame) }
-    var applyOffset by remember { mutableStateOf(config.applyOffset) }
-    val pattern = config.framePattern.ifBlank { "todas as bases" }
-    var filter by remember { mutableStateOf("") }
-    val offsetText = offsets.values.distinct().joinToString(" / ").ifBlank { "top_offset" }
-
-    FormDialog(
-        title = "Mestre → escravo",
-        onDismiss = onDismiss,
-        confirmButton = {
-            Button(
-                onClick = { onConfirm(pairs.filter { it.slave.id in chosenPairs }, chosenPrograms, withFrames, applyOffset) },
-                enabled = chosenPairs.isNotEmpty() && chosenPrograms.isNotEmpty()
-            ) { Text("Transferir") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
-    ) {
-        Text(
-            "Os programas saem do último backup de cada mestre.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text("Pares", style = MaterialTheme.typography.labelLarge)
-        pairs.forEach { p ->
-            CheckRow(
-                checked = p.slave.id in chosenPairs,
-                text = "${p.master.name} → ${p.slave.name}",
-                supporting = p.slave.project,
-                onToggle = { chosenPairs = if (p.slave.id in chosenPairs) chosenPairs - p.slave.id else chosenPairs + p.slave.id }
-            )
-        }
-        // pergunta se a base do programa de destino recebe o offset
-        CheckRow(checked = applyOffset, text = "Alterar a base (somar o offset)", onToggle = { applyOffset = !applyOffset })
-        Text(
-            if (applyOffset) "No escravo, as bases \"$pattern\" ganham \"+$offsetText\" (ex.: BASE fr_[100] → " +
-                "BASE fr_[100]+$offsetText). BASE NULL e bases que já somam o offset ficam iguais."
-            else "Os programas vão para o escravo exatamente como estão no mestre, sem mexer na base.",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (applyOffset) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.tertiary,
-            modifier = Modifier.padding(start = 48.dp)
-        )
-        CheckRow(checked = withFrames, text = "Enviar a base (.TRANS) junto", onToggle = { withFrames = !withFrames })
-        Text(
-            if (withFrames) "Vão junto as linhas \"$pattern\" da .TRANS do mestre (ex.: fr_[100] do pg100)."
-            else "A .TRANS não vai; o escravo usa o frame que já tem.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(start = 48.dp)
-        )
-
-        Text("Programas (${chosenPrograms.size})", style = MaterialTheme.typography.labelLarge)
-        if (chosenPrograms.isNotEmpty()) {
-            Text(
-                chosenPrograms.joinToString(),
-                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        OutlinedTextField(
-            value = filter,
-            onValueChange = { filter = it },
-            label = { Text("Procurar programa") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        when {
-            programs == null -> Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(8.dp))
-                Text("Lendo os backups dos mestres…", style = MaterialTheme.typography.bodySmall)
-            }
-            programs.isEmpty() -> Text(
-                "Os mestres ainda não têm backup com programas. Faça um backup deles primeiro.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error
-            )
-            else -> {
-                val shown = programs.filter { it.contains(filter.trim(), ignoreCase = true) }
-                shown.take(MAX_PROGRAMS_SHOWN).forEach { name ->
-                    CheckRow(
-                        checked = name in chosenPrograms,
-                        text = name,
-                        onToggle = { chosenPrograms = if (name in chosenPrograms) chosenPrograms - name else chosenPrograms + name }
-                    )
-                }
-                if (shown.size > MAX_PROGRAMS_SHOWN) {
-                    Text(
-                        "Mais ${shown.size - MAX_PROGRAMS_SHOWN}: procure pelo nome.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-private const val MAX_PROGRAMS_SHOWN = 40
+internal const val MAX_PROGRAMS_SHOWN = 40
 
 @Composable
 internal fun <T> PickerButton(

@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -56,6 +58,32 @@ data class CabinView(
     /** Todos os robôs na ordem da cabine (linha, coluna) e depois os de fora. */
     val inCabinOrder: List<Robot> =
         robots.filter { it.id in cabin.placed }.sortedWith(compareBy({ cabin.placed[it.id]!!.row }, { cabin.placed[it.id]!!.col })) + outside
+}
+
+/** Um programa num backup: linhas do corpo, data de alteração e comentário do cabeçalho. */
+data class ProgramState(val lines: Int, val modifiedAt: String, val comment: String)
+
+/**
+ * O que o último backup de um robô diz dos programas pedidos. backupAt = null: o robô não tem
+ * backup com programas (não dá para saber). programs[nome] = null: o programa não existe nele.
+ */
+data class RobotPrograms(val backupAt: Long?, val programs: Map<String, ProgramState?>)
+
+/** Origem e destino de um par, para a análise antes de transferir. */
+data class PairAnalysis(val pair: MasterSlavePair, val origin: RobotPrograms, val target: RobotPrograms) {
+    /** Programas que vão (existem na origem). */
+    val toSend: List<String> get() = origin.programs.filterValues { it != null }.keys.toList()
+    /** Programas que já existem no destino e serão substituídos. */
+    val replaced: List<String> get() = toSend.filter { target.programs[it] != null }
+    /** Programas que não existem na origem (não vão). */
+    val missing: List<String> get() = origin.programs.filterValues { it == null }.keys.toList()
+}
+
+data class TransferAnalysis(val programs: List<String>, val pairs: List<PairAnalysis>) {
+    val replacedCount: Int get() = pairs.sumOf { it.replaced.size }
+    val missingCount: Int get() = pairs.sumOf { it.missing.size }
+    val unknownTarget: Int get() = pairs.count { it.target.backupAt == null }
+    val hasWarnings: Boolean get() = replacedCount > 0 || missingCount > 0 || unknownTarget > 0
 }
 
 /**
@@ -298,6 +326,61 @@ class ProjectViewModel(
             }
             _programChoices.value = names.toList()
         }
+    }
+
+    private val _analysis = MutableStateFlow<TransferAnalysis?>(null)
+    /** Análise da transferência escolhida (null = ainda não analisou ou analisando). */
+    val analysis: StateFlow<TransferAnalysis?> = _analysis.asStateFlow()
+
+    private val _analyzing = MutableStateFlow(false)
+    val analyzing: StateFlow<Boolean> = _analyzing.asStateFlow()
+
+    /**
+     * Confere, antes de enviar, cada programa escolhido no último backup de cada robô de
+     * origem (existe? quantas linhas, data) e de cada robô de destino (já existe? será
+     * substituído). Lê um backup por vez (são grandes) e guarda só o resumo.
+     */
+    fun analyzeTransfer(pairs: List<MasterSlavePair>, programs: List<String>) {
+        _analysis.value = null
+        _analyzing.value = true
+        viewModelScope.launch {
+            try {
+                val cache = mutableMapOf<Int, RobotPrograms>()
+                // origem: o último backup com programas (de onde eles saem); destino: o último
+                // backup qualquer (um robô vazio também diz que o programa não existe lá)
+                suspend fun of(robot: Robot, needPrograms: Boolean): RobotPrograms = cache.getOrPut(robot.id) {
+                    val latest = repository.getBackupsSummary(robot.id).first()
+                        .filter { !FileUtil.isTransferFile(it.fileName) && (!needPrograms || it.programsCount > 0) }
+                        .maxByOrNull { it.timestamp }
+                    val content = latest?.let { repository.getBackupById(it.id) }?.content
+                    RobotPrograms(
+                        backupAt = latest?.timestamp,
+                        programs = if (content == null) emptyMap() else withContext(Dispatchers.Default) {
+                            programs.associateWith { name -> AsProgramBlocks.extract(content, name)?.let { programState(it) } }
+                        }
+                    )
+                }
+                _analysis.value = TransferAnalysis(
+                    programs = programs,
+                    pairs = pairs.map { p -> PairAnalysis(p, of(p.master, true), of(p.slave, false)) }
+                )
+            } finally {
+                _analyzing.value = false
+            }
+        }
+    }
+
+    fun clearAnalysis() { _analysis.value = null }
+
+    private fun programState(block: String): ProgramState {
+        val lines = block.lines()
+        val header = AsProgramBlocks.parseHeader(lines.firstOrNull().orEmpty())
+        // linhas do corpo: sem o cabeçalho e o .END
+        return ProgramState(
+            lines = (lines.count { it.isNotBlank() } - 2).coerceAtLeast(0),
+            modifiedAt = header?.modifiedAt.orEmpty(),
+            comment = header?.comment.orEmpty()
+        )
     }
 
     // ---------- Edição ----------

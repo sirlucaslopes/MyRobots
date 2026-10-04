@@ -175,7 +175,22 @@ class ProjectOperations(
     private suspend fun connect(robot: Robot, onUpdate: (Int, RobotTask) -> Unit): Boolean {
         onUpdate(robot.id, RobotTask(TaskState.CONNECTING, "Conectando…"))
         val ok = checks.connectAndWait(robot)
-        if (!ok) onUpdate(robot.id, RobotTask(TaskState.FAILED, "Não conectou"))
+        if (!ok) onUpdate(robot.id, RobotTask(TaskState.FAILED, "Não conectou: " + connectFailure(robot)))
         return ok
+    }
+
+    /** Motivo da falha de conexão, pelo que ficou no terminal do robô. */
+    private fun connectFailure(robot: Robot): String {
+        val history = terminal.getHistory(robot.id).value
+        val error = history.lastOrNull { it.startsWith("Erro:") }?.removePrefix("Erro:")?.trim()
+        return when {
+            error == null && !terminal.getConnectionStatus(robot.id).value ->
+                "a conexão abriu e fechou na hora (no K-ROSET: o controlador da porta ${robot.port} está desligado?)"
+            error == null -> "o robô não respondeu ao login"
+            error.contains("refused", true) || error.contains("ECONNREFUSED", true) -> "recusado em ${robot.ip}:${robot.port}"
+            error.contains("timed out", true) || error.contains("after", true) -> "sem resposta de ${robot.ip} (fora da rede?)"
+            error.contains("unreachable", true) -> "${robot.ip} fora de alcance"
+            else -> error.take(60)
+        }
     }
 }

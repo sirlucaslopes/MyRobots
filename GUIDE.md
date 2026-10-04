@@ -870,13 +870,24 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
   embaixo, e uma seta de cada mestre até o seu escravo, pelos corredores à esquerda das colunas.
   Embaixo, o resumo ("Base no escravo: BASE fr_[N]+top_offset · .TRANS junto") e os botões
   **Transferir** e **Configurar**. Pares com robô fora do layout ficam listados.
-- **Transferir:** escolhe os pares, os programas (do último backup dos mestres, com busca) e
-  confirma as duas opções, que vêm marcadas como na configuração. Para cada par: tira os
-  programas do último backup do mestre (`AsProgramBlocks`, nome exato), com "Alterar a base"
-  troca cada `BASE <frame do padrão>` por `BASE <frame>+<offset>` (`BASE NULL`, bases fora do
-  padrão e as que já somam o offset ficam iguais), junta as linhas da `.TRANS` dos frames, conecta
-  no escravo e faz o LOAD conferido (`RobotCommands.loadFile`). Avisa (amarelo) programa ou frame
-  que não existe no mestre e offset que não aparece no último backup do escravo.
+- **Transferir** (`TransferDialog.kt`), em duas etapas:
+  1. **Escolher:** blocos separados para a **ORIGEM** (mestre, em azul: projeto e robôs de onde os
+     programas saem) e o **DESTINO** (escravo, em laranja: cada robô com a sua caixa, "C03 recebe
+     de R10"); as opções (alterar a base, enviar a .TRANS, vindas da configuração) e os programas
+     (do último backup da origem, com busca). "Analisar".
+  2. **Conferir** (`ProjectViewModel.analyzeTransfer`): para cada par e programa, a origem (existe?
+     linhas, data e comentário do cabeçalho; "não existe: não vai") e o destino ("não existe: será
+     criado"; "existe (...): SERÁ SUBSTITUÍDO"; "sem backup: não dá para saber"), com a data dos
+     backups usados (origem: o último com programas; destino: o último qualquer). Com avisos, o
+     botão vira "Transferir mesmo assim" (amarelo); "Voltar" muda a escolha. **O LOAD do
+     controlador substitui um programa que já existe sem perguntar** (conferido no K-ROSET em
+     03/10/2026), por isso o aviso.
+  Para cada par: tira os programas do último backup da origem (`AsProgramBlocks`, nome exato), com
+  "Alterar a base" troca cada `BASE <frame do padrão>` por `BASE <frame>+<offset>`, junta as
+  linhas da `.TRANS` dos frames, conecta no destino e faz o LOAD conferido
+  (`RobotCommands.loadFile`). Cada mini terminal mostra o resultado; "Não conectou" vem com o
+  motivo (recusado, sem resposta, conexão que abriu e fechou na hora: no K-ROSET, controlador
+  desligado).
 
 **Pendências / Próximos passos:** a transferência mestre → escravo só foi testada até a montagem
 do arquivo e a janela (os robôs da cabine não estavam ao alcance); falta rodar com um par real.

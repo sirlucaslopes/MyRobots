@@ -94,6 +94,8 @@ fun ProjectScreen(
     val layout by viewModel.layout.collectAsState()
     val allRobots by viewModel.allRobots.collectAsState()
     val msConfigs by viewModel.masterSlaveConfigs.collectAsState()
+    val analysis by viewModel.analysis.collectAsState()
+    val analyzing by viewModel.analyzing.collectAsState()
     val programChoices by viewModel.programChoices.collectAsState()
     var showBackupAll by remember { mutableStateOf(false) }
     var showCommandAll by remember { mutableStateOf(false) }
@@ -302,11 +304,16 @@ fun ProjectScreen(
             configs = msConfigs,
             offsets = pairViews.associate { it.slaveName to it.offset },
             programs = programChoices,
+            analysis = analysis,
+            analyzing = analyzing,
+            onAnalyze = viewModel::analyzeTransfer,
+            onBackFromAnalysis = viewModel::clearAnalysis,
             onConfirm = { selected, programs, withFrames, applyOffset ->
                 transferPairs = null
+                viewModel.clearAnalysis()
                 viewModel.transfer(selected, programs, withFrames, applyOffset)
             },
-            onDismiss = { transferPairs = null }
+            onDismiss = { transferPairs = null; viewModel.clearAnalysis() }
         )
     }
     if (showAddEquipment) {
