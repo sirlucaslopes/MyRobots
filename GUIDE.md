@@ -841,6 +841,22 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
   terminal guarda só as últimas 1000 linhas e um SAVE/FULL passa disso.
 - As ações vivem no ViewModel da tela: sair do projeto (voltar) cancela a que estiver rodando.
 
+### Duplicar programa (`DuplicateDialog.kt`)
+- Botão **Duplicar programa** nas ações em grupo. Duas etapas, no mesmo formato da transferência:
+  1. **Escolher:** a **ORIGEM** (o programa, da lista do último backup dos robôs do projeto, com
+     busca; tocar na linha escolhe), a **CÓPIA** (nome novo: sugere o próximo número livre, pg100 →
+     pg102 se o pg101 existe; o nome segue a regra do manual: começa com letra, até 15 letras,
+     números, `_` ou `.`; e, com "Trocar o comentário do programa", o comentário novo; vazio = sem
+     comentário) e os robôs.
+  2. **Conferir** (`analyzeDuplicate`): em cada robô, pelo último backup, se o programa de origem
+     existe (linhas, data, comentário; senão fica de fora) e se o nome novo já existe ("será
+     criado" ou "SERÁ SUBSTITUÍDO"); caixa por robô. Com avisos, "Duplicar mesmo assim".
+- Execução (`ProjectOperations.duplicateInRobots`), em paralelo: tira o bloco do último backup do
+  robô, troca o nome (`AsProgramBlocks.renameHeader`) e o comentário (`setHeaderComment`), conecta
+  e faz o LOAD conferido de `dup_<nome>.as`. O resultado aparece no mini terminal de cada robô.
+- A conferência usa o último backup: use o **Atualizar** no painel do robô antes, para ela ver o
+  que está no controlador agora.
+
 ### Terminais
 - Um **mini terminal** por robô, dois por linha, na ordem da cabine: LED, nome, as últimas 5
   linhas do terminal e o andamento da ação em grupo (borda e texto: cinza na fila, azul rodando,
@@ -875,13 +891,16 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
      programas saem) e o **DESTINO** (escravo, em laranja: cada robô com a sua caixa, "C03 recebe
      de R10"); as opções (alterar a base, enviar a .TRANS, vindas da configuração) e os programas
      (do último backup da origem, com busca). "Analisar".
-  2. **Conferir** (`ProjectViewModel.analyzeTransfer`): para cada par e programa, a origem (existe?
-     linhas, data e comentário do cabeçalho; "não existe: não vai") e o destino ("não existe: será
-     criado"; "existe (...): SERÁ SUBSTITUÍDO"; "sem backup: não dá para saber"), com a data dos
-     backups usados (origem: o último com programas; destino: o último qualquer). Com avisos, o
-     botão vira "Transferir mesmo assim" (amarelo); "Voltar" muda a escolha. **O LOAD do
-     controlador substitui um programa que já existe sem perguntar** (conferido no K-ROSET em
-     03/10/2026), por isso o aviso.
+  2. **Conferir** (`ProjectViewModel.analyzeTransfer` + `GroupAnalysis.programCheck`): para cada par,
+     uma **caixa para mandar ou não** (desmarcado fica de fora) e, por programa: a origem (existe?
+     linhas, data e comentário do cabeçalho; "não existe: não vai"), o destino ("não existe: será
+     criado"; "existe (...): SERÁ SUBSTITUÍDO"; "sem backup: não dá para saber"), com "Alterar a
+     base" as **linhas BASE que mudam** (`BASE fr_[100] → BASE fr_[100]+top_offset`) e, com
+     "Enviar a .TRANS", **cada frame** com a linha dele na origem e no destino ("vai junto (não
+     existe no destino)", "igual no destino" ou "existe com outro valor: SERÁ SOBRESCRITO"). Origem:
+     o último backup com programas; destino: o último qualquer. Com avisos, o botão vira
+     "Transferir mesmo assim" (amarelo); "Voltar" muda a escolha. **O LOAD do controlador
+     substitui um programa que já existe sem perguntar** (conferido no K-ROSET em 03/10/2026).
   Para cada par: tira os programas do último backup da origem (`AsProgramBlocks`, nome exato), com
   "Alterar a base" troca cada `BASE <frame do padrão>` por `BASE <frame>+<offset>`, junta as
   linhas da `.TRANS` dos frames, conecta no destino e faz o LOAD conferido

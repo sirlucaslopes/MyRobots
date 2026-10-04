@@ -135,6 +135,25 @@ object AsProgramBlocks {
      * Troca só o nome no cabeçalho do bloco (a primeira linha), mantendo parâmetros,
      * data e comentário. Se a primeira linha não for um cabeçalho, devolve o bloco igual.
      */
+    /**
+     * Troca o comentário do cabeçalho do bloco (o texto depois do ";" da linha .PROGRAM). Sem
+     * comentário, acrescenta ";comentário". Comentário vazio tira o ";…". O resto do bloco não muda.
+     */
+    fun setHeaderComment(block: String, comment: String): String {
+        val firstBreak = block.indexOf('\n')
+        val header = if (firstBreak == -1) block else block.substring(0, firstBreak)
+        val rest = if (firstBreak == -1) "" else block.substring(firstBreak)
+        val cr = header.endsWith("\r")
+        val line = header.removeSuffix("\r")
+        // o ";" do comentário vem depois dos parênteses dos parâmetros
+        val close = line.indexOf(')')
+        val semi = if (close >= 0) line.indexOf(';', close) else line.indexOf(';')
+        val base = (if (semi >= 0) line.substring(0, semi) else line).trimEnd()
+        val clean = comment.trim().replace("\n", " ")
+        val newHeader = if (clean.isEmpty()) base else "$base;$clean"
+        return newHeader + (if (cr) "\r" else "") + rest
+    }
+
     fun renameHeader(block: String, newName: String): String {
         val firstBreak = block.indexOf('\n')
         val header = if (firstBreak == -1) block else block.substring(0, firstBreak)

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -59,6 +60,7 @@ internal fun GroupActionsCard(
     tasks: Map<Int, RobotTask>,
     onBackup: () -> Unit,
     onCommand: () -> Unit,
+    onDuplicate: () -> Unit,
     onCancel: () -> Unit,
     onClear: () -> Unit
 ) {
@@ -71,6 +73,9 @@ internal fun GroupActionsCard(
                 }
                 FilledTonalButton(onClick = onCommand, enabled = running == null) {
                     Icon(Icons.Rounded.Keyboard, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Comando")
+                }
+                FilledTonalButton(onClick = onDuplicate, enabled = running == null) {
+                    Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Duplicar programa")
                 }
             }
             if (tasks.isNotEmpty()) {

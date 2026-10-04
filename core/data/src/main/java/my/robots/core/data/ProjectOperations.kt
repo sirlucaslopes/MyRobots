@@ -128,6 +128,50 @@ class ProjectOperations(
         }.awaitAll()
     }
 
+    /**
+     * Duplicar programa em grupo: em cada robô, tira [source] do último backup dele (nome
+     * exato), troca o nome para [newName] e, com [comment], o comentário do cabeçalho; conecta e
+     * faz o LOAD conferido. Um nome novo que já existe no robô é substituído (o LOAD substitui).
+     */
+    suspend fun duplicateInRobots(
+        robots: List<Robot>,
+        source: String,
+        newName: String,
+        comment: String?,
+        onUpdate: (Int, RobotTask) -> Unit
+    ) = coroutineScope {
+        robots.map { robot ->
+            async {
+                onUpdate(robot.id, RobotTask(TaskState.RUNNING, "Lendo o backup do ${robot.name}…"))
+                val backup = latestFullBackup(robot.id)
+                if (backup == null) {
+                    onUpdate(robot.id, RobotTask(TaskState.FAILED, "${robot.name} não tem backup com programas"))
+                    return@async
+                }
+                val file = withContext(Dispatchers.Default) {
+                    AsProgramBlocks.extract(backup.content, source)?.let { block ->
+                        val renamed = AsProgramBlocks.renameHeader(block, newName)
+                        (if (comment != null) AsProgramBlocks.setHeaderComment(renamed, comment) else renamed).trimEnd() + "\n"
+                    }
+                }
+                if (file == null) {
+                    onUpdate(robot.id, RobotTask(TaskState.FAILED, "$source não existe no ${robot.name}"))
+                    return@async
+                }
+                if (!connect(robot, onUpdate)) return@async
+                onUpdate(robot.id, RobotTask(TaskState.RUNNING, "Carregando $newName…"))
+                val fileName = "dup_${FileUtil.sanitizeFileName(newName).replace(".as", "")}.as"
+                repository.saveFileToRobotFolder(robot.id, fileName, file)
+                val result = checks.commands.loadFile(robot.id, fileName, file)
+                onUpdate(
+                    robot.id,
+                    if (result.ok) RobotTask(TaskState.DONE, "$source → $newName no ${robot.name}")
+                    else RobotTask(TaskState.FAILED, result.message)
+                )
+            }
+        }.awaitAll()
+    }
+
     private class Prepared(val file: String?, val summary: String, val warnings: List<String>)
 
     private suspend fun prepareTransfer(

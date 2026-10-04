@@ -96,6 +96,8 @@ fun ProjectScreen(
     val msConfigs by viewModel.masterSlaveConfigs.collectAsState()
     val analysis by viewModel.analysis.collectAsState()
     val analyzing by viewModel.analyzing.collectAsState()
+    val dupAnalysis by viewModel.dupAnalysis.collectAsState()
+    var showDuplicate by remember { mutableStateOf(false) }
     val programChoices by viewModel.programChoices.collectAsState()
     var showBackupAll by remember { mutableStateOf(false) }
     var showCommandAll by remember { mutableStateOf(false) }
@@ -188,6 +190,10 @@ fun ProjectScreen(
                     tasks = tasks,
                     onBackup = { showBackupAll = true },
                     onCommand = { showCommandAll = true },
+                    onDuplicate = {
+                        viewModel.loadProgramChoices(v.inCabinOrder)
+                        showDuplicate = true
+                    },
                     onCancel = viewModel::cancelAction,
                     onClear = viewModel::clearTasks
                 )
@@ -296,6 +302,22 @@ fun ProjectScreen(
             askCommand = true,
             onConfirm = { robots, cmd -> showCommandAll = false; viewModel.commandAll(robots, cmd) },
             onDismiss = { showCommandAll = false }
+        )
+    }
+    if (showDuplicate && current != null) {
+        DuplicateDialog(
+            robots = current.inCabinOrder,
+            programs = programChoices,
+            analysis = dupAnalysis,
+            analyzing = analyzing && dupAnalysis == null,
+            onAnalyze = viewModel::analyzeDuplicate,
+            onBackFromAnalysis = viewModel::clearDupAnalysis,
+            onConfirm = { robots, source, newName, comment ->
+                showDuplicate = false
+                viewModel.clearDupAnalysis()
+                viewModel.duplicate(robots, source, newName, comment)
+            },
+            onDismiss = { showDuplicate = false; viewModel.clearDupAnalysis() }
         )
     }
     transferPairs?.let { tp ->

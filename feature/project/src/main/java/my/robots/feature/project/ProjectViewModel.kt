@@ -60,32 +60,6 @@ data class CabinView(
         robots.filter { it.id in cabin.placed }.sortedWith(compareBy({ cabin.placed[it.id]!!.row }, { cabin.placed[it.id]!!.col })) + outside
 }
 
-/** Um programa num backup: linhas do corpo, data de alteração e comentário do cabeçalho. */
-data class ProgramState(val lines: Int, val modifiedAt: String, val comment: String)
-
-/**
- * O que o último backup de um robô diz dos programas pedidos. backupAt = null: o robô não tem
- * backup com programas (não dá para saber). programs[nome] = null: o programa não existe nele.
- */
-data class RobotPrograms(val backupAt: Long?, val programs: Map<String, ProgramState?>)
-
-/** Origem e destino de um par, para a análise antes de transferir. */
-data class PairAnalysis(val pair: MasterSlavePair, val origin: RobotPrograms, val target: RobotPrograms) {
-    /** Programas que vão (existem na origem). */
-    val toSend: List<String> get() = origin.programs.filterValues { it != null }.keys.toList()
-    /** Programas que já existem no destino e serão substituídos. */
-    val replaced: List<String> get() = toSend.filter { target.programs[it] != null }
-    /** Programas que não existem na origem (não vão). */
-    val missing: List<String> get() = origin.programs.filterValues { it == null }.keys.toList()
-}
-
-data class TransferAnalysis(val programs: List<String>, val pairs: List<PairAnalysis>) {
-    val replacedCount: Int get() = pairs.sumOf { it.replaced.size }
-    val missingCount: Int get() = pairs.sumOf { it.missing.size }
-    val unknownTarget: Int get() = pairs.count { it.target.backupAt == null }
-    val hasWarnings: Boolean get() = replacedCount > 0 || missingCount > 0 || unknownTarget > 0
-}
-
 /**
  * Um projeto mestre e um escravo, com os pares de robôs entre eles e a variável de offset que
  * o escravo soma na base. É o que o desenho das setas mestre -> escravo mostra.
@@ -335,35 +309,42 @@ class ProjectViewModel(
     private val _analyzing = MutableStateFlow(false)
     val analyzing: StateFlow<Boolean> = _analyzing.asStateFlow()
 
+    /** Último backup do robô (com programas, ou qualquer um) e o texto dele; null = não tem. */
+    private suspend fun latestContent(robot: Robot, needPrograms: Boolean): Pair<Long, String>? {
+        val latest = repository.getBackupsSummary(robot.id).first()
+            .filter { !FileUtil.isTransferFile(it.fileName) && (!needPrograms || it.programsCount > 0) }
+            .maxByOrNull { it.timestamp } ?: return null
+        val content = repository.getBackupById(latest.id)?.content ?: return null
+        return latest.timestamp to content
+    }
+
     /**
-     * Confere, antes de enviar, cada programa escolhido no último backup de cada robô de
-     * origem (existe? quantas linhas, data) e de cada robô de destino (já existe? será
-     * substituído). Lê um backup por vez (são grandes) e guarda só o resumo.
+     * Confere, antes de enviar, cada programa escolhido: no último backup da origem (existe?
+     * linhas, data), a mudança nas linhas BASE e os frames da .TRANS que vão junto; e no último
+     * backup do destino (já existe? será substituído; o frame já existe?). Lê um robô por vez
+     * (os backups são grandes) e guarda só o resumo.
      */
-    fun analyzeTransfer(pairs: List<MasterSlavePair>, programs: List<String>) {
+    fun analyzeTransfer(pairs: List<MasterSlavePair>, programs: List<String>, applyOffset: Boolean, withFrames: Boolean) {
         _analysis.value = null
         _analyzing.value = true
         viewModelScope.launch {
             try {
-                val cache = mutableMapOf<Int, RobotPrograms>()
-                // origem: o último backup com programas (de onde eles saem); destino: o último
-                // backup qualquer (um robô vazio também diz que o programa não existe lá)
-                suspend fun of(robot: Robot, needPrograms: Boolean): RobotPrograms = cache.getOrPut(robot.id) {
-                    val latest = repository.getBackupsSummary(robot.id).first()
-                        .filter { !FileUtil.isTransferFile(it.fileName) && (!needPrograms || it.programsCount > 0) }
-                        .maxByOrNull { it.timestamp }
-                    val content = latest?.let { repository.getBackupById(it.id) }?.content
-                    RobotPrograms(
-                        backupAt = latest?.timestamp,
-                        programs = if (content == null) emptyMap() else withContext(Dispatchers.Default) {
-                            programs.associateWith { name -> AsProgramBlocks.extract(content, name)?.let { programState(it) } }
+                val slaveProject = pairs.firstOrNull()?.slave?.project.orEmpty()
+                val offset = repository.getProjectLayout(slaveProject).first().baseOffset
+                val pattern = masterSlave.config(slaveProject).framePattern.takeIf { it.isNotBlank() }
+                val result = pairs.map { p ->
+                    // origem: o último backup com programas (de onde eles saem); destino: o último
+                    // backup qualquer (um robô vazio também diz que o programa não existe lá)
+                    val origin = latestContent(p.master, needPrograms = true)
+                    val target = latestContent(p.slave, needPrograms = false)
+                    val checks = withContext(Dispatchers.Default) {
+                        programs.map { name ->
+                            GroupAnalysis.programCheck(name, origin?.second, target?.second, applyOffset, withFrames, offset, pattern)
                         }
-                    )
+                    }
+                    PairAnalysis(p, origin?.first, target?.first, checks)
                 }
-                _analysis.value = TransferAnalysis(
-                    programs = programs,
-                    pairs = pairs.map { p -> PairAnalysis(p, of(p.master, true), of(p.slave, false)) }
-                )
+                _analysis.value = TransferAnalysis(programs, result, applyOffset, withFrames, offset)
             } finally {
                 _analyzing.value = false
             }
@@ -372,15 +353,46 @@ class ProjectViewModel(
 
     fun clearAnalysis() { _analysis.value = null }
 
-    private fun programState(block: String): ProgramState {
-        val lines = block.lines()
-        val header = AsProgramBlocks.parseHeader(lines.firstOrNull().orEmpty())
-        // linhas do corpo: sem o cabeçalho e o .END
-        return ProgramState(
-            lines = (lines.count { it.isNotBlank() } - 2).coerceAtLeast(0),
-            modifiedAt = header?.modifiedAt.orEmpty(),
-            comment = header?.comment.orEmpty()
-        )
+    // ---------- Duplicar programa em grupo ----------
+
+    private val _dupAnalysis = MutableStateFlow<DuplicateAnalysis?>(null)
+    /** Análise da duplicação escolhida (null = ainda não analisou). */
+    val dupAnalysis: StateFlow<DuplicateAnalysis?> = _dupAnalysis.asStateFlow()
+
+    /**
+     * Confere em cada robô, pelo último backup, se o programa [source] existe (linhas, data) e
+     * se o nome novo já existe (será substituído).
+     */
+    fun analyzeDuplicate(robots: List<Robot>, source: String, newName: String, comment: String?) {
+        _dupAnalysis.value = null
+        _analyzing.value = true
+        viewModelScope.launch {
+            try {
+                val checks = robots.map { r ->
+                    val latest = latestContent(r, needPrograms = false)
+                    val content = latest?.second
+                    val (src, dst) = withContext(Dispatchers.Default) {
+                        val s = content?.let { AsProgramBlocks.extract(it, source) }?.let(GroupAnalysis::programState)
+                        val d = content?.let { AsProgramBlocks.extract(it, newName) }?.let(GroupAnalysis::programState)
+                        s to d
+                    }
+                    DupCheck(r, latest?.first, src, dst)
+                }
+                _dupAnalysis.value = DuplicateAnalysis(source, newName, comment, checks)
+            } finally {
+                _analyzing.value = false
+            }
+        }
+    }
+
+    fun clearDupAnalysis() { _dupAnalysis.value = null }
+
+    /** Duplica [source] como [newName] (com [comment], se houver) em cada robô escolhido. */
+    fun duplicate(robots: List<Robot>, source: String, newName: String, comment: String?) {
+        if (robots.isEmpty()) return
+        runAction("Duplicar $source → $newName", robots.map { it.id }) { update ->
+            operations.duplicateInRobots(robots, source, newName, comment, update)
+        }
     }
 
     // ---------- Edição ----------
