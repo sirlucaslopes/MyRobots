@@ -17,11 +17,10 @@ import my.robots.core.model.Robot
 import my.robots.core.network.KawasakiTerminalManager
 
 /**
- * Cérebro do popup "Robôs Conectados".
+ * Conexão dos robôs na lista inicial.
  *
- * Mostra todos os robôs agrupados por projeto (como na lista inicial) e acompanha,
- * para cada um, se está conectado e o heartbeat (ALIVE/STALE/DISCONNECTED). Permite
- * conectar/desconectar um robô só ou o projeto inteiro de uma vez.
+ * Acompanha, para cada robô, se está conectado e o heartbeat (ALIVE/STALE/DISCONNECTED), e
+ * permite conectar/desconectar um robô só ou o projeto inteiro de uma vez.
  */
 class ConnectedRobotsViewModel(
     private val repository: RobotRepository,

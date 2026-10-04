@@ -31,9 +31,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import my.robots.core.designsystem.ActionTone
 import my.robots.core.designsystem.AppTopBar
-import my.robots.core.designsystem.BarAction
+import my.robots.core.designsystem.HeartbeatDot
+import my.robots.core.designsystem.HeartbeatLegend
+import my.robots.core.designsystem.SuccessGreen
+import my.robots.core.designsystem.label
+import my.robots.core.model.HeartbeatState
 import my.robots.core.model.Manufacturer
 import my.robots.core.model.Robot
 import java.math.BigInteger
@@ -53,8 +56,8 @@ import java.nio.ByteOrder
  * - onRobotClick: tocar no robô (abre o painel dele).
  * - onTerminalClick: ícone de terminal do robô.
  * - onOpenProject: ícone do projeto (abre a tela de Projeto, com a cabine).
- * - connectedRobotsViewModel: cérebro do popup "Robôs Conectados". Se vier null
- *   (ex.: pré-visualização), o botão do popup some.
+ * - connectedRobotsViewModel: conexão e pulso de cada robô (o botão Conectar de cada cartão e o
+ *   "Conectar todos" de cada projeto). Se vier null (ex.: pré-visualização), só mostra.
  * Os parâmetros onAddRobot/onUpdateRobot/onDeleteRobot/robotsList só são usados
  * quando não há ViewModel (por exemplo, em pré-visualização).
  */
@@ -75,8 +78,10 @@ fun RobotListScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var robotToEdit by remember { mutableStateOf<Robot?>(null) }
     var robotToDelete by remember { mutableStateOf<Robot?>(null) }
-    var showConnectedRobots by remember { mutableStateOf(false) }
-    var sortAlphabetical by remember { mutableStateOf(false) }
+    var sortAlphabetical by rememberSaveable { mutableStateOf(false) }
+    // conexão e pulso de cada robô (antes ficavam num popup à parte, "Robôs Conectados")
+    val connectedIds by (connectedRobotsViewModel?.connectedIds?.collectAsState() ?: remember { mutableStateOf(emptySet<Int>()) })
+    val heartbeats by (connectedRobotsViewModel?.heartbeats?.collectAsState() ?: remember { mutableStateOf(emptyMap<Int, HeartbeatState>()) })
     var showStorageDialog by remember { mutableStateOf(false) }
 
     // Seletor de pastas do Android (SAF) para a janela "Pasta dos arquivos".
@@ -103,23 +108,33 @@ fun RobotListScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
+            val connectedCount = robots.count { it.id in connectedIds }
             AppTopBar(
                 title = "My Robots",
-                subtitle = if (wifiInfo.isConnected) "${wifiInfo.ssid} · ${wifiInfo.ip}" else "Sem Wi-Fi",
+                subtitle = listOf(
+                    "$connectedCount de ${robots.size} conectados",
+                    if (wifiInfo.isConnected) "${wifiInfo.ssid} · ${wifiInfo.ip}" else "sem Wi-Fi"
+                ).joinToString(" · "),
                 menu = { close ->
+                    DropdownMenuItem(
+                        text = { Text("Ordenar A-Z") },
+                        leadingIcon = { Icon(Icons.Rounded.SortByAlpha, null) },
+                        trailingIcon = { if (sortAlphabetical) Icon(Icons.Default.Check, "Ligado") },
+                        onClick = { close(); sortAlphabetical = !sortAlphabetical }
+                    )
+                    HorizontalDivider()
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                         Text(
-                            text = if (wifiInfo.isConnected) wifiInfo.ssid else "Desconectado",
+                            text = if (wifiInfo.isConnected) wifiInfo.ssid else "Wi-Fi desconectado",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "IP: ${wifiInfo.ip}",
+                            text = "IP do celular: ${wifiInfo.ip}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("Configurar Wi-Fi") },
                         onClick = {
@@ -139,23 +154,7 @@ fun RobotListScreen(
                             leadingIcon = { Icon(Icons.Default.Folder, null) }
                         )
                     }
-                },
-                actions = listOfNotNull(
-                    if (connectedRobotsViewModel != null) {
-                        BarAction(Icons.Rounded.DeviceHub, "Conectados", onClick = { showConnectedRobots = true })
-                    } else null,
-                    BarAction(
-                        Icons.Rounded.SortByAlpha, "Ordenar A-Z",
-                        selected = sortAlphabetical,
-                        onClick = { sortAlphabetical = !sortAlphabetical }
-                    ),
-                    BarAction(
-                        if (wifiInfo.isConnected) Icons.Default.Wifi else Icons.Default.WifiOff,
-                        if (wifiInfo.isConnected) "Wi-Fi" else "Sem Wi-Fi",
-                        tone = if (wifiInfo.isConnected) ActionTone.Success else ActionTone.Danger,
-                        onClick = { context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS)) }
-                    )
-                )
+                }
             )
         },
         floatingActionButton = {
@@ -219,6 +218,9 @@ fun RobotListScreen(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
+                    item(key = "legenda") {
+                        HeartbeatLegend(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                    }
                     groupedRobots.forEach { (manufacturer, projects) ->
                         item {
                             val manufacturerKey = manufacturer.name
@@ -237,18 +239,32 @@ fun RobotListScreen(
                                     val projectKey = "${manufacturer.name}_$project"
                                     val isProjectExpanded = projectKey !in collapsedSections
                                     
+                                    val connectedInProject = robotsInProject.count { it.id in connectedIds }
                                     ProjectHeader(
                                         projectName = project,
                                         isExpanded = isProjectExpanded,
+                                        connected = connectedInProject,
+                                        total = robotsInProject.size,
                                         onToggle = { toggleSection(projectKey) },
-                                        onOpenProject = { onOpenProject(project) }
+                                        onOpenProject = { onOpenProject(project) },
+                                        onToggleAll = {
+                                            if (connectedInProject == robotsInProject.size) connectedRobotsViewModel?.disconnectProject(project)
+                                            else connectedRobotsViewModel?.connectProject(project)
+                                        }
                                     )
                                 }
 
                                 if ("${manufacturer.name}_$project" !in collapsedSections) {
                                     items(robotsInProject) { robot ->
+                                        val isConnected = robot.id in connectedIds
                                         RobotItem(
                                             robot = robot,
+                                            isConnected = isConnected,
+                                            heartbeat = heartbeats[robot.id] ?: HeartbeatState.DISCONNECTED,
+                                            onToggleConnect = {
+                                                if (isConnected) connectedRobotsViewModel?.disconnect(robot)
+                                                else connectedRobotsViewModel?.connect(robot)
+                                            },
                                             onClick = { onRobotClick(robot) },
                                             onTerminalClick = { onTerminalClick(robot) },
                                             onEdit = { robotToEdit = robot },
@@ -343,13 +359,6 @@ fun RobotListScreen(
             )
         }
 
-        // Popup "Robôs Conectados": lista por projeto, com heartbeat e conexão ali mesmo.
-        if (showConnectedRobots && connectedRobotsViewModel != null) {
-            ConnectedRobotsSheet(
-                viewModel = connectedRobotsViewModel,
-                onDismiss = { showConnectedRobots = false }
-            )
-        }
     }
 }
 
@@ -389,15 +398,19 @@ fun ManufacturerHeader(
 }
 
 /**
- * Faixa com o nome do projeto. Tocar nela abre ou fecha o grupo; o ícone abre a tela de
- * Projeto (a cabine), de onde também se chega ao Terminal Geral.
+ * Faixa com o nome do projeto e quantos robôs dele estão conectados. Tocar nela abre ou fecha
+ * o grupo; o botão conecta (ou desconecta, se todos já estiverem) os robôs do projeto; o ícone
+ * abre a tela de Projeto (a cabine).
  */
 @Composable
 fun ProjectHeader(
     projectName: String,
     isExpanded: Boolean,
+    connected: Int,
+    total: Int,
     onToggle: () -> Unit,
-    onOpenProject: () -> Unit
+    onOpenProject: () -> Unit,
+    onToggleAll: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -406,7 +419,7 @@ fun ProjectHeader(
             .clickable { onToggle() }
     ) {
         Row(
-            modifier = Modifier.padding(start = 32.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier.padding(start = 32.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -415,13 +428,23 @@ fun ProjectHeader(
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "Projeto: $projectName",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f)
-            )
-            IconButton(onClick = onOpenProject, modifier = Modifier.size(32.dp)) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = projectName,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+                Text(
+                    text = "$connected de $total conectados",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (connected > 0) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            TextButton(onClick = onToggleAll, enabled = total > 0) {
+                Text(if (total > 0 && connected == total) "Desconectar todos" else "Conectar todos", fontSize = 12.sp)
+            }
+            IconButton(onClick = onOpenProject, modifier = Modifier.size(40.dp)) {
                 Icon(
                     imageVector = Icons.Rounded.GridView,
                     contentDescription = "Abrir projeto",
@@ -434,21 +457,26 @@ fun ProjectHeader(
 }
 
 /**
- * Cartão de um robô: nome, IP:porta e os botões de terminal, editar e excluir.
- * Tocar no cartão abre o histórico de backups do robô.
+ * Cartão de um robô: LED de pulso, nome, IP, série e estado; o botão de conectar (verde quando
+ * conectado: toca para desconectar), o terminal e um ⋮ com editar e excluir. Tocar no cartão
+ * abre o painel do robô.
  */
 @Composable
 fun RobotItem(
     robot: Robot,
+    isConnected: Boolean,
+    heartbeat: HeartbeatState,
+    onToggleConnect: () -> Unit,
     onClick: () -> Unit,
     onTerminalClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
+    var menuOpen by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 48.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
+            .padding(start = 40.dp, end = 12.dp, top = 4.dp, bottom = 4.dp)
             .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = MaterialTheme.shapes.small,
@@ -456,24 +484,69 @@ fun RobotItem(
     ) {
         Row(
             modifier = Modifier
-                .padding(12.dp)
+                .padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 2.dp)
                 .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            HeartbeatDot(state = heartbeat)
+            Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = robot.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                Text(text = "${robot.ip}:${robot.port}" + (robot.serialNumber?.let { "  ·  Nº $it" } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(text = robot.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1)
+                    robot.serialNumber?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "Nº $it",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        )
+                    }
+                }
+                Text(
+                    text = "${robot.ip}:${robot.port}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+                Text(
+                    text = heartbeat.label(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (heartbeat) {
+                        HeartbeatState.ALIVE -> SuccessGreen
+                        HeartbeatState.STALE -> Color(0xFFFFA000)
+                        HeartbeatState.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
             }
-            Row {
-                IconButton(onClick = onTerminalClick, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Rounded.Terminal, contentDescription = "Terminal", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            Button(
+                onClick = onToggleConnect,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isConnected) SuccessGreen else MaterialTheme.colorScheme.primary
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(34.dp)
+            ) {
+                Text(if (isConnected) "Desconectar" else "Conectar", fontSize = 12.sp)
+            }
+            IconButton(onClick = onTerminalClick, modifier = Modifier.size(40.dp)) {
+                Icon(Icons.Rounded.Terminal, contentDescription = "Terminal", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+            }
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Mais opções do robô", modifier = Modifier.size(20.dp))
                 }
-                IconButton(onClick = onEdit, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(18.dp))
-                }
-                IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Editar") },
+                        leadingIcon = { Icon(Icons.Default.Edit, null) },
+                        onClick = { menuOpen = false; onEdit() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Excluir", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = { menuOpen = false; onDelete() }
+                    )
                 }
             }
         }

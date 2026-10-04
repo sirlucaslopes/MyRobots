@@ -345,21 +345,26 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 
 ## 7. `:feature:robots` — Lista e Cadastro de Robôs
 
-**Arquivos:** `RobotListScreen.kt`, `RobotDialog.kt`, `RobotViewModel.kt`, `ConnectedRobotsSheet.kt`, `ConnectedRobotsViewModel.kt`
+**Arquivos:** `RobotListScreen.kt`, `RobotDialog.kt`, `RobotViewModel.kt`, `ConnectedRobotsViewModel.kt`
 
 ### Lista de robôs (`RobotListScreen`)
 - Tela inicial de verdade do app (depois da splash). Agrupa os robôs em
   **Fabricante > Projeto > Robô**, com cada nível podendo ser expandido/recolhido.
-- Barra do topo: robôs conectados (ícone de hub — ver abaixo), ordenar A-Z (liga/desliga
-  ordenação alfabética nos três níveis), ícone de Wifi (mostra SSID e IP do celular,
-  atualizado a cada 3 segundos, para conferir se está na mesma rede do robô) e engrenagem
-  (abre um menu com o status do Wifi, atalho para "Configurar Wifi", que leva para as
-  configurações de Wifi **do próprio Android**, e **"Pasta dos arquivos"** — ver abaixo).
+- **Uma tela só para ver e conectar** (o antigo popup "Robôs Conectados" foi removido).
+- Barra do topo (`AppTopBar`): "My Robots" e, no subtítulo, quantos estão conectados e a rede do
+  celular (SSID e IP, atualizados a cada 3 s). Sem linha de ações. No **⋮**: **Ordenar A-Z**
+  (liga/desliga, com ✓; ordena projetos e robôs), os dados do Wi-Fi, **Configurar Wi-Fi** (abre
+  as configurações do Android) e **Pasta dos arquivos** (ver abaixo).
+- **Legenda** no topo da lista (`HeartbeatLegend`, `:core:designsystem`): o LED verde (Ativo:
+  conectado e respondendo), amarelo (Sem resposta: conectado, quieto há 8 s), cinza
+  (Desconectado) e o botão verde (conectado).
+- **Faixa do projeto:** nome, "N de M conectados" (em verde se algum estiver), **Conectar
+  todos**/**Desconectar todos** e o ícone de grade que abre a **tela de Projeto** (seção 15).
+- **Cartão do robô:** LED de pulso (`HeartbeatDot`), nome e série (Nº), `ip:porta`, o estado
+  (Ativo/Sem resposta/Desconectado, na cor do LED), o botão **Conectar** (azul) ou
+  **Desconectar** (verde), o terminal (abre o painel na seção Terminal) e um **⋮** com Editar e
+  Excluir (com confirmação). Dá para conectar quantos robôs quiser, cada um com a sua conexão.
 - Botão "+" abre `RobotDialog` para cadastrar um robô novo.
-- Cada robô mostra nome, `ip:porta` e o número de série (quando conhecido), com botões de terminal (abre o dashboard direto na
-  seção Terminal), editar e excluir (com confirmação).
-- Cada projeto tem um ícone (grade) que abre a **tela de Projeto** (seção 15), com a cabine
-  e, no menu e no fim da tela, o **Terminal Geral** (seção 11).
 - A lista guarda a posição da rolagem e os grupos fechados (`rememberSaveable`): ao voltar do
   painel de um robô, ela reaparece igual.
 - Tocar num robô abre o **painel** dele, já com o backup mais recente
@@ -387,21 +392,10 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   Backup cujo arquivo sumiu da pasta **continua no banco**.
 - Janela "Pasta dos arquivos": `storageLocation`, `chooseStorageFolder`, `useDefaultStorage`.
 
-### Popup "Robôs Conectados" (`ConnectedRobotsSheet` + `ConnectedRobotsViewModel`)
-- Aberto pelo ícone de hub na barra do topo da lista de robôs. Um `ModalBottomSheet` agrupa
-  todos os robôs cadastrados **por Projeto** (sem o nível de Fabricante, para focar em "quem
-  está online agora").
-- Cada linha mostra: bolinha de heartbeat (`HeartbeatDot`; ver `HeartbeatState`), nome,
-  `ip:porta`, o texto do status ("Ativo"/"Sem resposta"/"Desconectado") e um botão
-  Conectar/Desconectar — dá para conectar em quantos robôs quiser ao mesmo tempo, cada um
-  com sua própria conexão TCP (mesmo mecanismo do Terminal Geral).
-- Cada cabeçalho de projeto tem um atalho "Conectar Todos"/"Desconectar Todos" que liga ou
-  desliga de uma vez todos os robôs daquele projeto.
-- A bolinha de heartbeat pulsa (anima opacidade) só quando `ALIVE`; fica parada em amarelo
-  (`STALE`) ou cinza (`DISCONNECTED`) — evita animação constante quando não há nada de novo.
-- `ConnectedRobotsViewModel` observa `getConnectionStatus`/`getHeartbeat` do
-  `KawasakiTerminalManager` para cada robô da lista (um coletor por robô, iniciado uma vez só
-  por id para não duplicar assinaturas).
+### Conexão na lista (`ConnectedRobotsViewModel`)
+- Observa `getConnectionStatus`/`getHeartbeat` do `KawasakiTerminalManager` para cada robô
+  (um coletor por robô, iniciado uma vez só por id) e conecta/desconecta um robô ou o projeto
+  inteiro. A bolinha pulsa só quando `ALIVE`.
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -451,6 +445,14 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   da esquerda para a direita: o número (coluna fixa do tamanho de 4 dígitos; números maiores
   que 9999 diminuem a fonte para caber), a caixa de seleção (só no modo de edição; o espaço
   fica reservado) e o código.
+- **Substituir** (aparece na linha de ações só no modo de edição): abre a pesquisa e, embaixo, o
+  campo **"Substituir por"** (`ReplaceBar`). O que procurar é o campo da pesquisa (sem
+  diferença de maiúsculas). **Substituir** troca a ocorrência atual e vai para a próxima (numa
+  linha com várias, troca uma de cada vez, sem trocar de novo o texto que acabou de entrar; a
+  primeira vez, se a pesquisa ainda não foi feita, só pesquisa). **Todos** troca todas de uma
+  vez e avisa "N substituições em M linhas". Cada troca entra no desfazer (Todos = um passo).
+- **Alteração pendente:** o editor compara o texto da tela com a versão salva (a que abriu ou a
+  do último salvar); desfazer até voltar ao original deixa de contar como alteração.
 - **Lápis** liga o modo de edição: cada linha ganha uma caixa de seleção e abre a barra de
   edição (`LineActionsToolbar`): marcar linhas em lote (todas, limpar, da marcada para
   cima/baixo, entre duas), **copiar** (1+), **colar** (1, entra acima da marcada), **Edit** (1),

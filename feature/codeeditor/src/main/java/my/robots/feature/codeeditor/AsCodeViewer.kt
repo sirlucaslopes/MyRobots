@@ -135,6 +135,12 @@ fun AsCodeViewer(
     // o que está sendo digitado; vira searchQuery ao tocar em pesquisar (num arquivo FULL,
     // pesquisar a cada letra seria pesado)
     var searchInput by remember { mutableStateOf("") }
+    // Substituir (só no modo de edição): o texto novo e, depois de trocar a última ocorrência
+    // de uma linha, o pedido para o resultado atual avançar para a próxima linha
+    var isReplaceActive by remember { mutableStateOf(false) }
+    var replaceInput by remember { mutableStateOf("") }
+    var advanceAfterReplace by remember { mutableStateOf(false) }
+    var replaceCol by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var showEditChoice by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     // linha encontrada em destaque (posição dentro de searchMatches)
@@ -144,7 +150,6 @@ fun AsCodeViewer(
     var forceTextEdit by remember { mutableStateOf(false) }
     var insertDef by remember { mutableStateOf<InstructionDef?>(null) }
     var insertAsText by remember { mutableStateOf(false) }
-    var isDirty by remember { mutableStateOf(false) }
     var isSaving by remember { mutableStateOf(false) }
     var showShiftDialog by remember { mutableStateOf(false) }
     var showMirrorDialog by remember { mutableStateOf(false) }
@@ -155,11 +160,15 @@ fun AsCodeViewer(
     var undoStack by remember { mutableStateOf<List<List<String>>>(emptyList()) }
     var redoStack by remember { mutableStateOf<List<List<String>>>(emptyList()) }
 
+    // a versão salva (a que abriu, ou a do último salvar). Há alteração pendente quando o texto
+    // na tela não é ela: desfazer até voltar ao original deixa de contar como alteração.
+    var savedLines by remember { mutableStateOf<List<String>?>(null) }
+    val isDirty = savedLines != null && lines !== savedLines
+
     fun updateLines(newLines: List<String>) {
         undoStack = (undoStack + listOf(lines)).takeLast(MAX_UNDO_STEPS)
         redoStack = emptyList()
         lines = newLines
-        isDirty = true
     }
 
     fun undo() {
@@ -167,7 +176,6 @@ fun AsCodeViewer(
         redoStack = listOf(lines) + redoStack
         lines = previous
         undoStack = undoStack.dropLast(1)
-        isDirty = true
     }
 
     fun redo() {
@@ -175,7 +183,6 @@ fun AsCodeViewer(
         undoStack = undoStack + listOf(lines)
         lines = next
         redoStack = redoStack.drop(1)
-        isDirty = true
     }
 
     val context = LocalContext.current
@@ -188,6 +195,7 @@ fun AsCodeViewer(
     LaunchedEffect(content) {
         isLoadingLines = true
         lines = withContext(Dispatchers.Default) { content.lines() }
+        savedLines = lines
         isLoadingLines = false
     }
 
@@ -204,8 +212,17 @@ fun AsCodeViewer(
             currentMatch = 0
             searchMatches.firstOrNull()?.let { listState.scrollToItem(it) }
         } else {
-            // só o texto mudou (edição): mantém o resultado atual
-            currentMatch = currentMatch.coerceIn(0, (searchMatches.size - 1).coerceAtLeast(0))
+            // só o texto mudou (edição): mantém o resultado atual; depois de um "Substituir"
+            // que acabou com as ocorrências da linha, vai para a próxima (volta ao começo no fim)
+            val size = searchMatches.size
+            currentMatch = when {
+                size == 0 -> 0
+                advanceAfterReplace -> (currentMatch + 1).mod(size)
+                isReplaceActive -> currentMatch.mod(size)
+                else -> currentMatch.coerceIn(0, size - 1)
+            }
+            advanceAfterReplace = false
+            if (isReplaceActive) searchMatches.getOrNull(currentMatch)?.let { listState.animateScrollToItem(it) }
         }
     }
     fun goToMatch(delta: Int) {
@@ -214,11 +231,58 @@ fun AsCodeViewer(
         scope.launch { listState.animateScrollToItem(searchMatches[currentMatch]) }
     }
 
+    /**
+     * Substituir um a um: troca a próxima ocorrência na linha do resultado atual (a partir de
+     * onde a última troca parou, para não trocar de novo o texto que acabou de entrar). Sem
+     * pesquisa feita ainda, só pesquisa.
+     */
+    fun replaceCurrent() {
+        if (searchInput.isBlank()) return
+        if (searchInput != searchQuery) { searchQuery = searchInput; replaceCol = null; return }
+        val lineIdx = searchMatches.getOrNull(currentMatch) ?: return
+        val line = lines[lineIdx]
+        val from = replaceCol?.takeIf { it.first == lineIdx }?.second ?: 0
+        val pos = line.indexOf(searchQuery, from, ignoreCase = true)
+        if (pos < 0) { replaceCol = null; goToMatch(1); return }
+        val newLine = line.substring(0, pos) + replaceInput + line.substring(pos + searchQuery.length)
+        val end = pos + replaceInput.length
+        val moreInLine = newLine.indexOf(searchQuery, end, ignoreCase = true) >= 0
+        replaceCol = if (moreInLine) lineIdx to end else null
+        // a linha continua aparecendo na pesquisa (o texto novo contém o procurado): avança à mão
+        advanceAfterReplace = !moreInLine && newLine.contains(searchQuery, ignoreCase = true)
+        updateLines(lines.toMutableList().also { it[lineIdx] = newLine })
+    }
+
+    /** Substituir todos: troca todas as ocorrências do arquivo de uma vez (um passo no desfazer). */
+    fun replaceAll() {
+        val query = searchInput
+        if (query.isBlank()) return
+        var count = 0
+        var changedLines = 0
+        val newLines = lines.map { line ->
+            var n = 0
+            var i = line.indexOf(query, 0, ignoreCase = true)
+            while (i >= 0) { n++; i = line.indexOf(query, i + query.length, ignoreCase = true) }
+            count += n
+            if (n > 0) changedLines++
+            if (n == 0) line else line.replace(query, replaceInput, ignoreCase = true)
+        }
+        if (count == 0) {
+            Toast.makeText(context, "Nada encontrado para \"$query\"", Toast.LENGTH_SHORT).show()
+            return
+        }
+        replaceCol = null
+        updateLines(newLines)
+        searchQuery = query
+        Toast.makeText(context, "$count substituição(ões) em $changedLines linha(s)", Toast.LENGTH_SHORT).show()
+    }
+
     // Voltar do sistema: primeiro fecha a pesquisa, depois sai do modo de edição; só então
     // sai do editor (igual ao botão de voltar da barra do topo para a pesquisa)
     androidx.activity.compose.BackHandler(enabled = isSearchActive || isEditMode) {
         if (isSearchActive) {
             isSearchActive = false
+            isReplaceActive = false
             searchQuery = ""
             searchInput = ""
         } else {
@@ -259,14 +323,26 @@ fun AsCodeViewer(
                         )
                     },
                     actions = listOf(
-                        BarAction(Icons.Default.Search, "Pesquisar", selected = isSearchActive, onClick = {
-                            isSearchActive = !isSearchActive
-                            if (!isSearchActive) { searchQuery = ""; searchInput = "" }
+                        BarAction(Icons.Default.Search, "Pesquisar", selected = isSearchActive && !isReplaceActive, onClick = {
+                            if (isReplaceActive) {
+                                isReplaceActive = false
+                            } else {
+                                isSearchActive = !isSearchActive
+                                if (!isSearchActive) { searchQuery = ""; searchInput = "" }
+                            }
                         }),
                         BarAction(Icons.Default.Edit, "Editar", selected = isEditMode, enabled = !isLoadingLines, onClick = {
                             isEditMode = !isEditMode
                             selectedLines = emptySet()
-                        }),
+                            if (!isEditMode) isReplaceActive = false
+                        })
+                    ) + (if (isEditMode) listOf(
+                        // Substituir: abre a pesquisa e o campo do texto novo
+                        BarAction(Icons.Default.FindReplace, "Substituir", selected = isReplaceActive, onClick = {
+                            isReplaceActive = !isReplaceActive
+                            if (isReplaceActive) isSearchActive = true
+                        })
+                    ) else emptyList()) + listOf(
                         BarAction(
                             if (isNewFile) Icons.Default.SaveAs else Icons.Default.Save,
                             when {
@@ -282,7 +358,7 @@ fun AsCodeViewer(
                                 scope.launch {
                                     isSaving = true
                                     val saved = onSave(lines.joinToString("\n"))
-                                    if (saved) isDirty = false
+                                    if (saved) savedLines = lines
                                     isSaving = false
                                 }
                             }
@@ -305,6 +381,16 @@ fun AsCodeViewer(
                         onNext = { goToMatch(1) },
                         onPickCommand = { searchInput = it; searchQuery = it }
                     )
+                    if (isReplaceActive) {
+                        ReplaceBar(
+                            value = replaceInput,
+                            onValueChange = { replaceInput = it },
+                            canReplace = searchInput.isNotBlank(),
+                            onReplace = ::replaceCurrent,
+                            onReplaceAll = ::replaceAll,
+                            onClose = { isReplaceActive = false }
+                        )
+                    }
                 }
                 if (isEditMode) {
                     LineActionsToolbar(
@@ -570,6 +656,52 @@ private fun SearchNavigationBar(
                 textAlign = TextAlign.Center,
                 modifier = Modifier.widthIn(min = 44.dp)
             )
+        }
+    }
+}
+
+/**
+ * Linha do Substituir, embaixo da pesquisa: o texto novo, "Substituir" (a ocorrência atual, e
+ * vai para a próxima) e "Todos" (todas de uma vez). O que procurar é o campo da pesquisa.
+ */
+@Composable
+private fun ReplaceBar(
+    value: String,
+    onValueChange: (String) -> Unit,
+    canReplace: Boolean,
+    onReplace: () -> Unit,
+    onReplaceAll: () -> Unit,
+    onClose: () -> Unit
+) {
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 8.dp, end = 4.dp, bottom = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    placeholder = { Text("Substituir por...") },
+                    leadingIcon = { Icon(Icons.Default.FindReplace, null) },
+                    singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(fontSize = 15.sp, fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Fechar o substituir") }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp, end = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilledTonalButton(onClick = onReplace, enabled = canReplace, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Done, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Substituir")
+                }
+                OutlinedButton(onClick = onReplaceAll, enabled = canReplace, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.DoneAll, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Todos")
+                }
+            }
         }
     }
 }
