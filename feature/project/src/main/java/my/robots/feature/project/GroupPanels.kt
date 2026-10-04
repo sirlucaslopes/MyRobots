@@ -33,6 +33,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.StateFlow
+import my.robots.core.data.MasterSlaveConfig
 import my.robots.core.data.ProjectOperations.MasterSlavePair
 import my.robots.core.data.RobotTask
 import my.robots.core.data.TaskState
@@ -46,8 +47,8 @@ import my.robots.core.model.Robot
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Cartão "Ações em grupo": backup de todos, comando para todos e mestre -> escravo (só se o
- * projeto tiver pares). Mostra o andamento da última ação: quantos terminaram, quantos
+ * Cartão "Ações em grupo": backup de todos e comando para todos (a transferência mestre ->
+ * escravo fica embaixo do desenho dos pares). Mostra o andamento da última ação: quantos terminaram, quantos
  * falharam, e o botão de parar (durante) ou limpar (depois).
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -56,10 +57,8 @@ internal fun GroupActionsCard(
     running: String?,
     lastAction: String?,
     tasks: Map<Int, RobotTask>,
-    hasPairs: Boolean,
     onBackup: () -> Unit,
     onCommand: () -> Unit,
-    onTransfer: () -> Unit,
     onCancel: () -> Unit,
     onClear: () -> Unit
 ) {
@@ -72,11 +71,6 @@ internal fun GroupActionsCard(
                 }
                 FilledTonalButton(onClick = onCommand, enabled = running == null) {
                     Icon(Icons.Rounded.Keyboard, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Comando")
-                }
-                if (hasPairs) {
-                    FilledTonalButton(onClick = onTransfer, enabled = running == null) {
-                        Icon(Icons.AutoMirrored.Rounded.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Mestre → escravo")
-                    }
                 }
             }
             if (tasks.isNotEmpty()) {
@@ -189,6 +183,7 @@ private fun CheckRow(checked: Boolean, text: String, supporting: String? = null,
 @Composable
 internal fun TransferDialog(
     pairs: List<MasterSlavePair>,
+    configs: Map<String, MasterSlaveConfig>,
     offsets: Map<String, String>,
     programs: List<String>?,
     onConfirm: (List<MasterSlavePair>, List<String>, Boolean, Boolean) -> Unit,
@@ -196,8 +191,11 @@ internal fun TransferDialog(
 ) {
     var chosenPairs by remember { mutableStateOf(pairs.map { it.slave.id }.toSet()) }
     var chosenPrograms by remember { mutableStateOf(listOf<String>()) }
-    var withFrames by remember { mutableStateOf(true) }
-    var applyOffset by remember { mutableStateOf(true) }
+    // o que vale de início vem da configuração Mestre / Escravo do projeto escravo
+    val config = configs[pairs.firstOrNull()?.slave?.project] ?: MasterSlaveConfig()
+    var withFrames by remember { mutableStateOf(config.sendFrame) }
+    var applyOffset by remember { mutableStateOf(config.applyOffset) }
+    val pattern = config.framePattern.ifBlank { "todas as bases" }
     var filter by remember { mutableStateOf("") }
     val offsetText = offsets.values.distinct().joinToString(" / ").ifBlank { "top_offset" }
 
@@ -229,14 +227,21 @@ internal fun TransferDialog(
         // pergunta se a base do programa de destino recebe o offset
         CheckRow(checked = applyOffset, text = "Alterar a base (somar o offset)", onToggle = { applyOffset = !applyOffset })
         Text(
-            if (applyOffset) "No escravo, \"BASE fr_[N]\" vira \"BASE fr_[N]+$offsetText\". BASE NULL e bases que já " +
-                "somam o offset ficam iguais."
+            if (applyOffset) "No escravo, as bases \"$pattern\" ganham \"+$offsetText\" (ex.: BASE fr_[100] → " +
+                "BASE fr_[100]+$offsetText). BASE NULL e bases que já somam o offset ficam iguais."
             else "Os programas vão para o escravo exatamente como estão no mestre, sem mexer na base.",
             style = MaterialTheme.typography.bodySmall,
             color = if (applyOffset) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.padding(start = 48.dp)
         )
-        CheckRow(checked = withFrames, text = "Levar o frame da base (.TRANS)", onToggle = { withFrames = !withFrames })
+        CheckRow(checked = withFrames, text = "Enviar a base (.TRANS) junto", onToggle = { withFrames = !withFrames })
+        Text(
+            if (withFrames) "Vão junto as linhas \"$pattern\" da .TRANS do mestre (ex.: fr_[100] do pg100)."
+            else "A .TRANS não vai; o escravo usa o frame que já tem.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 48.dp)
+        )
 
         Text("Programas (${chosenPrograms.size})", style = MaterialTheme.typography.labelLarge)
         if (chosenPrograms.isNotEmpty()) {
@@ -287,89 +292,8 @@ internal fun TransferDialog(
 
 private const val MAX_PROGRAMS_SHOWN = 40
 
-/**
- * Configura este projeto como escravo de outro: o projeto mestre, a variável de offset e o
- * robô mestre de cada robô daqui. Ao escolher o mestre, os pares vêm pela mesma posição na
- * cabine (R10 na vaga 2,1 do Primer -> o robô na vaga 2,1 do Top Coat).
- */
 @Composable
-internal fun MasterConfigDialog(
-    projectName: String,
-    robots: List<Robot>,
-    otherProjects: List<String>,
-    allRobots: List<Robot>,
-    currentMaster: String?,
-    currentOffset: String,
-    onSave: (String?, String, Map<Int, Int?>) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var master by remember { mutableStateOf(currentMaster) }
-    var offset by remember { mutableStateOf(currentOffset) }
-    var masters by remember { mutableStateOf(robots.associate { it.id to it.masterRobotId }) }
-    val masterRobots = allRobots.filter { it.project == master }.sortedBy { it.name }
-
-    fun pairByPosition(project: String?) {
-        val candidates = allRobots.filter { it.project == project }
-        masters = robots.associate { r ->
-            r.id to candidates.firstOrNull { it.layoutRow != null && it.layoutRow == r.layoutRow && it.layoutCol == r.layoutCol }?.id
-        }
-    }
-
-    FormDialog(
-        title = "Projeto mestre",
-        onDismiss = onDismiss,
-        confirmButton = {
-            Button(onClick = { onSave(master, offset, masters) }, enabled = master == null || offset.isNotBlank()) { Text("Salvar") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
-    ) {
-        Text(
-            "$projectName recebe os programas do mestre. Ex.: o Primer é o mestre e o Top Coat o escravo: " +
-                "a trajetória é a mesma, só muda a altura, que vem da variável de offset somada na base.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        PickerButton(
-            label = "Mestre",
-            value = master ?: "Nenhum (projeto sem mestre)",
-            options = listOf<String?>(null) + otherProjects,
-            optionText = { it ?: "Nenhum" },
-            onPick = { picked -> master = picked; if (picked != null) pairByPosition(picked) }
-        )
-        if (master != null) {
-            OutlinedTextField(
-                value = offset,
-                onValueChange = { offset = it.replace(" ", "") },
-                label = { Text("Offset somado na base (no escravo)") },
-                supportingText = { Text("BASE fr_[100] → BASE fr_[100]+${offset.ifBlank { "…" }}") },
-                singleLine = true,
-                textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Pares", style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
-                TextButton(onClick = { pairByPosition(master) }) { Text("Parear pela posição") }
-            }
-            robots.forEach { r ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(r.name, fontWeight = FontWeight.SemiBold, modifier = Modifier.width(64.dp))
-                    Text("←", modifier = Modifier.padding(horizontal = 8.dp))
-                    PickerButton(
-                        label = null,
-                        value = masterRobots.firstOrNull { it.id == masters[r.id] }?.name ?: "Sem par",
-                        options = listOf<Robot?>(null) + masterRobots,
-                        optionText = { it?.name ?: "Sem par" },
-                        onPick = { picked -> masters = masters + (r.id to picked?.id) },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun <T> PickerButton(
+internal fun <T> PickerButton(
     label: String?,
     value: String,
     options: List<T>,
@@ -505,7 +429,7 @@ private fun taskLabel(state: TaskState): String = when (state) {
  * com robô fora do layout ficam listados embaixo.
  */
 @Composable
-internal fun MasterSlaveDiagram(pv: ProjectPairView, current: String) {
+internal fun MasterSlaveDiagram(pv: ProjectPairView, current: String, config: MasterSlaveConfig = MasterSlaveConfig()) {
     val measurer = rememberTextMeasurer()
     val lineColor = MaterialTheme.colorScheme.primary
     val masterFill = MaterialTheme.colorScheme.primaryContainer
@@ -600,8 +524,12 @@ internal fun MasterSlaveDiagram(pv: ProjectPairView, current: String) {
                 color = muted
             )
         }
+        val frame = config.framePattern.ifBlank { "<frame>" }.replace(my.robots.core.common.ascode.AsMasterTransfer.PGNUM, "N")
         Text(
-            "Base no escravo: BASE fr_[N]+${pv.offset}",
+            buildString {
+                append(if (config.applyOffset) "Base no escravo: BASE $frame+${pv.offset}" else "Base no escravo: igual à do mestre")
+                if (config.sendFrame) append(" · .TRANS junto")
+            },
             style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             color = muted
         )

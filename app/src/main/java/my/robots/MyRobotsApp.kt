@@ -15,6 +15,7 @@ import my.robots.core.data.security.KeystoreSecretCipher
 import my.robots.core.data.storage.RobotFilesStorage
 import my.robots.core.data.ControllerChecks
 import my.robots.core.data.ManufacturerSettings
+import my.robots.core.data.MasterSlaveOptions
 import my.robots.core.data.RobotCommands
 import my.robots.core.data.ProjectOperations
 
@@ -45,6 +46,8 @@ class MyRobotsApp : Application() {
     lateinit var projectOperations: ProjectOperations
     /** Termos da pesquisa rápida e comandos padrão de cada fabricante (tela "Fabricantes"). */
     lateinit var manufacturerSettings: ManufacturerSettings
+    /** Opções da transferência mestre -> escravo de cada projeto escravo. */
+    lateinit var masterSlaveOptions: MasterSlaveOptions
     /**
      * Área para tarefas de longa duração ligadas ao app (não a uma tela).
      */
@@ -94,6 +97,7 @@ class MyRobotsApp : Application() {
         controllerChecks.start()
         projectOperations = ProjectOperations(robotRepository, terminalManager, controllerChecks)
         manufacturerSettings = ManufacturerSettings(this)
+        masterSlaveOptions = MasterSlaveOptions(this)
         robotRepository.defaultCommandsFor = { m -> manufacturerSettings.defaultCommands(m).value }
 
         migrateFilesToNewFolderOnce()

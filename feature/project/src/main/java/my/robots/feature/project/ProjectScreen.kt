@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.LinkOff
@@ -40,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import my.robots.core.common.layout.Cell
 import my.robots.core.common.layout.LayoutOps
+import my.robots.core.data.MasterSlaveConfig
+import my.robots.core.data.ProjectOperations.MasterSlavePair
 import my.robots.core.designsystem.ActionTone
 import my.robots.core.designsystem.AppTopBar
 import my.robots.core.designsystem.BarAction
@@ -75,6 +78,7 @@ fun ProjectScreen(
     onOpenRobot: (Robot) -> Unit,
     onOpenTerminal: () -> Unit,
     onOpenRobotTerminal: (Robot) -> Unit,
+    onOpenMasterSlave: () -> Unit,
     onRenamed: (String) -> Unit
 ) {
     val view by viewModel.view.collectAsState()
@@ -89,12 +93,12 @@ fun ProjectScreen(
     val pairViews by viewModel.pairViews.collectAsState()
     val layout by viewModel.layout.collectAsState()
     val allRobots by viewModel.allRobots.collectAsState()
-    val otherProjects by viewModel.otherProjects.collectAsState()
+    val msConfigs by viewModel.masterSlaveConfigs.collectAsState()
     val programChoices by viewModel.programChoices.collectAsState()
     var showBackupAll by remember { mutableStateOf(false) }
     var showCommandAll by remember { mutableStateOf(false) }
-    var showTransfer by remember { mutableStateOf(false) }
-    var showMasterConfig by remember { mutableStateOf(false) }
+    // pares da transferência aberta (os de um desenho mestre -> escravo)
+    var transferPairs by remember { mutableStateOf<List<MasterSlavePair>?>(null) }
 
     val editing = draft != null
     val shown = draft ?: view
@@ -129,9 +133,9 @@ fun ProjectScreen(
                             onClick = { close(); showRename = true }
                         )
                         DropdownMenuItem(
-                            text = { Text("Projeto mestre…") },
+                            text = { Text("Mestre / Escravo…") },
                             leadingIcon = { Icon(Icons.Rounded.AccountTree, null) },
-                            onClick = { close(); showMasterConfig = true }
+                            onClick = { close(); onOpenMasterSlave() }
                         )
                     },
                     actions = listOf(
@@ -180,13 +184,8 @@ fun ProjectScreen(
                     running = running,
                     lastAction = lastAction,
                     tasks = tasks,
-                    hasPairs = pairs.isNotEmpty(),
                     onBackup = { showBackupAll = true },
                     onCommand = { showCommandAll = true },
-                    onTransfer = {
-                        viewModel.loadProgramChoices(pairs.map { it.master })
-                        showTransfer = true
-                    },
                     onCancel = viewModel::cancelAction,
                     onClear = viewModel::clearTasks
                 )
@@ -225,7 +224,25 @@ fun ProjectScreen(
             if (!editing) {
                 pairViews.forEach { pv ->
                     OutlinedCard(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) { MasterSlaveDiagram(pv, viewModel.projectName) }
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            MasterSlaveDiagram(pv, viewModel.projectName, msConfigs[pv.slaveName] ?: MasterSlaveConfig())
+                            // a transferência fica embaixo do desenho dos pares que ela usa
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = {
+                                        viewModel.loadProgramChoices(pv.pairs.map { it.master })
+                                        transferPairs = pv.pairs
+                                    },
+                                    enabled = running == null,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Rounded.Send, null, Modifier.size(18.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Transferir")
+                                }
+                                OutlinedButton(onClick = onOpenMasterSlave) { Text("Configurar") }
+                            }
+                        }
                     }
                 }
                 if (v.robots.isNotEmpty()) {
@@ -279,28 +296,17 @@ fun ProjectScreen(
             onDismiss = { showCommandAll = false }
         )
     }
-    if (showTransfer && pairs.isNotEmpty()) {
+    transferPairs?.let { tp ->
         TransferDialog(
-            pairs = pairs,
+            pairs = tp,
+            configs = msConfigs,
             offsets = pairViews.associate { it.slaveName to it.offset },
             programs = programChoices,
             onConfirm = { selected, programs, withFrames, applyOffset ->
-                showTransfer = false
+                transferPairs = null
                 viewModel.transfer(selected, programs, withFrames, applyOffset)
             },
-            onDismiss = { showTransfer = false }
-        )
-    }
-    if (showMasterConfig && current != null) {
-        MasterConfigDialog(
-            projectName = viewModel.projectName,
-            robots = current.inCabinOrder,
-            otherProjects = otherProjects,
-            allRobots = allRobots,
-            currentMaster = layout?.masterProject,
-            currentOffset = layout?.baseOffset ?: ProjectLayout.DEFAULT_BASE_OFFSET,
-            onSave = { master, offset, map -> showMasterConfig = false; viewModel.saveMasterConfig(master, offset, map) },
-            onDismiss = { showMasterConfig = false }
+            onDismiss = { transferPairs = null }
         )
     }
     if (showAddEquipment) {

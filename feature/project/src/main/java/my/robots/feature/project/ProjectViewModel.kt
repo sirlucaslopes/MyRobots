@@ -27,6 +27,8 @@ import my.robots.core.common.layout.Cell
 import my.robots.core.common.layout.LayoutOps
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsProgramBlocks
+import my.robots.core.data.MasterSlaveConfig
+import my.robots.core.data.MasterSlaveOptions
 import my.robots.core.data.ProjectOperations
 import my.robots.core.data.ProjectOperations.MasterSlavePair
 import my.robots.core.data.RobotRepository
@@ -87,8 +89,12 @@ class ProjectViewModel(
     private val repository: RobotRepository,
     private val terminalManager: KawasakiTerminalManager,
     private val operations: ProjectOperations,
+    private val masterSlave: MasterSlaveOptions,
     val projectName: String
 ) : ViewModel() {
+
+    /** Opções da transferência de cada projeto escravo (valem de início na janela). */
+    val masterSlaveConfigs: StateFlow<Map<String, MasterSlaveConfig>> = masterSlave.all
 
     private val robots = repository.allRobots.map { all -> all.filter { it.project == projectName } }
 
@@ -115,11 +121,6 @@ class ProjectViewModel(
 
     /** Todos os robôs do app (os pares mestre/escravo ligam projetos diferentes). */
     val allRobots: StateFlow<List<Robot>> = repository.allRobots
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** Os outros projetos, para escolher o mestre. */
-    val otherProjects: StateFlow<List<String>> = repository.allRobots
-        .map { all -> all.map { it.project }.filter { it.isNotBlank() && it != projectName }.distinct().sorted() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Pares em que este projeto entra, como mestre ou como escravo. */
@@ -265,13 +266,15 @@ class ProjectViewModel(
      * [withFrames], os frames das bases.
      */
     fun transfer(selected: List<MasterSlavePair>, programs: List<String>, withFrames: Boolean, applyOffset: Boolean) {
+        // o padrão do frame vem da configuração Mestre / Escravo de cada projeto escravo
         if (programs.isEmpty()) return
         runAction("Mestre → escravo: ${programs.joinToString()}", selected.map { it.slave.id }) { update ->
             coroutineScope {
                 selected.groupBy { it.slave.project }.map { (project, group) ->
                     async {
                         val offset = repository.getProjectLayout(project).first().baseOffset
-                        operations.transferToSlaves(group, programs, withFrames, offset, applyOffset, update)
+                        val pattern = masterSlave.config(project).framePattern
+                        operations.transferToSlaves(group, programs, withFrames, offset, applyOffset, pattern, update)
                     }
                 }.awaitAll()
             }
@@ -294,18 +297,6 @@ class ProjectViewModel(
                 latest?.let { repository.getBackupById(it.id) }?.let { names += AsProgramBlocks.list(it.content) }
             }
             _programChoices.value = names.toList()
-        }
-    }
-
-    // ---------- Mestre / escravo ----------
-
-    /**
-     * Grava este projeto como escravo de [masterProject] (null = sem mestre), com a variável de
-     * offset da base e o mestre de cada robô daqui (robô -> robô do mestre, null = sem par).
-     */
-    fun saveMasterConfig(masterProject: String?, offset: String, robotMasters: Map<Int, Int?>) {
-        viewModelScope.launch {
-            repository.saveMasterConfig(projectName, masterProject, offset.trim().ifBlank { ProjectLayout.DEFAULT_BASE_OFFSET }, robotMasters)
         }
     }
 
@@ -455,12 +446,13 @@ class ProjectViewModelFactory(
     private val repository: RobotRepository,
     private val terminalManager: KawasakiTerminalManager,
     private val operations: ProjectOperations,
+    private val masterSlave: MasterSlaveOptions,
     private val projectName: String
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(ProjectViewModel::class.java)) {
-            return ProjectViewModel(repository, terminalManager, operations, projectName) as T
+            return ProjectViewModel(repository, terminalManager, operations, masterSlave, projectName) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

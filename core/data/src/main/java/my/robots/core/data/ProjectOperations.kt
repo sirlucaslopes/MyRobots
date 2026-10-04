@@ -97,12 +97,13 @@ class ProjectOperations(
         withFrames: Boolean,
         offset: String,
         applyOffset: Boolean,
+        framePattern: String?,
         onUpdate: (Int, RobotTask) -> Unit
     ) = coroutineScope {
         pairs.map { (master, slave) ->
             async {
                 onUpdate(slave.id, RobotTask(TaskState.RUNNING, "Lendo o backup do ${master.name}…"))
-                val prepared = withContext(Dispatchers.Default) { prepareTransfer(master, slave, programs, withFrames, offset, applyOffset) }
+                val prepared = withContext(Dispatchers.Default) { prepareTransfer(master, slave, programs, withFrames, offset, applyOffset, framePattern?.takeIf { it.isNotBlank() }) }
                 if (prepared.file == null) {
                     onUpdate(slave.id, RobotTask(TaskState.FAILED, prepared.warnings.joinToString(" · ")))
                     return@async
@@ -135,7 +136,8 @@ class ProjectOperations(
         programs: List<String>,
         withFrames: Boolean,
         offset: String,
-        applyOffset: Boolean
+        applyOffset: Boolean,
+        framePattern: String?
     ): Prepared {
         val masterBackup = latestFullBackup(master.id)
             ?: return Prepared(null, "", listOf("${master.name} não tem backup com programas"))
@@ -146,10 +148,10 @@ class ProjectOperations(
         }
         if (blocks.isEmpty()) return Prepared(null, "", warnings)
         val joined = blocks.joinToString("\n")
-        val (code, changedBases) = if (applyOffset) AsMasterTransfer.applyBaseOffset(joined, offset) else joined to 0
+        val (code, changedBases) = if (applyOffset) AsMasterTransfer.applyBaseOffset(joined, offset, framePattern) else joined to 0
         var frameLines = emptyList<String>()
         if (withFrames) {
-            val (lines, missing) = AsMasterTransfer.transLines(content, AsMasterTransfer.framesUsed(code))
+            val (lines, missing) = AsMasterTransfer.transLines(content, AsMasterTransfer.framesUsed(code, framePattern))
             frameLines = lines
             if (missing.isNotEmpty()) warnings += "frame ${missing.joinToString()} não está no ${master.name}"
         }

@@ -847,46 +847,36 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
   verde pronto, amarelo com aviso, vermelho com falha). Tocar abre o terminal do robô.
 
 ### Mestre / escravo
-- Menu ⋮ → **Projeto mestre…**, aberto no projeto **escravo** (ex.: no Top Coat): escolhe o projeto
-  mestre (Primer), a variável de **offset** somada na base (padrão `top_offset`) e o robô mestre
-  de cada robô. Ao escolher o mestre, os pares vêm pela **mesma vaga na cabine** (R10 → R14,
-  R12 → R16...); dá para trocar cada um. "Nenhum" desfaz. Grava em `ProjectLayout.masterProject/
-  baseOffset` e `Robot.masterRobotId` (banco versão 7).
+- **Tela "Mestre / Escravo"** (`MasterSlaveScreen` + `MasterSlaveViewModel`, rota `master_slave`):
+  aberta pelo ⋮ da lista de robôs, pelo ⋮ da tela de Projeto e pelo "Configurar" embaixo do
+  desenho. Todas as configurações de uma vez, um cartão por projeto escravo:
+  - **Origem → destino:** o projeto mestre e, para cada robô do destino, o robô de origem
+    ("Parear pela posição" usa a mesma vaga na cabine; "Sem par" deixa de fora);
+  - **Alterar a base no destino** (somar o offset) e a **variável do offset** (padrão
+    `top_offset`, editável);
+  - **Enviar a base (.TRANS) junto**;
+  - **Frame da base do programa**, com `pgnum` no lugar do número do programa (padrão
+    `fr_[pgnum]`: o pg100 usa `fr_[100]`). Só as bases que seguem o padrão recebem o offset e só
+    esses frames vão junto; vazio = todas as bases de frame (`AsMasterTransfer.frameFor`,
+    `patternRegex`, testados na JVM);
+  - um **exemplo com o pg100** (origem, destino e o que vai junto) que muda enquanto se edita;
+  - "Salvar" (só com mudança) e "Descartar"; ⋮ do cartão: remover a configuração.
+  - **Nova:** escolhe a origem e o destino (projeto que ainda não tem mestre); os pares começam
+    pela posição.
+  O projeto mestre, o offset e os pares ficam no banco (`ProjectLayout.masterProject/baseOffset`,
+  `Robot.masterRobotId`); as opções (alterar a base, enviar a .TRANS, padrão do frame) ficam no
+  aparelho (`MasterSlaveOptions`, `:core:data`, SharedPreferences "master_slave").
 - **Desenho:** nos dois projetos aparece um cartão com o layout do mestre em cima e o do escravo
-  embaixo, e uma seta de cada mestre até o seu escravo. As setas correm pelos corredores à esquerda
-  das colunas, sem passar por cima dos robôs. Pares com robô fora do layout ficam listados embaixo.
-- **Mestre → escravo:** escolhe os pares, os programas (lista do último backup dos mestres, com
-  busca), **se a base recebe o offset** ("Alterar a base", marcado por padrão; desmarcado, os
-  programas vão exatamente como estão no mestre) e se o frame da base vai junto. Para cada par: tira os programas do último backup do
-  mestre (`AsProgramBlocks`, nome exato), (com "Alterar a base") troca cada `BASE fr_[N]` por `BASE fr_[N]+<offset>`
-  (`BASE NULL`, bases numéricas e as que já somam o offset ficam iguais), junta as linhas da
-  `.TRANS` dos frames usados, conecta no escravo, grava `transfer_<programa>.as` na pasta dele e
-  manda `LOAD`. Avisa (amarelo) programa ou frame que não existe no mestre e offset que não aparece
-  no último backup do escravo; LOAD com erro fica vermelho.
-- Conexão e heartbeat são observados com um coletor por robô (`watchedIds`), como no popup de
-  robôs conectados.
-
-### Editar layout (lápis)
-- A edição acontece numa **cópia**; "Salvar" grava tudo de uma vez (`saveProjectLayout`, uma
-  transação) e o "X" descarta.
-- Tocar num robô o seleciona. Com ele selecionado: tocar numa vaga vazia move; tocar em outro
-  robô troca os dois; **Tirar do layout** (ou tocar na área "Fora do layout") tira da grade.
-- **Posicionar todos:** coloca os robôs de fora nas vagas livres, por linha, e cria linhas se
-  precisar.
-- "+" no alto da grade adiciona coluna; **Adicionar linha** embaixo. "−" aparece só em linha ou
-  coluna vazia, e sempre sobra uma. Limites: 1 a 5 linhas, 1 a 6 colunas.
-- **Adicionar equipamento:** Transportador (começa com sentido →) ou Outro (nome obrigatório,
-  sem sentido). Entra abaixo da última linha. Na faixa: tocar alterna o sentido (→ ← nenhum),
-  ↑↓ mudam a faixa e a lixeira exclui.
-- O que vem do banco passa por `LayoutOps.sanitize`: robô fora dos limites ou numa vaga já
-  ocupada vai para fora do layout.
-
-### Regras ligadas ao repositório
-- Editar um robô (`RobotDialog`) **mantém** a vaga dele; se o projeto mudar, ele vai para fora do
-  layout no projeto novo.
-- Projeto que fica sem robôs (robô excluído ou movido) perde o layout e os equipamentos.
-- **Renomear projeto** (menu): muda o nome nos robôs, no layout e nos equipamentos. Se já existir
-  um projeto com o nome novo, os robôs passam para ele, que mantém o próprio layout.
+  embaixo, e uma seta de cada mestre até o seu escravo, pelos corredores à esquerda das colunas.
+  Embaixo, o resumo ("Base no escravo: BASE fr_[N]+top_offset · .TRANS junto") e os botões
+  **Transferir** e **Configurar**. Pares com robô fora do layout ficam listados.
+- **Transferir:** escolhe os pares, os programas (do último backup dos mestres, com busca) e
+  confirma as duas opções, que vêm marcadas como na configuração. Para cada par: tira os
+  programas do último backup do mestre (`AsProgramBlocks`, nome exato), com "Alterar a base"
+  troca cada `BASE <frame do padrão>` por `BASE <frame>+<offset>` (`BASE NULL`, bases fora do
+  padrão e as que já somam o offset ficam iguais), junta as linhas da `.TRANS` dos frames, conecta
+  no escravo e faz o LOAD conferido (`RobotCommands.loadFile`). Avisa (amarelo) programa ou frame
+  que não existe no mestre e offset que não aparece no último backup do escravo.
 
 **Pendências / Próximos passos:** a transferência mestre → escravo só foi testada até a montagem
 do arquivo e a janela (os robôs da cabine não estavam ao alcance); falta rodar com um par real.

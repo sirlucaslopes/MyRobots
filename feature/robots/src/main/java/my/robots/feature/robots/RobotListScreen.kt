@@ -71,6 +71,7 @@ fun RobotListScreen(
     onTerminalClick: (Robot) -> Unit = {},
     onOpenProject: (String) -> Unit = {},
     onOpenManufacturers: () -> Unit = {},
+    onOpenMasterSlave: () -> Unit = {},
     onDeleteRobot: (Robot) -> Unit = {},
     onAddRobot: (name: String, ip: String, port: Int, project: String, manufacturer: Manufacturer, autoLogin: Boolean, loginUser: String, loginPassword: String) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onUpdateRobot: (Robot) -> Unit = {}
@@ -123,6 +124,11 @@ fun RobotListScreen(
                         leadingIcon = { Icon(Icons.Rounded.SortByAlpha, null) },
                         trailingIcon = { if (sortAlphabetical) Icon(Icons.Default.Check, "Ligado") },
                         onClick = { close(); sortAlphabetical = !sortAlphabetical }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Mestre / Escravo") },
+                        leadingIcon = { Icon(Icons.Default.AccountTree, null) },
+                        onClick = { close(); onOpenMasterSlave() }
                     )
                     DropdownMenuItem(
                         text = { Text("Fabricantes: pesquisa e comandos") },

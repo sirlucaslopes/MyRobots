@@ -66,4 +66,27 @@ class AsMasterTransferTest {
         assertEquals(".PROGRAM pg1()\n  BASE fr_[1]+top_offset\n.END\n.TRANS\nfr_[1] 1 2 3 0 0 0 0\n.END\n", file)
         assertEquals(".PROGRAM pg1()\n.END\n", AsMasterTransfer.buildFile(".PROGRAM pg1()\n.END", emptyList()))
     }
+
+    @Test
+    fun padraoDoFrame_pgnum() {
+        assertEquals("100", AsMasterTransfer.programNumber("pg100"))
+        assertEquals("fr_[100]", AsMasterTransfer.frameFor("fr_[pgnum]", "pg100"))
+        assertEquals(null, AsMasterTransfer.frameFor("fr_[pgnum]", "initvar"))
+        assertEquals("floor", AsMasterTransfer.frameFor("floor", "pg1"))
+        val r = AsMasterTransfer.patternRegex("fr_[pgnum]")
+        assertTrue(r.matches("fr_[100]"))
+        assertFalse(r.matches("fr_[100,2]"))
+        assertFalse(r.matches("floor"))
+    }
+
+    @Test
+    fun applyBaseOffset_soNoPadrao() {
+        val code = listOf("  BASE fr_[100]", "  BASE floor", "  BASE base_[3]").joinToString("\n")
+        val (out, changed) = AsMasterTransfer.applyBaseOffset(code, "top_offset", "fr_[pgnum]")
+        assertEquals(1, changed)
+        assertEquals(listOf("  BASE fr_[100]+top_offset", "  BASE floor", "  BASE base_[3]").joinToString("\n"), out)
+        assertEquals(listOf("fr_[100]"), AsMasterTransfer.framesUsed(code, "fr_[pgnum]"))
+        // sem padrão continua como antes: todas as bases de frame
+        assertEquals(3, AsMasterTransfer.applyBaseOffset(code, "top_offset").second)
+    }
 }

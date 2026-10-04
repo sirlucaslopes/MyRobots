@@ -43,6 +43,8 @@ import my.robots.feature.dashboard.DashboardFeature
 import my.robots.feature.dashboard.RobotDashboardScreen
 import my.robots.feature.dashboard.RobotDashboardViewModel
 import my.robots.feature.dashboard.RobotDashboardViewModelFactory
+import my.robots.feature.project.MasterSlaveScreen
+import my.robots.feature.project.MasterSlaveViewModelFactory
 import my.robots.feature.project.ProjectScreen
 import my.robots.feature.project.ProjectViewModel
 import my.robots.feature.project.ProjectViewModelFactory
@@ -181,7 +183,16 @@ class MainActivity : ComponentActivity() {
                                     val encodedProject = URLEncoder.encode(projectName, StandardCharsets.UTF_8.toString())
                                     navController.navigate("project/$encodedProject")
                                 },
-                                onOpenManufacturers = { navController.navigate("manufacturers") }
+                                onOpenManufacturers = { navController.navigate("manufacturers") },
+                                onOpenMasterSlave = { navController.navigate("master_slave") }
+                            )
+                        }
+
+                        // Mestre / Escravo: todas as configurações de transferência entre projetos.
+                        composable("master_slave") {
+                            MasterSlaveScreen(
+                                viewModel = viewModel(factory = MasterSlaveViewModelFactory(repository, app.masterSlaveOptions)),
+                                onBack = { navController.popBackStack() }
                             )
                         }
 
@@ -204,7 +215,7 @@ class MainActivity : ComponentActivity() {
                             val encodedProject = backStackEntry.arguments?.getString("projectName") ?: ""
                             val projectName = URLDecoder.decode(encodedProject, StandardCharsets.UTF_8.toString())
                             val projectViewModel: ProjectViewModel = viewModel(
-                                factory = ProjectViewModelFactory(repository, terminalManager, app.projectOperations, projectName)
+                                factory = ProjectViewModelFactory(repository, terminalManager, app.projectOperations, app.masterSlaveOptions, projectName)
                             )
                             ProjectScreen(
                                 viewModel = projectViewModel,
@@ -212,6 +223,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenRobot = { robot -> navController.navigate("robot_dashboard/${robot.id}/-1") },
                                 onOpenTerminal = { navController.navigate("multi_terminal/$encodedProject") },
                                 onOpenRobotTerminal = { robot -> navController.navigate("robot_dashboard/${robot.id}/-1?feature=Terminal") },
+                                onOpenMasterSlave = { navController.navigate("master_slave") },
                                 onRenamed = { newName ->
                                     val encodedNew = URLEncoder.encode(newName, StandardCharsets.UTF_8.toString())
                                     navController.navigate("project/$encodedNew") {
