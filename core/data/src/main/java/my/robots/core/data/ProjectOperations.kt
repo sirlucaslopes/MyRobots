@@ -85,7 +85,8 @@ class ProjectOperations(
 
     /**
      * Transferência mestre -> escravo. Para cada par: pega o último backup do mestre, tira os
-     * programas pedidos (pelo nome exato), soma [offset] nas linhas BASE e, com [withFrames],
+     * programas pedidos (pelo nome exato), soma [offset] nas linhas BASE (só com [applyOffset];
+     * sem ele, os programas vão como estão no mestre) e, com [withFrames],
      * junta os frames da .TRANS usados nessas bases. Depois conecta no escravo, grava o
      * arquivo na pasta dele e manda LOAD. Avisa (WARNING) programa ou frame que não existe no
      * mestre e offset que não aparece no último backup do escravo.
@@ -95,12 +96,13 @@ class ProjectOperations(
         programs: List<String>,
         withFrames: Boolean,
         offset: String,
+        applyOffset: Boolean,
         onUpdate: (Int, RobotTask) -> Unit
     ) = coroutineScope {
         pairs.map { (master, slave) ->
             async {
                 onUpdate(slave.id, RobotTask(TaskState.RUNNING, "Lendo o backup do ${master.name}…"))
-                val prepared = withContext(Dispatchers.Default) { prepareTransfer(master, slave, programs, withFrames, offset) }
+                val prepared = withContext(Dispatchers.Default) { prepareTransfer(master, slave, programs, withFrames, offset, applyOffset) }
                 if (prepared.file == null) {
                     onUpdate(slave.id, RobotTask(TaskState.FAILED, prepared.warnings.joinToString(" · ")))
                     return@async
@@ -132,7 +134,8 @@ class ProjectOperations(
         slave: Robot,
         programs: List<String>,
         withFrames: Boolean,
-        offset: String
+        offset: String,
+        applyOffset: Boolean
     ): Prepared {
         val masterBackup = latestFullBackup(master.id)
             ?: return Prepared(null, "", listOf("${master.name} não tem backup com programas"))
@@ -142,7 +145,8 @@ class ProjectOperations(
             AsProgramBlocks.extract(content, name) ?: run { warnings += "$name não existe no ${master.name}"; null }
         }
         if (blocks.isEmpty()) return Prepared(null, "", warnings)
-        val (code, changedBases) = AsMasterTransfer.applyBaseOffset(blocks.joinToString("\n"), offset)
+        val joined = blocks.joinToString("\n")
+        val (code, changedBases) = if (applyOffset) AsMasterTransfer.applyBaseOffset(joined, offset) else joined to 0
         var frameLines = emptyList<String>()
         if (withFrames) {
             val (lines, missing) = AsMasterTransfer.transLines(content, AsMasterTransfer.framesUsed(code))
@@ -150,10 +154,11 @@ class ProjectOperations(
             if (missing.isNotEmpty()) warnings += "frame ${missing.joinToString()} não está no ${master.name}"
         }
         // o offset precisa existir no escravo; só dá para conferir se ele já tem backup
-        latestFullBackup(slave.id)?.let { if (!AsMasterTransfer.definesPose(it.content, offset)) warnings += "$offset não aparece no último backup do ${slave.name}" }
+        if (applyOffset) latestFullBackup(slave.id)?.let { if (!AsMasterTransfer.definesPose(it.content, offset)) warnings += "$offset não aparece no último backup do ${slave.name}" }
         val summary = buildString {
             append(if (blocks.size == 1) "1 programa" else "${blocks.size} programas")
             if (changedBases > 0) append(", $changedBases base(s) +$offset")
+            if (!applyOffset) append(", sem offset")
             if (frameLines.isNotEmpty()) append(", ${frameLines.size} frame(s)")
         }
         return Prepared(AsMasterTransfer.buildFile(code, frameLines), summary, warnings)

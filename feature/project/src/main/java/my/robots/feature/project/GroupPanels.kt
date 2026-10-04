@@ -191,12 +191,13 @@ internal fun TransferDialog(
     pairs: List<MasterSlavePair>,
     offsets: Map<String, String>,
     programs: List<String>?,
-    onConfirm: (List<MasterSlavePair>, List<String>, Boolean) -> Unit,
+    onConfirm: (List<MasterSlavePair>, List<String>, Boolean, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     var chosenPairs by remember { mutableStateOf(pairs.map { it.slave.id }.toSet()) }
     var chosenPrograms by remember { mutableStateOf(listOf<String>()) }
     var withFrames by remember { mutableStateOf(true) }
+    var applyOffset by remember { mutableStateOf(true) }
     var filter by remember { mutableStateOf("") }
     val offsetText = offsets.values.distinct().joinToString(" / ").ifBlank { "top_offset" }
 
@@ -205,15 +206,14 @@ internal fun TransferDialog(
         onDismiss = onDismiss,
         confirmButton = {
             Button(
-                onClick = { onConfirm(pairs.filter { it.slave.id in chosenPairs }, chosenPrograms, withFrames) },
+                onClick = { onConfirm(pairs.filter { it.slave.id in chosenPairs }, chosenPrograms, withFrames, applyOffset) },
                 enabled = chosenPairs.isNotEmpty() && chosenPrograms.isNotEmpty()
             ) { Text("Transferir") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     ) {
         Text(
-            "Os programas saem do último backup de cada mestre. No escravo, cada \"BASE fr_[N]\" vira " +
-                "\"BASE fr_[N]+$offsetText\"; BASE NULL e bases que já somam o offset ficam iguais.",
+            "Os programas saem do último backup de cada mestre.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -226,6 +226,16 @@ internal fun TransferDialog(
                 onToggle = { chosenPairs = if (p.slave.id in chosenPairs) chosenPairs - p.slave.id else chosenPairs + p.slave.id }
             )
         }
+        // pergunta se a base do programa de destino recebe o offset
+        CheckRow(checked = applyOffset, text = "Alterar a base (somar o offset)", onToggle = { applyOffset = !applyOffset })
+        Text(
+            if (applyOffset) "No escravo, \"BASE fr_[N]\" vira \"BASE fr_[N]+$offsetText\". BASE NULL e bases que já " +
+                "somam o offset ficam iguais."
+            else "Os programas vão para o escravo exatamente como estão no mestre, sem mexer na base.",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (applyOffset) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.tertiary,
+            modifier = Modifier.padding(start = 48.dp)
+        )
         CheckRow(checked = withFrames, text = "Levar o frame da base (.TRANS)", onToggle = { withFrames = !withFrames })
 
         Text("Programas (${chosenPrograms.size})", style = MaterialTheme.typography.labelLarge)

@@ -284,9 +284,9 @@ fun ProjectScreen(
             pairs = pairs,
             offsets = pairViews.associate { it.slaveName to it.offset },
             programs = programChoices,
-            onConfirm = { selected, programs, withFrames ->
+            onConfirm = { selected, programs, withFrames, applyOffset ->
                 showTransfer = false
-                viewModel.transfer(selected, programs, withFrames)
+                viewModel.transfer(selected, programs, withFrames, applyOffset)
             },
             onDismiss = { showTransfer = false }
         )

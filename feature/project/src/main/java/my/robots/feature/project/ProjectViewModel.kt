@@ -261,16 +261,17 @@ class ProjectViewModel(
 
     /**
      * Manda [programs] de cada mestre para o seu escravo, com o offset do projeto escravo
-     * somado nas bases e, se [withFrames], os frames das bases.
+     * somado nas bases (só se [applyOffset]; sem ele, vão como estão no mestre) e, se
+     * [withFrames], os frames das bases.
      */
-    fun transfer(selected: List<MasterSlavePair>, programs: List<String>, withFrames: Boolean) {
+    fun transfer(selected: List<MasterSlavePair>, programs: List<String>, withFrames: Boolean, applyOffset: Boolean) {
         if (programs.isEmpty()) return
         runAction("Mestre → escravo: ${programs.joinToString()}", selected.map { it.slave.id }) { update ->
             coroutineScope {
                 selected.groupBy { it.slave.project }.map { (project, group) ->
                     async {
                         val offset = repository.getProjectLayout(project).first().baseOffset
-                        operations.transferToSlaves(group, programs, withFrames, offset, update)
+                        operations.transferToSlaves(group, programs, withFrames, offset, applyOffset, update)
                     }
                 }.awaitAll()
             }

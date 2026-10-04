@@ -853,8 +853,9 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
   embaixo, e uma seta de cada mestre até o seu escravo. As setas correm pelos corredores à esquerda
   das colunas, sem passar por cima dos robôs. Pares com robô fora do layout ficam listados embaixo.
 - **Mestre → escravo:** escolhe os pares, os programas (lista do último backup dos mestres, com
-  busca) e se o frame da base vai junto. Para cada par: tira os programas do último backup do
-  mestre (`AsProgramBlocks`, nome exato), troca cada `BASE fr_[N]` por `BASE fr_[N]+<offset>`
+  busca), **se a base recebe o offset** ("Alterar a base", marcado por padrão; desmarcado, os
+  programas vão exatamente como estão no mestre) e se o frame da base vai junto. Para cada par: tira os programas do último backup do
+  mestre (`AsProgramBlocks`, nome exato), (com "Alterar a base") troca cada `BASE fr_[N]` por `BASE fr_[N]+<offset>`
   (`BASE NULL`, bases numéricas e as que já somam o offset ficam iguais), junta as linhas da
   `.TRANS` dos frames usados, conecta no escravo, grava `transfer_<programa>.as` na pasta dele e
   manda `LOAD`. Avisa (amarelo) programa ou frame que não existe no mestre e offset que não aparece
