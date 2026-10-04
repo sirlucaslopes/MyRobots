@@ -109,8 +109,12 @@ class RobotDashboardViewModel(
     private val robotId: Int,
     private val terminalManager: KawasakiTerminalManager,
     private val checks: ControllerChecks,
-    private val initialBackupId: Int? = null
+    initialBackupId: Int? = null
 ) : ViewModel() {
+
+    // backup escolhido ao abrir (null ou -1 = o mais recente); depois de "Atualizar", volta a
+    // seguir o mais recente, para mostrar o backup que acabou de chegar
+    private var pinnedBackupId: Int? = initialBackupId
 
     private val _robot = MutableStateFlow<Robot?>(null)
     /**
@@ -230,6 +234,52 @@ class RobotDashboardViewModel(
      * Botão "Ler agora": se o robô não estiver conectado, conecta primeiro (o login já lê a
      * memória); se estiver, manda o FREE.
      */
+    private val _refreshing = MutableStateFlow(false)
+    /** "Atualizar" em andamento (conectando ou recebendo o SAVE/FULL). */
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    private val _refreshStatus = MutableStateFlow<String?>(null)
+    /** O que o "Atualizar" está fazendo, ou o resultado (some depois de alguns segundos). */
+    val refreshStatus: StateFlow<String?> = _refreshStatus.asStateFlow()
+
+    /**
+     * "Atualizar": conecta (se preciso, com login e checagens), faz SAVE/FULL com o nome
+     * <robô>_<aaaammdd_hhmm>, espera o arquivo chegar inteiro (RobotCommands.saveFile), registra
+     * como backup e passa a mostrar esse backup no painel.
+     */
+    fun refreshFullBackup() {
+        if (_refreshing.value) return
+        val r = _robot.value ?: return
+        viewModelScope.launch {
+            _refreshing.value = true
+            try {
+                _refreshStatus.value = "Conectando…"
+                if (!checks.connectAndWait(r)) {
+                    _refreshStatus.value = "Não conectou ao ${r.name}"
+                    return@launch
+                }
+                val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())
+                val name = "${FileUtil.sanitizeFileName(r.name).replace(".as", "")}_$stamp"
+                _refreshStatus.value = "Baixando o backup completo (SAVE/FULL)…"
+                val result = checks.commands.saveFile(robotId, "SAVE/FULL $name", name)
+                if (!result.ok) {
+                    _refreshStatus.value = result.message
+                    return@launch
+                }
+                pinnedBackupId = -1
+                repository.syncRobotFolder(r)
+                _refreshStatus.value = "Atualizado: ${result.message}"
+            } finally {
+                _refreshing.value = false
+                val shown = _refreshStatus.value
+                launch {
+                    delay(15_000)
+                    if (_refreshStatus.value == shown) _refreshStatus.value = null
+                }
+            }
+        }
+    }
+
     fun readMemoryNow() {
         if (_isReadingMemory.value) return
         val r = _robot.value ?: return
@@ -530,8 +580,9 @@ class RobotDashboardViewModel(
     private fun observeBackup() {
         viewModelScope.launch {
             repository.getBackupsSummary(robotId).collect { summaries ->
-                val targetSummary = if (initialBackupId != null && initialBackupId != -1) {
-                    summaries.find { it.id == initialBackupId }
+                val pinned = pinnedBackupId
+                val targetSummary = if (pinned != null && pinned != -1) {
+                    summaries.find { it.id == pinned }
                 } else {
                     // o mais recente que seja backup de verdade (arquivos de envio importados
                     // até a v1.2, como transfer_pg635.as, não contam); sem nenhum, o mais recente

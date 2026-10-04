@@ -521,8 +521,11 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
 - **Home:** de cima para baixo:
   - **Cartão do robô** (`RobotInfoCard.kt`): faixa baixa com o desenho em linhas de um robô
     de pintura, estilo tela de controle (só ilustração, não mostra a pose real), o modelo, a
-    série, o nome, a quantidade de eixos, o selo do status e, no canto de baixo, o atalho para
-    o **terminal** do robô. Embaixo, os dados lidos do backup
+    série, o nome, a quantidade de eixos, o selo do status e, no canto de baixo, **Atualizar** e
+    o atalho para o **terminal** do robô. **Atualizar** conecta (login e checagens), faz
+    `SAVE/FULL <robô>_<aaaammdd_hhmm>` conferido (`RobotCommands.saveFile`), registra o arquivo
+    como backup e o painel passa a mostrar esse backup (mesmo se tinha sido aberto num backup
+    antigo). O andamento e o resultado aparecem numa faixa logo abaixo do desenho. Embaixo, os dados lidos do backup
     SAVE/FULL por `AsRobotInfo` (`:core:common`): horímetro (`HOUR_MTR`, ou `CONT_TIM`; é o
     tempo com o controlador ligado), em operação (`SERV_TIM`, servo ligado), vezes que o motor
     ligou (`MTON_CNT`), emergências (`ESTP_CNT`), freio acionado (`BRKE_CNT`), eixos e série

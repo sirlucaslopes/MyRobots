@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -88,6 +89,9 @@ fun RobotInfoCard(
     isReadingMemory: Boolean,
     onReadMemory: () -> Unit,
     onOpenTerminal: () -> Unit,
+    isRefreshing: Boolean = false,
+    refreshStatus: String? = null,
+    onRefresh: () -> Unit = {},
     onOpenErrorLog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -134,15 +138,36 @@ fun RobotInfoCard(
             }
 
             // atalho para o terminal do robô, no canto de baixo do desenho
-            FilledTonalIconButton(
-                onClick = onOpenTerminal,
-                colors = IconButtonDefaults.filledTonalIconButtonColors(
-                    containerColor = HudLine.copy(alpha = 0.18f),
-                    contentColor = HudAccent
-                ),
-                modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp)
+            // atalhos no canto do desenho: atualizar (baixa o backup completo) e o terminal
+            Row(
+                modifier = Modifier.align(Alignment.BottomEnd).padding(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Rounded.Terminal, contentDescription = "Abrir terminal")
+                FilledTonalIconButton(
+                    onClick = onRefresh,
+                    enabled = !isRefreshing,
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = HudLine.copy(alpha = 0.18f),
+                        contentColor = HudAccent,
+                        disabledContainerColor = HudLine.copy(alpha = 0.18f),
+                        disabledContentColor = HudAccent
+                    )
+                ) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = HudAccent)
+                    } else {
+                        Icon(Icons.Rounded.Sync, contentDescription = "Atualizar: baixar o backup completo")
+                    }
+                }
+                FilledTonalIconButton(
+                    onClick = onOpenTerminal,
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = HudLine.copy(alpha = 0.18f),
+                        contentColor = HudAccent
+                    )
+                ) {
+                    Icon(Icons.Rounded.Terminal, contentDescription = "Abrir terminal")
+                }
             }
 
             health?.let {
@@ -154,10 +179,23 @@ fun RobotInfoCard(
             }
         }
 
+        // andamento ou resultado do "Atualizar" (backup completo)
+        if (refreshStatus != null) {
+            Surface(color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (isRefreshing) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text(refreshStatus, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
+            }
+        }
+
         if (info.isEmpty) {
             Text(
-                "Este backup não tem os dados do controlador. Faça um SAVE/FULL no terminal para ver " +
-                    "modelo, eixos, horímetro e o status do robô.",
+                "Este backup não tem os dados do controlador. Toque em Atualizar (no desenho) para baixar " +
+                    "o backup completo e ver modelo, eixos, horímetro e o status do robô.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(16.dp)

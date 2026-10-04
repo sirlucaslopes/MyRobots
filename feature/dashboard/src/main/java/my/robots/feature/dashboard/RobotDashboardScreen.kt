@@ -167,6 +167,8 @@ fun RobotDashboardScreen(
     val axisLast30 by axisLast30State
     val controllerMemory by memoryState
     val isReadingMemory by isReadingMemoryState
+    val isRefreshing by (viewModel?.refreshing?.collectAsState() ?: remember { mutableStateOf(false) })
+    val refreshStatus by (viewModel?.refreshStatus?.collectAsState() ?: remember { mutableStateOf<String?>(null) })
     val homeConnected by homeConnectedState
     val foreignBackups by foreignBackupsState
     val operationLog by operationLogState
@@ -506,6 +508,9 @@ fun RobotDashboardScreen(
                             onToggleConnection = { viewModel?.toggleConnection() },
                             scrollState = homeScrollState,
                             isReadingMemory = isReadingMemory,
+                            isRefreshing = isRefreshing,
+                            refreshStatus = refreshStatus,
+                            onRefresh = { viewModel?.refreshFullBackup() },
                             onReadMemory = { viewModel?.readMemoryNow() },
                             lineCount = lineCount,
                             dataBankCount = dataBankEntries.size,
@@ -1700,6 +1705,9 @@ fun DashboardHome(
     heartbeat: HeartbeatState = HeartbeatState.DISCONNECTED,
     onToggleConnection: () -> Unit = {},
     isReadingMemory: Boolean = false,
+    isRefreshing: Boolean = false,
+    refreshStatus: String? = null,
+    onRefresh: () -> Unit = {},
     onReadMemory: () -> Unit = {},
     lineCount: Int,
     dataBankCount: Int,
@@ -1735,6 +1743,9 @@ fun DashboardHome(
             isReadingMemory = isReadingMemory,
             onReadMemory = onReadMemory,
             onOpenTerminal = { onFeatureClick(DashboardFeature.Terminal) },
+            isRefreshing = isRefreshing,
+            refreshStatus = refreshStatus,
+            onRefresh = onRefresh,
             onOpenErrorLog = { onFeatureClick(DashboardFeature.ErrorLog) }
         )
         RobotUsageCard(days = dailyUsage, robotName = robot?.name ?: "robo")
