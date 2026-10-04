@@ -595,11 +595,14 @@ private fun SearchNavigationBar(
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val search = { keyboard?.hide(); onSearch() }
     // instruções do arquivo: contadas só quando a lista abre
-    val commands = remember(showCommands, lines) {
-        if (!showCommands) emptyList()
-        else AsInstructions.all.map { it.keyword }.distinct().mapNotNull { k ->
-            val n = lines.count { it.trimStart().startsWith("$k ", ignoreCase = true) }
-            if (n > 0) k to n else null
+    // termos da pesquisa rápida (tela "Fabricantes"); sem configuração, as instruções do catálogo
+    val configured = my.robots.core.designsystem.LocalSearchTerms.current
+    val terms = remember(configured) { configured.ifEmpty { AsInstructions.all.map { it.keyword }.distinct() } }
+    // quantas linhas cada termo acha (contado em segundo plano quando a lista abre: um backup
+    // FULL tem dezenas de milhares de linhas)
+    val commands by produceState<List<Pair<String, Int>>?>(null, showCommands, lines, terms) {
+        value = if (!showCommands) null else withContext(Dispatchers.Default) {
+            terms.map { t -> t to lines.count { it.contains(t, ignoreCase = true) } }
         }
     }
     Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
@@ -622,16 +625,47 @@ private fun SearchNavigationBar(
                         IconButton(onClick = { showCommands = true }) {
                             Icon(Icons.Default.ManageSearch, contentDescription = "Comandos do arquivo")
                         }
-                        DropdownMenu(expanded = showCommands, onDismissRequest = { showCommands = false }) {
-                            if (commands.isEmpty()) {
-                                DropdownMenuItem(text = { Text("Nenhuma instrução conhecida") }, onClick = { showCommands = false })
+                        DropdownMenu(
+                            expanded = showCommands,
+                            onDismissRequest = { showCommands = false },
+                            modifier = Modifier.heightIn(max = 420.dp)
+                        ) {
+                            Text(
+                                "Pesquisa rápida",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                            )
+                            val list = commands
+                            if (list == null) {
+                                DropdownMenuItem(text = { Text("Contando…") }, onClick = {}, enabled = false)
+                            } else {
+                                list.forEach { (k, n) ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(k, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f, fill = false))
+                                                Spacer(Modifier.width(16.dp))
+                                                Text(
+                                                    "$n",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        },
+                                        // termo que não aparece no arquivo fica apagado
+                                        colors = if (n == 0) MenuDefaults.itemColors(textColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                                            else MenuDefaults.itemColors(),
+                                        onClick = { showCommands = false; keyboard?.hide(); onPickCommand(k) }
+                                    )
+                                }
                             }
-                            commands.forEach { (k, n) ->
-                                DropdownMenuItem(
-                                    text = { Text("$k  ($n)") },
-                                    onClick = { showCommands = false; keyboard?.hide(); onPickCommand("$k ") }
-                                )
-                            }
+                            Text(
+                                "Personalize em ⋮ > Fabricantes, na lista de robôs.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).widthIn(max = 240.dp)
+                            )
                         }
                     }
                 },

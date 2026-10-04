@@ -70,6 +70,7 @@ fun RobotListScreen(
     onRobotClick: (Robot) -> Unit = {},
     onTerminalClick: (Robot) -> Unit = {},
     onOpenProject: (String) -> Unit = {},
+    onOpenManufacturers: () -> Unit = {},
     onDeleteRobot: (Robot) -> Unit = {},
     onAddRobot: (name: String, ip: String, port: Int, project: String, manufacturer: Manufacturer, autoLogin: Boolean, loginUser: String, loginPassword: String) -> Unit = { _, _, _, _, _, _, _, _ -> },
     onUpdateRobot: (Robot) -> Unit = {}
@@ -82,6 +83,7 @@ fun RobotListScreen(
     // conexão e pulso de cada robô (antes ficavam num popup à parte, "Robôs Conectados")
     val connectedIds by (connectedRobotsViewModel?.connectedIds?.collectAsState() ?: remember { mutableStateOf(emptySet<Int>()) })
     val heartbeats by (connectedRobotsViewModel?.heartbeats?.collectAsState() ?: remember { mutableStateOf(emptyMap<Int, HeartbeatState>()) })
+    val attempts by (connectedRobotsViewModel?.attempts?.collectAsState() ?: remember { mutableStateOf(emptyMap<Int, String>()) })
     var showStorageDialog by remember { mutableStateOf(false) }
 
     // Seletor de pastas do Android (SAF) para a janela "Pasta dos arquivos".
@@ -121,6 +123,11 @@ fun RobotListScreen(
                         leadingIcon = { Icon(Icons.Rounded.SortByAlpha, null) },
                         trailingIcon = { if (sortAlphabetical) Icon(Icons.Default.Check, "Ligado") },
                         onClick = { close(); sortAlphabetical = !sortAlphabetical }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Fabricantes: pesquisa e comandos") },
+                        leadingIcon = { Icon(Icons.Default.Tune, null) },
+                        onClick = { close(); onOpenManufacturers() }
                     )
                     HorizontalDivider()
                     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -248,8 +255,8 @@ fun RobotListScreen(
                                         onToggle = { toggleSection(projectKey) },
                                         onOpenProject = { onOpenProject(project) },
                                         onToggleAll = {
-                                            if (connectedInProject == robotsInProject.size) connectedRobotsViewModel?.disconnectProject(project)
-                                            else connectedRobotsViewModel?.connectProject(project)
+                                            if (connectedInProject == robotsInProject.size) connectedRobotsViewModel?.disconnectProject(robotsInProject)
+                                            else connectedRobotsViewModel?.connectProject(robotsInProject)
                                         }
                                     )
                                 }
@@ -261,6 +268,7 @@ fun RobotListScreen(
                                             robot = robot,
                                             isConnected = isConnected,
                                             heartbeat = heartbeats[robot.id] ?: HeartbeatState.DISCONNECTED,
+                                            attempt = if (isConnected) null else attempts[robot.id],
                                             onToggleConnect = {
                                                 if (isConnected) connectedRobotsViewModel?.disconnect(robot)
                                                 else connectedRobotsViewModel?.connect(robot)
@@ -466,6 +474,7 @@ fun RobotItem(
     robot: Robot,
     isConnected: Boolean,
     heartbeat: HeartbeatState,
+    attempt: String? = null,
     onToggleConnect: () -> Unit,
     onClick: () -> Unit,
     onTerminalClick: () -> Unit,
@@ -509,24 +518,34 @@ fun RobotItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
+                // tentativa em andamento ("Conectando…") ou o motivo da falha, no lugar do status
                 Text(
-                    text = heartbeat.label(),
+                    text = attempt ?: heartbeat.label(),
                     style = MaterialTheme.typography.labelSmall,
-                    color = when (heartbeat) {
-                        HeartbeatState.ALIVE -> SuccessGreen
-                        HeartbeatState.STALE -> Color(0xFFFFA000)
-                        HeartbeatState.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
+                    maxLines = 2,
+                    color = when {
+                        attempt?.startsWith("Não") == true -> MaterialTheme.colorScheme.error
+                        attempt != null -> MaterialTheme.colorScheme.primary
+                        heartbeat == HeartbeatState.ALIVE -> SuccessGreen
+                        heartbeat == HeartbeatState.STALE -> Color(0xFFFFA000)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
                 )
             }
+            val connecting = attempt == "Conectando…"
             Button(
                 onClick = onToggleConnect,
+                enabled = !connecting,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isConnected) SuccessGreen else MaterialTheme.colorScheme.primary
                 ),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                 modifier = Modifier.height(34.dp)
             ) {
+                if (connecting) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(6.dp))
+                }
                 Text(if (isConnected) "Desconectar" else "Conectar", fontSize = 12.sp)
             }
             IconButton(onClick = onTerminalClick, modifier = Modifier.size(40.dp)) {

@@ -353,7 +353,8 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 - **Uma tela só para ver e conectar** (o antigo popup "Robôs Conectados" foi removido).
 - Barra do topo (`AppTopBar`): "My Robots" e, no subtítulo, quantos estão conectados e a rede do
   celular (SSID e IP, atualizados a cada 3 s). Sem linha de ações. No **⋮**: **Ordenar A-Z**
-  (liga/desliga, com ✓; ordena projetos e robôs), os dados do Wi-Fi, **Configurar Wi-Fi** (abre
+  (liga/desliga, com ✓; ordena projetos e robôs), **Fabricantes: pesquisa e comandos** (ver
+  abaixo), os dados do Wi-Fi, **Configurar Wi-Fi** (abre
   as configurações do Android) e **Pasta dos arquivos** (ver abaixo).
 - **Legenda** no topo da lista (`HeartbeatLegend`, `:core:designsystem`), só do status da
   conexão: LED verde **Conectado** (respondendo), amarelo **Sem sinal** (conectado, mas quieto
@@ -393,10 +394,28 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   Backup cujo arquivo sumiu da pasta **continua no banco**.
 - Janela "Pasta dos arquivos": `storageLocation`, `chooseStorageFolder`, `useDefaultStorage`.
 
+### Tela "Fabricantes" (`ManufacturerSettingsScreen`, rota `manufacturers`)
+- Aberta pelo ⋮ da lista de robôs. A linha de ações escolhe o fabricante (Kawasaki, Fanuc, ABB,
+  Universal). Tudo é gravado na hora no aparelho (`ManufacturerSettings`, `:core:data`,
+  SharedPreferences "manufacturer_settings"); sem nada gravado, valem os padrões.
+- **Pesquisa rápida do editor:** os termos do botão de lista no campo de pesquisa do editor de
+  programas, na ordem da lista. Adicionar (campo ou toque numa sugestão dos padrões que não
+  estão na lista), subir/descer, remover. O editor (código AS) usa os da Kawasaki, passados pelo
+  `MainActivity` com `LocalSearchTerms` (`:core:designsystem`). Padrão da Kawasaki: .PROGRAM,
+  .END, LMOVE, JMOVE, SPRAY, SPRAY_SPEED, AIRCUT_SPEED, …, GUN, CALL_DBK, CALL_PGM, CALL, BASE,
+  TOOL, HOME, SPEED, ACCEL, TWAIT, SWAIT, SIGNAL, DOUT, IF, GOTO, LABEL, UC_JUMP, PAUSE, RETURN.
+- **Comandos rápidos padrão:** os que um robô novo daquele fabricante recebe ao ser cadastrado
+  (`RobotRepository.defaultCommandsFor`). Adicionar, editar (nome, comando, explicação),
+  subir/descer e remover. Os comandos de cada robô já cadastrado continuam no terminal dele.
+- ⋮: restaurar a pesquisa rápida ou os comandos padrão do fabricante (com confirmação).
+
 ### Conexão na lista (`ConnectedRobotsViewModel`)
 - Observa `getConnectionStatus`/`getHeartbeat` do `KawasakiTerminalManager` para cada robô
   (um coletor por robô, iniciado uma vez só por id) e conecta/desconecta um robô ou o projeto
-  inteiro. A bolinha pulsa só quando `ALIVE`.
+  inteiro (o "Conectar todos" recebe os robôs da tela). A bolinha pulsa só quando `ALIVE`.
+- Cada tentativa aparece no cartão: "Conectando…" (botão com carregando) e, se o socket não abrir
+  em 7 s, "Não conectou: <motivo>" em vermelho por 8 s (recusado pelo robô, sem resposta do IP,
+  IP fora de alcance…). Antes, um robô fora de alcance não dava nenhum sinal.
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -437,9 +456,10 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 - **Lupa** abre uma barra embaixo (`SearchNavigationBar`): campo de texto, botão pesquisar,
   setas para a linha encontrada anterior/próxima e "N de M". A pesquisa só roda no botão (ou
   no "pesquisar" do teclado, que fecha); tocar de novo com o mesmo texto vai para a próxima. A
-  linha encontrada fica em destaque. O ícone de lista dentro do campo abre **"Comandos"**: as
-  instruções do catálogo que existem no arquivo, com quantas vezes aparecem, como a pesquisa de
-  instrução do teach pendant.
+  linha encontrada fica em destaque. O ícone de lista dentro do campo abre a **"Pesquisa rápida"**:
+  os termos configurados na tela "Fabricantes" (Kawasaki), cada um com quantas linhas do arquivo
+  o contêm (contado em segundo plano; termo que não aparece fica apagado). Tocar pesquisa por
+  ele, como a pesquisa de instrução do teach pendant.
 - **O texto nunca é editável direto na área de código.** Cada linha é uma linha de uma
   `LazyColumn` (`CodeLinesList`/`CodeLineRow`), colorida com `highlightAsCode` só nas linhas
   visíveis, então funciona liso em arquivo com dezenas de milhares de linhas. Cada linha tem,

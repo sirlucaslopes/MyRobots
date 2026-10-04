@@ -247,3 +247,9 @@ private fun ActionItem(action: BarAction, modifier: Modifier) {
 
 /** Verde do "conectado", o mesmo dos botões de conexão do app. */
 val SuccessGreen = Color(0xFF43A047)
+
+/**
+ * Termos da pesquisa rápida do editor de programas (configurados por fabricante na tela
+ * "Fabricantes"). O MainActivity fornece os da Kawasaki, a linguagem do editor.
+ */
+val LocalSearchTerms = androidx.compose.runtime.staticCompositionLocalOf<List<String>> { emptyList() }

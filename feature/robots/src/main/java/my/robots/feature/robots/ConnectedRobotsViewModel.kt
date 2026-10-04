@@ -3,12 +3,10 @@ package my.robots.feature.robots
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import my.robots.core.data.RobotRepository
@@ -26,13 +24,6 @@ class ConnectedRobotsViewModel(
     private val repository: RobotRepository,
     private val terminalManager: KawasakiTerminalManager
 ) : ViewModel() {
-
-    /**
-     * Robôs agrupados por projeto, na ordem em que aparecem no banco.
-     */
-    val robotsByProject: StateFlow<Map<String, List<Robot>>> = repository.allRobots
-        .map { robots -> robots.groupBy { it.project } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _connectedIds = MutableStateFlow<Set<Int>>(emptySet())
     /**
@@ -75,11 +66,53 @@ class ConnectedRobotsViewModel(
         }
     }
 
+    private val _attempts = MutableStateFlow<Map<Int, String>>(emptyMap())
     /**
-     * Conecta um robô.
+     * Tentativas de conexão em andamento ou que falharam, por robô: "Conectando…" ou o motivo
+     * da falha (some sozinho depois de alguns segundos). Sem isso, um robô fora de alcance
+     * não dava nenhum sinal ao tocar em Conectar.
+     */
+    val attempts: StateFlow<Map<Int, String>> = _attempts.asStateFlow()
+
+    /**
+     * Conecta um robô e acompanha a tentativa: se o socket não abrir em alguns segundos, mostra
+     * o motivo (a última linha "Erro: ..." do terminal dele).
      */
     fun connect(robot: Robot) {
+        if (robot.id in _connectedIds.value) return
+        _attempts.update { it + (robot.id to "Conectando…") }
         terminalManager.connect(robot)
+        viewModelScope.launch {
+            var waited = 0L
+            while (waited < CONNECT_WAIT_MS && !terminalManager.getConnectionStatus(robot.id).value) {
+                delay(250)
+                waited += 250
+            }
+            if (terminalManager.getConnectionStatus(robot.id).value) {
+                _attempts.update { it - robot.id }
+            } else {
+                val error = terminalManager.getHistory(robot.id).value.lastOrNull { it.startsWith("Erro:") }
+                    ?.removePrefix("Erro:")?.trim()
+                _attempts.update { it + (robot.id to "Não conectou" + (error?.let { e -> ": ${shortError(e)}" } ?: " (sem resposta)")) }
+                delay(FAILURE_SHOWN_MS)
+                _attempts.update { m -> if (m[robot.id]?.startsWith("Não conectou") == true) m - robot.id else m }
+            }
+        }
+    }
+
+    /** Erro de rede em poucas palavras. */
+    private fun shortError(e: String): String = when {
+        e.contains("ECONNREFUSED", true) || e.contains("refused", true) -> "recusado pelo robô (porta fechada)"
+        e.contains("timed out", true) || e.contains("ETIMEDOUT", true) || e.contains("after", true) ->
+            "sem resposta do IP (fora da rede?)"
+        e.contains("EHOSTUNREACH", true) || e.contains("unreachable", true) -> "IP fora de alcance"
+        e.contains("ENETUNREACH", true) -> "sem rede"
+        else -> "erro de rede"
+    }
+
+    companion object {
+        private const val CONNECT_WAIT_MS = 7_000L
+        private const val FAILURE_SHOWN_MS = 8_000L
     }
 
     /**
@@ -90,19 +123,17 @@ class ConnectedRobotsViewModel(
     }
 
     /**
-     * Conecta todos os robôs do projeto que ainda não estão conectados.
+     * Conecta os robôs do projeto (a lista vem da tela) que ainda não estão conectados.
      */
-    fun connectProject(project: String) {
-        val robots = robotsByProject.value[project] ?: return
+    fun connectProject(robots: List<Robot>) {
         val connected = _connectedIds.value
-        robots.filter { it.id !in connected }.forEach { terminalManager.connect(it) }
+        robots.filter { it.id !in connected }.forEach { connect(it) }
     }
 
     /**
-     * Desconecta todos os robôs do projeto que estão conectados.
+     * Desconecta os robôs do projeto que estão conectados.
      */
-    fun disconnectProject(project: String) {
-        val robots = robotsByProject.value[project] ?: return
+    fun disconnectProject(robots: List<Robot>) {
         val connected = _connectedIds.value
         robots.filter { it.id in connected }.forEach { terminalManager.disconnect(it.id, clearHistory = false) }
     }

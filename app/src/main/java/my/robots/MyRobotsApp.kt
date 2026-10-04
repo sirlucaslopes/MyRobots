@@ -14,6 +14,7 @@ import my.robots.core.data.RobotRepository
 import my.robots.core.data.security.KeystoreSecretCipher
 import my.robots.core.data.storage.RobotFilesStorage
 import my.robots.core.data.ControllerChecks
+import my.robots.core.data.ManufacturerSettings
 import my.robots.core.data.RobotCommands
 import my.robots.core.data.ProjectOperations
 
@@ -42,6 +43,8 @@ class MyRobotsApp : Application() {
      * Ações em grupo da tela de Projeto (backup de todos, comando para todos, mestre -> escravo).
      */
     lateinit var projectOperations: ProjectOperations
+    /** Termos da pesquisa rápida e comandos padrão de cada fabricante (tela "Fabricantes"). */
+    lateinit var manufacturerSettings: ManufacturerSettings
     /**
      * Área para tarefas de longa duração ligadas ao app (não a uma tela).
      */
@@ -90,6 +93,8 @@ class MyRobotsApp : Application() {
         controllerChecks = ControllerChecks(this, terminalManager, RobotCommands(terminalManager), robotRepository, applicationScope)
         controllerChecks.start()
         projectOperations = ProjectOperations(robotRepository, terminalManager, controllerChecks)
+        manufacturerSettings = ManufacturerSettings(this)
+        robotRepository.defaultCommandsFor = { m -> manufacturerSettings.defaultCommands(m).value }
 
         migrateFilesToNewFolderOnce()
 

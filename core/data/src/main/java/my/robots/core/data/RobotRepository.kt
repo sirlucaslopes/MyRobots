@@ -45,6 +45,12 @@ class RobotRepository(
     /**
      * Lista de todos os robôs cadastrados. Se um robô mudar, a lista se atualiza sozinha.
      */
+    /**
+     * Comandos rápidos que um robô novo recebe, por fabricante. O app troca pelos da tela
+     * "Fabricantes" (ManufacturerSettings); o padrão é o RobotCommandLibrary.
+     */
+    var defaultCommandsFor: (Manufacturer) -> List<RobotCommand> = RobotCommandLibrary::getCommandsForManufacturer
+
     val allRobots: Flow<List<Robot>> = robotDao.getAllRobots()
         .map { robots -> robots.map { fromDb(it) } }
         .flowOn(Dispatchers.Default)
@@ -84,7 +90,7 @@ class RobotRepository(
      * usando a biblioteca de comandos da marca.
      */
     private suspend fun seedQuickCommandsForRobot(robotId: Int, manufacturer: Manufacturer) {
-        val commands = RobotCommandLibrary.getCommandsForManufacturer(manufacturer)
+        val commands = defaultCommandsFor(manufacturer)
         commands.forEach { cmd ->
             quickCommandDao.insertQuickCommand(
                 QuickCommand(

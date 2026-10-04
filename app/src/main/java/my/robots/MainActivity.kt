@@ -47,6 +47,8 @@ import my.robots.feature.project.ProjectScreen
 import my.robots.feature.project.ProjectViewModel
 import my.robots.feature.project.ProjectViewModelFactory
 import my.robots.feature.robots.ConnectedRobotsViewModel
+import my.robots.feature.robots.ManufacturerSettingsScreen
+import my.robots.core.designsystem.LocalSearchTerms
 import my.robots.feature.robots.ConnectedRobotsViewModelFactory
 import my.robots.feature.robots.RobotListScreen
 import my.robots.feature.robots.RobotViewModelFactory
@@ -143,6 +145,9 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     // Mapa de navegação: cada composable(...) abaixo é uma tela.
+                    // termos da pesquisa rápida do editor (a linguagem do editor é a AS, da Kawasaki)
+                    val searchTerms by app.manufacturerSettings.searchTerms(Manufacturer.KAWASAKI).collectAsState()
+                    CompositionLocalProvider(LocalSearchTerms provides searchTerms) {
                     NavHost(navController = navController, startDestination = "splash") {
                         // Tela 1: abertura animada. Ao terminar, vai para a lista de robôs (e some do histórico de voltar).
                         composable("splash") {
@@ -175,7 +180,16 @@ class MainActivity : ComponentActivity() {
                                 onOpenProject = { projectName ->
                                     val encodedProject = URLEncoder.encode(projectName, StandardCharsets.UTF_8.toString())
                                     navController.navigate("project/$encodedProject")
-                                }
+                                },
+                                onOpenManufacturers = { navController.navigate("manufacturers") }
+                            )
+                        }
+
+                        // Fabricantes: termos da pesquisa rápida do editor e comandos padrão.
+                        composable("manufacturers") {
+                            ManufacturerSettingsScreen(
+                                settings = app.manufacturerSettings,
+                                onBack = { navController.popBackStack() }
                             )
                         }
 
@@ -567,6 +581,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+                    }
                     }
                 }
 
