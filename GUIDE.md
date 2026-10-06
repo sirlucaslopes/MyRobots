@@ -87,8 +87,13 @@ para melhorar uma parte sem mexer nas outras.
 - **`HeartbeatState`**: `ALIVE`/`STALE`/`DISCONNECTED`, o pulso da conexão de um robô (calculado
   pelo `KawasakiTerminalManager`, ver seção 3). Fica aqui para a bolinha de status
   (`HeartbeatDot`, `:core:designsystem`) poder ser usada por qualquer tela.
-- **`RobotCommandLibrary`**: biblioteca de comandos por fabricante (existe no módulo, ver o
-  arquivo para o conteúdo atual).
+- **`RobotCommandLibrary`**: biblioteca de comandos por fabricante (só a Kawasaki tem). Categorias
+  (`CommandCategory`): SAVE, LOAD, SYSTEM (consultas: ID, FREE, `TYPE TASK (1)`, `TYPE TASK (1001)`),
+  CONTROL (os comandos que o KIDE manda: ERESET, HOLD, CONTINUE, ZPOW ON/OFF, SPEED 50, ABORT,
+  KILL, PCABORT 1:, PCKILL 1:) e UTILITY (DIR). KILL e PCKILL perguntam "Are you sure? (Yes:1,
+  No:0)" e esperam o 1 digitado no terminal. Os comandos de controle vieram da gravação do KIDE
+  no K-ROSET (`tools/kroset_captura.py`); a referência está em `docs/KIDE_COMANDOS.md`. O antigo
+  "Reset" (`DO RESET`) saiu: no AS ele desliga todas as saídas externas; o reset de erro é o ERESET.
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -414,6 +419,8 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 - **Comandos rápidos padrão:** os que um robô novo daquele fabricante recebe ao ser cadastrado
   (`RobotRepository.defaultCommandsFor`). Adicionar, editar (nome, comando, explicação),
   subir/descer e remover. Os comandos de cada robô já cadastrado continuam no terminal dele.
+  Comandos novos da biblioteca só aparecem aqui se a lista do fabricante nunca foi editada (ou
+  depois de "restaurar"); num robô já cadastrado, eles entram adicionando no terminal dele.
 - ⋮: restaurar a pesquisa rápida ou os comandos padrão do fabricante (com confirmação).
 
 ### Conexão na lista (`ConnectedRobotsViewModel`)
