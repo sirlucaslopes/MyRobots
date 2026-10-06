@@ -29,3 +29,5 @@ Arquivos_Kawasaki/
 # relatórios do protocolo de testes (tools/protocolo/rodar_testes.py)
 tools/protocolo/relatorios/
 __pycache__/
+# gravações da escuta KIDE <-> K-ROSET (tools/kroset_escuta.py)
+tools/kroset_escuta/
