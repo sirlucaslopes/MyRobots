@@ -951,49 +951,6 @@ class KawasakiTerminalManager(
     }
 
     /**
-     * Manda o robô apagar um programa (comando DELETE).
-     *
-     * - onlyProgram: usa /P e apaga só o programa (sem sub-rotinas e variáveis locais).
-     * - forced: usa /D e força apagar, mesmo se outro programa usar esse.
-     */
-    fun deleteProgram(robotId: Int, programName: String, onlyProgram: Boolean = false, forced: Boolean = true) {
-        val cmd = buildString {
-            append("DELETE")
-            if (onlyProgram) append("/P")
-            if (forced) append("/D")
-            append(" ")
-            append(programName)
-        }
-        sendCommand(robotId, cmd)
-    }
-
-    /**
-     * Manda o robô apagar uma variável (comando DELETE).
-     * O tipo escolhe a opção: posição = /L, real = /R, texto = /S, inteiro = /INT.
-     * Se o tipo não for reconhecido, nada é enviado.
-     * forced usa /D para forçar a exclusão.
-     */
-    fun deleteVariable(robotId: Int, varName: String, type: String, forced: Boolean = true) {
-        val typeModifier = when (type.uppercase()) {
-            "TRANS", "POSE", "POS", "L" -> "/L"
-            "REALS", "REAL", "R" -> "/R"
-            "STRINGS", "STRING", "S" -> "/S"
-            "INTEGER", "INT" -> "/INT"
-            else -> ""
-        }
-        if (typeModifier.isEmpty()) return
-
-        val cmd = buildString {
-            append("DELETE")
-            append(typeModifier)
-            if (forced) append("/D")
-            append(" ")
-            append(varName)
-        }
-        sendCommand(robotId, cmd)
-    }
-
-    /**
      * Desconecta do robô: para a leitura, fecha a conexão e o arquivo aberto.
      * Com clearHistory = true, também apaga o histórico do terminal.
      *

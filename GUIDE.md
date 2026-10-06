@@ -40,6 +40,8 @@ desligada (cinza) precisa de alguma condição, por exemplo marcar um item antes
 | copiar programas do mestre para o escravo | Tela de Projeto → **Transferir** |
 | criar uma cópia de um programa em vários robôs | Tela de Projeto → **Duplicar programa** |
 | ver, importar, exportar, compartilhar backups | Painel → **Histórico de backups** |
+| ver o que mudou entre o app e o robô, apagar o que sobrou no robô | Painel → **Comparar com o robô** |
+| achar variáveis que nenhum programa usa | Painel → Variáveis → **Sem uso** |
 
 ### Lista de robôs (tela inicial) — seção 7
 - **Ver:** os robôs agrupados por **fabricante → projeto → robô**; cada grupo abre e fecha. No
@@ -123,7 +125,9 @@ O voltar de uma seção volta para a home; da home, volta para a lista.
     robôs" abaixo);
   - **Compartilhar** — junta os programas marcados num `.as` e abre o compartilhar do Android
     (WhatsApp, e-mail, Drive…);
-  - **Excluir** — apaga os marcados do backup no app (pede confirmação). Não apaga no robô.
+  - **Excluir** — apaga os marcados do backup no app (pede confirmação). Com **"Apagar também
+    no robô"** marcado, apaga também no controlador: `DELETE/P <nome>`, só o programa (sem
+    sub-rotinas nem variáveis), conectando se preciso e conferindo a resposta de cada um.
 
 #### Variáveis
 - **Ver:** agrupadas por tipo (Posições/TRANS, Juntas, Reais, Textos, Inteiros…), cada grupo
@@ -132,8 +136,21 @@ O voltar de uma seção volta para a home; da home, volta para a lista.
 - **"+" Nova variável:** pergunta o tipo — posição em transformação (X…T), posição em juntas
   (`#nome`, JT1…JTn), real (`nome = valor`) ou texto (`$nome`). O prefixo é posto sozinho e a
   variável entra na seção certa do backup.
+- **Onde é usada:** cada cartão diz "Usada em pg100, pg101…" ou, em amarelo, "Sem uso: não
+  aparece em nenhum programa". Conta o uso nos programas e nos dados do sistema (o sistema de
+  pintura cita variáveis pelo nome no `.SYSDATA`, ex.: `flowrate`). Não conta comentário,
+  texto entre aspas, variável local (`.par`) nem os logs. Num array, `fr_[100]` só conta para
+  o elemento 100; um índice calculado (`fr_[pgnum]`, `fr_[n+1]`) conta para todos.
+  As que começam com `!` são do sistema e nunca aparecem como sem uso.
+- **Sem uso** (ação da barra): mostra só as variáveis sem uso ("N sem uso de M" no subtítulo).
+  Dá para marcar todas e **Excluir**.
 - **Pesquisar** (nome ou valor), **Marcar todos**, e com marcadas: **Enviar**, **Compartilhar**,
-  **Excluir** (só mexe nas seções de variáveis, nunca em linha de programa).
+  **Excluir** (só mexe nas seções de variáveis, nunca em linha de programa). Com **"Apagar
+  também no robô"**, apaga cada uma no controlador (`DELETE/L`, `/R` ou `/S`, só a variável),
+  conferida.
+- Sem marcar "Apagar também no robô", o Excluir **nunca** mexe no robô (até a v1.2, com o robô
+  conectado, o app mandava `DELETE/D` sozinho, que apaga também sub-rotinas e variáveis de
+  outros programas).
 
 #### Data Bank
 - **Ver:** uma linha por registro (DBn), com comentário e FRATE, PATTERN, ATOMIZE, HVOLT,
@@ -169,6 +186,29 @@ O voltar de uma seção volta para a home; da home, volta para a lista.
   comment and continue, 1:Delete program and abort") aparecem numa janela em qualquer tela e
   precisam de resposta. Perguntas fora de transferência (ex.: "Are you sure? (Yes:1, No:0)" do
   KILL) se respondem digitando no terminal.
+
+#### Comparar com o robô (como o "Comparar" do KIDE)
+Botão **Comparar com o robô** no cartão "Backup analisado" da home.
+- **OFFLINE:** o backup do app, o que você editou aqui (começa com o que o painel mostra;
+  **Trocar** escolhe outro).
+- **ROBÔ:** **Agora** (conecta e baixa com SAVE/FULL; vira um backup novo, como o Atualizar)
+  ou um backup escolhido em **Trocar**.
+- **Comparar** mostra o resumo ("Programas: 1 só no robô · 0 diferentes · …") e os grupos:
+  - **SÓ NO ROBÔ** — programas e variáveis que estão no controlador e não no offline, cada um
+    com caixa (e "Marcar todos"). As variáveis do sistema (`!`) aparecem sem caixa;
+  - **DIFERENTES** — programas (quantas linhas mudam; **tocar abre as linhas**: "−" só no
+    offline em vermelho, "+" só no robô em verde, com o número da linha de cada lado e
+    **Mostrar tudo / Só as diferenças**) e variáveis (valor offline e valor do robô);
+  - **SÓ NO OFFLINE** — o que está no app e não no robô (para mandar, use Enviar em Programas
+    ou Variáveis);
+  - **IGUAIS** — só a contagem (e quantos programas só mudaram a data do cabeçalho).
+- Números são comparados como número (`1.000000` = `1`); programas pelo código e pelo
+  cabeçalho sem a data.
+- **Apagar no robô (N)** (barra de ações): confirma a lista de comandos (`DELETE/P pg200`,
+  `DELETE/L fr_9`… programas primeiro) e apaga um por um no controlador, respondendo à
+  pergunta "Are you sure?" e conferindo a resposta. A janela mostra ✓/✗ de cada item e
+  **Comparar de novo**. O backup do robô baixado na comparação guarda tudo o que estava lá:
+  dá para devolver pelo Enviar.
 
 #### Enviar para robôs (Programas, Variáveis, Data Bank)
 - Abre a lista dos robôs agrupada por projeto, com LED e estado; marca-se um ou mais (ou o
@@ -532,8 +572,9 @@ projeto que ficou sem robôs (`deleteLayoutIfEmpty`).
     nem envia nada e aparece como `>>> SAVE recusado`/`>>> LOAD recusado` no terminal.
   - `sendChar`/`sendCommand`: enviam tecla a tecla (usado enquanto o usuário digita no terminal
     real-time) ou um comando inteiro com Enter.
-  - `deleteProgram`/`deleteVariable`: montam o comando `DELETE` certo (com `/P`, `/D`, `/L`,
-    `/R`, `/S`, `/INT` conforme o caso).
+  - Apagar no robô não fica mais aqui: é o `RobotCommands.deleteItems` (seção 4). O antigo
+    `deleteProgram`/`deleteVariable` mandava `DELETE/D` (apagar forçado) sem conferir a resposta
+    e foi removido.
   - **Heartbeat (`HeartbeatState`)**: `isConnected` sozinho só diz que o socket TCP está
     aberto, não que o robô está respondendo. Por isso, a cada robô conectado roda um
     `heartbeatLoop` que reavalia o estado a cada 3s comparando `lastActivityAt` (atualizado
@@ -624,6 +665,15 @@ checagens do login, para nunca misturar respostas:
   Pergunta no meio: com `answer`, responde; sem, espera a tela.
 - `saveFile(robô, comando, nome)`: manda o `SAVE…` e confere o arquivo recebido (nome, fim da
   transferência e "File save completed.").
+- `deleteItems(robô, itens)`: apaga no controlador um item por vez (`DELETE/P pg200`,
+  `DELETE/L fr_9`, `DELETE/R x`, `DELETE/S $t`, sem o `/D`), na ordem dada. O controlador
+  **pergunta "Are you sure ? (Yes:1, No:0)" sempre, até quando o item não existe**; o app
+  responde 1. Depois do 1, se apagou, ele só volta ao prompt; qualquer texto dele (ex.:
+  "pg200:Variable (or program) does not exist.", "(P0117)…") é falha com esse motivo
+  (conferido no K-ROSET, teste K07).
+- `RobotRepository.newSaveName(robô)`: nome dos SAVE do app (`<robô>_<aaaammdd_hhmm>`, com
+  `_2`, `_3`… se já existe um backup com esse nome). Antes, dois SAVE no mesmo minuto gravavam
+  no mesmo arquivo e o app continuava com o texto velho (Atualizar, Comparar, Backup de todos).
 Todos os envios do app passam por aqui: "Enviar para robôs" do painel, a fila de transferência
 pendente, o backup de todos e o mestre → escravo da tela de Projeto.
 
@@ -688,6 +738,14 @@ vira backup no banco quando a lista de robôs abre (sincronização do `RobotVie
     (as classes `RobotLogEntry`/`RobotErrorLog*` moram aqui). Testes de caracterização.
   - `ascode.AsBackupStats.count`: contagem de programas e variáveis de um backup.
   - `ExternalAsFile`: leitura segura de arquivo vindo de fora do app (ver seção 14).
+  - `ascode.AsInventory`: programas, variáveis por tipo (`AsVarKind`: `.TRANS`, `.JOINTS`,
+    `.REALS`, `.STRINGS`, `.INTEGER`) e as outras seções do backup (sem os logs). Dentro de um
+    programa só o `.END` fecha: linhas como `.par = 1` (variável local) não são seção.
+  - `ascode.AsVariableUsage`: onde cada variável aparece (programas e seções) e as sem uso
+    (regras no Manual de uso, Variáveis).
+  - `ascode.AsBackupDiff`: comparação offline × robô (`BackupComparison`), diferença de linhas
+    (maior trecho comum, até 4 milhões de células) e os comandos de apagar só o item. Testes em
+    `AsInventoryTest`.
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
 
@@ -936,8 +994,11 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
     mesmo controlador (série do `OPEINFO`) do backup mais novo, e um intervalo com mais horas
     do que o tempo que passou (por exemplo, um backup do K-ROSET com a mesma série) é descartado. Programas executados
     por dia não aparecem: o `.EXECPGLOG` do controlador guarda só os últimos dias.
-  - **Backup analisado**: nome, data, total de linhas, aviso quando não é o mais recente e o
-    botão "Histórico de backups".
+  - **Backup analisado**: nome, data, total de linhas, aviso quando não é o mais recente e os
+    botões "Histórico de backups" e **"Comparar com o robô"** (`DashboardFeature.Compare`,
+    `ComparePanel.kt`; ver o Manual de uso). A comparação roda em `compareWithRobot` (lê os dois
+    backups do banco, ou baixa o do robô com SAVE/FULL) e o apagar em `deleteOnRobot`
+    (`checks.connectAndWait` + `RobotCommands.deleteItems`), com a janela `RobotDeleteDialog`.
   - **Atalhos em grade**: Programas, Variáveis, Data Bank e os três logs do controlador
     (Erros, Operação, Edição), cada um com a contagem de itens.
   - O arquivo completo (Código AS, abre o `AsCodeViewer` em tela cheia, fora do dashboard)
@@ -987,6 +1048,9 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   variáveis escolhidas dentro das suas seções (`.TRANS ... .END`, `.REALS ... .END`); excluir
   várias é uma gravação só (`deleteVariables`) e só mexe nas linhas de dentro das seções de
   variáveis (antes, uma linha de programa que começasse com o nome também era apagada).
+  O uso de cada variável (`variableUsage`, calculado com `AsVariableUsage` ao ler o backup)
+  aparece no cartão; a ação **Sem uso** filtra as que não aparecem em nada. Excluir (programas
+  e variáveis) tem a opção **"Apagar também no robô"** (`alsoOnRobot` → `deleteOnRobot`).
 - **Data Bank**: no mesmo estilo da seção Programas: um cartão por linha da seção `.sprdb`
   (`DataBankCard`), em ordem de número, com caixa de seleção, `DBn`, comentário e os seis
   valores (`FRATE, PATTERN, ATOMIZE, HVOLT, SPEED, JSPEED`) em duas linhas, mais editar e

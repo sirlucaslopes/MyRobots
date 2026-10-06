@@ -28,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Article
+import androidx.compose.material.icons.automirrored.rounded.CompareArrows
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.filled.*
@@ -91,7 +92,8 @@ enum class DashboardFeature(val label: String, val icon: ImageVector) {
     DataBank("Data Bank", Icons.Rounded.Storage),
     ErrorLog("Log de Erros", Icons.Rounded.ErrorOutline),
     OperationLog("Log de Operação", Icons.Rounded.History),
-    ProgramEditLog("Log de Edição", Icons.Default.Edit)
+    ProgramEditLog("Log de Edição", Icons.Default.Edit),
+    Compare("Comparar com o robô", Icons.AutoMirrored.Rounded.CompareArrows)
 }
 
 /**
@@ -174,6 +176,11 @@ fun RobotDashboardScreen(
     val operationLog by operationLogState
     val programEditLog by programEditLogState
 
+    val variableUsage by (viewModel?.variableUsage?.collectAsState() ?: remember { mutableStateOf<Map<String, List<String>>?>(null) })
+    val backupChoices by (viewModel?.backupChoices?.collectAsState() ?: remember { mutableStateOf(emptyList<my.robots.core.model.BackupSummary>()) })
+    val compareState by (viewModel?.compare?.collectAsState() ?: remember { mutableStateOf(RobotDashboardViewModel.CompareState()) })
+    val robotDelete by (viewModel?.robotDelete?.collectAsState() ?: remember { mutableStateOf<RobotDashboardViewModel.RobotDeleteState?>(null) })
+
     // Seção aberta agora (null = home). Fica guardada mesmo se a tela for recriada.
     var activeFeature by rememberSaveable { mutableStateOf<DashboardFeature?>(initialFeature) }
     
@@ -197,6 +204,17 @@ fun RobotDashboardScreen(
     var dataBankToUpload by remember { mutableStateOf<List<RobotDataBankEntry>?>(null) }
     var programToDuplicate by remember { mutableStateOf<RobotProgram?>(null) }
     var variableToDelete by remember { mutableStateOf<List<RobotVariable>?>(null) }
+    // Excluir: também apagar no robô (DELETE/P, /L, /R…, conferido)? Desmarcado a cada abertura.
+    var deleteAlsoOnRobot by remember { mutableStateOf(false) }
+    // Variáveis: mostrar só as que nenhum programa (nem o sistema) usa
+    var onlyUnusedVars by rememberSaveable { mutableStateOf(false) }
+    // Comparar: o backup offline, o do robô (null = baixar agora), os itens marcados para
+    // apagar, o programa aberto nas diferenças e a confirmação do apagar
+    var compareOfflineId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var compareRobotId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var compareSelected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var diffToShow by remember { mutableStateOf<my.robots.core.common.ascode.ProgramDiff?>(null) }
+    var compareToDelete by remember { mutableStateOf<List<my.robots.core.data.DeleteItem>?>(null) }
     // Variáveis: nomes marcados e grupos (tipos) fechados.
     var selectedVarNames by remember { mutableStateOf<Set<String>>(emptySet()) }
     var collapsedVarGroups by rememberSaveable { mutableStateOf(listOf<String>()) }
@@ -238,6 +256,10 @@ fun RobotDashboardScreen(
         }
         if (activeFeature != DashboardFeature.Variables) {
             selectedVarNames = emptySet()
+            onlyUnusedVars = false
+        }
+        if (activeFeature == DashboardFeature.Compare && compareOfflineId == null) {
+            compareOfflineId = latestBackup?.id
         }
         if (activeFeature != DashboardFeature.Programs && activeFeature != DashboardFeature.Variables &&
             activeFeature != DashboardFeature.DataBank) {
@@ -257,9 +279,10 @@ fun RobotDashboardScreen(
             p.name.contains(listQuery, true) || p.comment.contains(listQuery, true) || p.group.contains(listQuery, true)
         }
     }
-    val shownVariables = remember(variables, listQuery) {
-        if (listQuery.isEmpty()) variables
-        else variables.filter { v -> v.name.contains(listQuery, true) || v.value.contains(listQuery, true) }
+    val shownVariables = remember(variables, listQuery, onlyUnusedVars, variableUsage) {
+        variables
+            .filter { v -> listQuery.isEmpty() || v.name.contains(listQuery, true) || v.value.contains(listQuery, true) }
+            .filter { v -> !onlyUnusedVars || (!v.name.startsWith("!") && variableUsage?.get(usageKey(v)).isNullOrEmpty() && variableUsage != null) }
     }
     val shownDataBank = remember(dataBankEntries, listQuery) {
         if (listQuery.isEmpty()) dataBankEntries
@@ -310,7 +333,10 @@ fun RobotDashboardScreen(
                 val subtitle = when (activeFeature) {
                     null -> robot?.project
                     DashboardFeature.Programs -> counted(programs.size, "programas", selectedProgramNames.size)
-                    DashboardFeature.Variables -> counted(variables.size, "variáveis", selectedVarNames.size)
+                    DashboardFeature.Variables -> if (onlyUnusedVars) {
+                        listOf(robotName, "${shownVariables.size} sem uso de ${variables.size}", if (selectedVarNames.isNotEmpty()) "${selectedVarNames.size} marcadas" else "")
+                            .filter { it.isNotBlank() }.joinToString(" · ")
+                    } else counted(variables.size, "variáveis", selectedVarNames.size)
                     DashboardFeature.DataBank -> counted(dataBankEntries.size, "linhas", selectedDbNums.size)
                     DashboardFeature.Terminal -> listOf(robotName, if (isTerminalConnected) "conectado" else "desconectado")
                         .filter { it.isNotBlank() }.joinToString(" · ")
@@ -397,6 +423,17 @@ fun RobotDashboardScreen(
                                 val names = shownVariables.map { it.name }.toSet()
                                 selectedVarNames = if (allMarked) selectedVarNames - names else selectedVarNames + names
                             },
+                            // só as que nenhum programa (nem o sistema) usa
+                            BarAction(
+                                Icons.Default.FilterAlt,
+                                "Sem uso",
+                                selected = onlyUnusedVars,
+                                enabled = variableUsage != null,
+                                onClick = {
+                                    onlyUnusedVars = !onlyUnusedVars
+                                    selectedVarNames = emptySet()
+                                }
+                            ),
                             BarAction(Icons.Rounded.CloudUpload, "Enviar", enabled = has, tone = ActionTone.Primary,
                                 onClick = { variableToUpload = selectedVars }),
                             BarAction(Icons.Default.Share, "Compartilhar", enabled = has, onClick = {
@@ -433,6 +470,18 @@ fun RobotDashboardScreen(
                             }),
                             BarAction(Icons.Default.Delete, "Excluir", enabled = has, tone = ActionTone.Danger,
                                 onClick = { dataBankToDelete = selectedDb })
+                        )
+                    }
+                    DashboardFeature.Compare -> {
+                        val items = compareDeleteItems(compareState, compareSelected)
+                        listOf(
+                            BarAction(
+                                Icons.Default.Delete,
+                                if (items.isEmpty()) "Apagar no robô" else "Apagar no robô (${items.size})",
+                                enabled = items.isNotEmpty() && !compareState.running,
+                                tone = ActionTone.Danger,
+                                onClick = { compareToDelete = items }
+                            )
                         )
                     }
                     else -> if (isLogFeature) listOf(
@@ -572,7 +621,9 @@ fun RobotDashboardScreen(
                                 collapsedVarGroups = if (g in collapsedVarGroups) collapsedVarGroups - g else collapsedVarGroups + g
                             },
                             listState = variablesListState,
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            usage = variableUsage,
+                            emptyHint = if (onlyUnusedVars) "Todas as variáveis aparecem em algum programa ou nos dados do sistema." else null
                         ) }
                         DashboardFeature.DataBank -> WithListSearch(
                             open = listSearchOpen, query = listSearchQuery, onQuery = { listSearchQuery = it },
@@ -588,6 +639,21 @@ fun RobotDashboardScreen(
                             viewModel = viewModel
                         ) }
                         DashboardFeature.FullCode -> { /* já tratado em onFeatureClick: abre o editor em outra tela */ }
+                        DashboardFeature.Compare -> ComparePanel(
+                            state = compareState,
+                            backups = backupChoices,
+                            offlineId = compareOfflineId,
+                            robotBackupId = compareRobotId,
+                            onPickOffline = { compareOfflineId = it },
+                            onPickRobot = { compareRobotId = it },
+                            onCompare = {
+                                compareSelected = emptySet()
+                                compareOfflineId?.let { viewModel?.compareWithRobot(it, compareRobotId) }
+                            },
+                            selected = compareSelected,
+                            onSelect = { keys, mark -> compareSelected = if (mark) compareSelected + keys else compareSelected - keys.toSet() },
+                            onOpenDiff = { diffToShow = it }
+                        )
                         DashboardFeature.ErrorLog -> ErrorLogPanel(
                             entries = filteredErrorLog,
                             listState = errorLogListState,
@@ -626,6 +692,34 @@ fun RobotDashboardScreen(
             }
         }
 
+        diffToShow?.let { d -> ProgramDiffDialog(diff = d, onDismiss = { diffToShow = null }) }
+
+        compareToDelete?.let { items ->
+            ConfirmRobotDeleteDialog(
+                items = items,
+                robotName = robot?.name ?: "robô",
+                note = compareState.robotName?.let { "O backup do robô ($it) guarda tudo o que está lá agora: dá para devolver pelo Enviar." },
+                onConfirm = {
+                    compareToDelete = null
+                    viewModel?.deleteOnRobot(items) { compareSelected = emptySet() }
+                },
+                onDismiss = { compareToDelete = null }
+            )
+        }
+
+        robotDelete?.let { st ->
+            RobotDeleteDialog(
+                state = st,
+                onDismiss = { viewModel?.clearRobotDelete() },
+                onCompareAgain = if (activeFeature == DashboardFeature.Compare) ({
+                    viewModel?.clearRobotDelete()
+                    compareSelected = emptySet()
+                    compareOfflineId?.let { viewModel?.compareWithRobot(it, null) }
+                    compareRobotId = null
+                }) else null
+            )
+        }
+
         // janelas de duplicar e de confirmar exclusão
         if (programToDuplicate != null) {
             DuplicateProgramDialog(
@@ -642,24 +736,32 @@ fun RobotDashboardScreen(
         if (programsToDelete != null) {
             val toDelete = programsToDelete!!
             AlertDialog(
-                onDismissRequest = { programsToDelete = null },
+                onDismissRequest = { programsToDelete = null; deleteAlsoOnRobot = false },
                 title = { Text(if (toDelete.size == 1) "Excluir Programa" else "Excluir Programas") },
                 text = {
                     val names = toDelete.joinToString(", ") { it.name }
-                    Text("Tem certeza que deseja excluir ${if (toDelete.size == 1) "o programa" else "${toDelete.size} programas"} \"$names\"? Esta ação removerá o código do backup.")
+                    Column {
+                        Text("Tem certeza que deseja excluir ${if (toDelete.size == 1) "o programa" else "${toDelete.size} programas"} \"$names\"? Esta ação removerá o código do backup.")
+                        AlsoOnRobotOption(
+                            checked = deleteAlsoOnRobot,
+                            onChange = { deleteAlsoOnRobot = it },
+                            detail = "DELETE/P: só o programa, sem sub-rotinas nem variáveis."
+                        )
+                    }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            viewModel?.deletePrograms(toDelete)
+                            viewModel?.deletePrograms(toDelete, alsoOnRobot = deleteAlsoOnRobot)
                             selectedProgramNames = emptySet()
                             programsToDelete = null
+                            deleteAlsoOnRobot = false
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) { Text("Excluir") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { programsToDelete = null }) { Text("Cancelar") }
+                    TextButton(onClick = { programsToDelete = null; deleteAlsoOnRobot = false }) { Text("Cancelar") }
                 }
             )
         }
@@ -667,26 +769,34 @@ fun RobotDashboardScreen(
         if (variableToDelete != null) {
             val toDelete = variableToDelete!!
             AlertDialog(
-                onDismissRequest = { variableToDelete = null },
+                onDismissRequest = { variableToDelete = null; deleteAlsoOnRobot = false },
                 title = { Text("Excluir variáveis") },
                 text = {
-                    Text(
-                        if (toDelete.size == 1) "Tem certeza que deseja excluir a variável \"${toDelete[0].name}\"?"
-                        else "Tem certeza que deseja excluir ${toDelete.size} variáveis (${toDelete.joinToString { it.name }})?"
-                    )
+                    Column {
+                        Text(
+                            if (toDelete.size == 1) "Tem certeza que deseja excluir a variável \"${toDelete[0].name}\"?"
+                            else "Tem certeza que deseja excluir ${toDelete.size} variáveis (${toDelete.joinToString { it.name }})?"
+                        )
+                        AlsoOnRobotOption(
+                            checked = deleteAlsoOnRobot,
+                            onChange = { deleteAlsoOnRobot = it },
+                            detail = "DELETE/L, /R ou /S: só a variável."
+                        )
+                    }
                 },
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            viewModel?.deleteVariables(toDelete)
+                            viewModel?.deleteVariables(toDelete, alsoOnRobot = deleteAlsoOnRobot)
                             selectedVarNames = selectedVarNames - toDelete.map { it.name }.toSet()
                             variableToDelete = null
+                            deleteAlsoOnRobot = false
                         },
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) { Text("Excluir") }
                 },
                 dismissButton = {
-                    TextButton(onClick = { variableToDelete = null }) { Text("Cancelar") }
+                    TextButton(onClick = { variableToDelete = null; deleteAlsoOnRobot = false }) { Text("Cancelar") }
                 }
             )
         }
@@ -1298,7 +1408,9 @@ fun VariablesPanel(
     collapsedGroups: Set<String>,
     onToggleGroup: (String) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    viewModel: RobotDashboardViewModel?
+    viewModel: RobotDashboardViewModel?,
+    usage: Map<String, List<String>>? = null,
+    emptyHint: String? = null
 ) {
     var showEditDialog by remember { mutableStateOf<RobotVariable?>(null) }
     var showDuplicateDialog by remember { mutableStateOf<RobotVariable?>(null) }
@@ -1313,7 +1425,7 @@ fun VariablesPanel(
     Box(modifier = Modifier.fillMaxSize()) {
         if (variables.isEmpty()) {
             Text(
-                "Nenhuma variável neste backup. Toque em + para criar.",
+                emptyHint ?: "Nenhuma variável neste backup. Toque em + para criar.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -1355,6 +1467,7 @@ fun VariablesPanel(
                     items(list, key = { "v_${it.type}_${it.name}" }) { variable ->
                         VariableCard(
                             variable = variable,
+                            usedIn = usage?.let { it[usageKey(variable)].orEmpty() },
                             isSelected = variable.name in selectedNames,
                             onToggleSelect = { onToggleSelect(variable.name) },
                             onEdit = { showEditDialog = variable },
@@ -1412,6 +1525,7 @@ fun VariablesPanel(
 @Composable
 private fun VariableCard(
     variable: RobotVariable,
+    usedIn: List<String>?,
     isSelected: Boolean,
     onToggleSelect: () -> Unit,
     onEdit: () -> Unit,
@@ -1442,6 +1556,21 @@ private fun VariableCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                // onde aparece: programas ou seções do sistema (null = ainda calculando)
+                if (usedIn != null) {
+                    Text(
+                        when {
+                            variable.name.startsWith("!") -> "Variável do sistema"
+                            usedIn.isEmpty() -> "Sem uso: não aparece em nenhum programa"
+                            usedIn.size <= 3 -> "Usada em " + usedIn.joinToString(", ")
+                            else -> "Usada em " + usedIn.take(3).joinToString(", ") + " e mais ${usedIn.size - 3}"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (usedIn.isEmpty() && !variable.name.startsWith("!")) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 if (variable.type == "FRAME" || variable.type == "JOINTS") {
                     val values = remember(variable.value) {
                         variable.value.split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -1792,6 +1921,11 @@ fun DashboardHome(
                     Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Histórico de backups")
+                }
+                OutlinedButton(onClick = { onFeatureClick(DashboardFeature.Compare) }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.AutoMirrored.Rounded.CompareArrows, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Comparar com o robô")
                 }
             }
         }
@@ -2487,6 +2621,25 @@ private fun SearchFieldRow(query: String, onQuery: (String) -> Unit, count: Stri
                 Text(count, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 8.dp))
             }
             IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Fechar busca") }
+        }
+    }
+}
+
+/** Opção das janelas de excluir: apagar também no robô, com o comando que vai. */
+@Composable
+private fun AlsoOnRobotOption(checked: Boolean, onChange: (Boolean) -> Unit, detail: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(top = 8.dp).clip(MaterialTheme.shapes.small).clickable { onChange(!checked) }
+    ) {
+        Checkbox(checked = checked, onCheckedChange = onChange)
+        Column {
+            Text("Apagar também no robô", fontWeight = FontWeight.SemiBold)
+            Text(
+                "$detail Conecta se preciso e confere a resposta. Sem marcar, só sai do backup do app.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

@@ -216,6 +216,22 @@ class RobotRepository(
      * Lista os backups de um robô só com o resumo (leve, sem o texto do arquivo).
      */
     fun getBackupsSummary(robotId: Int) = backupDao.getBackupsSummaryForRobot(robotId)
+
+    /**
+     * Nome para um SAVE do app: "<robô>_<aaaammdd_hhmm>". Se o robô já tem um backup com esse
+     * nome (dois SAVE no mesmo minuto), "<robô>_<aaaammdd_hhmm>_2", "_3"… Sem isso, o arquivo
+     * novo grava por cima do anterior e a sincronização não o importa de novo (o app ficava com
+     * o texto velho). O sufixo depois de "_" mantém a data legível no gráfico de uso.
+     */
+    suspend fun newSaveName(robot: Robot): String {
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())
+        val base = "${FileUtil.sanitizeFileName(robot.name).replace(".as", "")}_$stamp"
+        val taken = getBackupsSummary(robot.id).first().map { it.fileName.substringBeforeLast('.').lowercase() }.toSet()
+        if (base.lowercase() !in taken) return base
+        var n = 2
+        while ("${base}_$n".lowercase() in taken) n++
+        return "${base}_$n"
+    }
     /**
      * Procura backups de um robô pelo texto digitado (nome do arquivo ou do backup).
      */

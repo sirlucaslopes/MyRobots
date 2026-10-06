@@ -25,6 +25,14 @@ import my.robots.core.common.ascode.RobotInfo
 import my.robots.core.common.ascode.DailyUsage
 import my.robots.core.common.ascode.RobotUsageHistory
 import my.robots.core.common.ascode.AsProgramBlocks
+import my.robots.core.common.ascode.AsBackupDiff
+import my.robots.core.common.ascode.AsInventory
+import my.robots.core.common.ascode.AsVar
+import my.robots.core.common.ascode.AsVarKind
+import my.robots.core.common.ascode.AsVariableUsage
+import my.robots.core.common.ascode.BackupComparison
+import my.robots.core.data.DeleteItem
+import my.robots.core.data.DeleteResult
 import my.robots.core.common.ascode.RobotErrorLogEntry
 import my.robots.core.common.ascode.RobotLogEntry
 
@@ -258,8 +266,7 @@ class RobotDashboardViewModel(
                     _refreshStatus.value = "Não conectou ao ${r.name}"
                     return@launch
                 }
-                val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())
-                val name = "${FileUtil.sanitizeFileName(r.name).replace(".as", "")}_$stamp"
+                val name = repository.newSaveName(r)
                 _refreshStatus.value = "Baixando o backup completo (SAVE/FULL)…"
                 val result = checks.commands.saveFile(robotId, "SAVE/FULL $name", name)
                 if (!result.ok) {
@@ -278,6 +285,129 @@ class RobotDashboardViewModel(
                 }
             }
         }
+    }
+
+    // ---------- Uso das variáveis, apagar no robô e comparar com o robô ----------
+
+    private val _variableUsage = MutableStateFlow<Map<String, List<String>>?>(null)
+    /** Para cada variável ([usageKey]), onde ela aparece: nomes de programa ou seções. Null = calculando. */
+    val variableUsage: StateFlow<Map<String, List<String>>?> = _variableUsage.asStateFlow()
+
+    private val _backupChoices = MutableStateFlow<List<my.robots.core.model.BackupSummary>>(emptyList())
+    /** Backups do robô (sem os arquivos de envio), do mais novo ao mais antigo. */
+    val backupChoices: StateFlow<List<my.robots.core.model.BackupSummary>> = _backupChoices.asStateFlow()
+
+    /** Apagar no robô: andamento e o resultado de cada item. */
+    data class RobotDeleteState(val running: Boolean, val status: String, val results: List<DeleteResult> = emptyList())
+
+    private val _robotDelete = MutableStateFlow<RobotDeleteState?>(null)
+    val robotDelete: StateFlow<RobotDeleteState?> = _robotDelete.asStateFlow()
+
+    fun clearRobotDelete() {
+        if (_robotDelete.value?.running != true) _robotDelete.value = null
+    }
+
+    /**
+     * Apaga os itens no robô (conecta se preciso; login e checagens antes) com o comando mínimo
+     * de cada um, conferido pela resposta ([my.robots.core.data.RobotCommands.deleteItems]).
+     * Não mexe no backup do app. [onDone] recebe os resultados.
+     */
+    fun deleteOnRobot(items: List<DeleteItem>, onDone: (List<DeleteResult>) -> Unit = {}) {
+        if (items.isEmpty() || _robotDelete.value?.running == true) return
+        val r = _robot.value ?: return
+        viewModelScope.launch {
+            _robotDelete.value = RobotDeleteState(true, "Conectando ao ${r.name}…")
+            if (!checks.connectAndWait(r)) {
+                _robotDelete.value = RobotDeleteState(false, "Não conectou ao ${r.name}: nada foi apagado")
+                return@launch
+            }
+            _robotDelete.value = RobotDeleteState(true, "Apagando ${items.size} item(ns) no ${r.name}…")
+            val results = checks.commands.deleteItems(robotId, items)
+            val ok = results.count { it.ok }
+            _robotDelete.value = RobotDeleteState(false, "$ok de ${results.size} apagados no ${r.name}", results)
+            onDone(results)
+        }
+    }
+
+    /** Itens para apagar no robô: só os programas (DELETE/P, sem sub-rotinas nem variáveis). */
+    fun programDeleteItems(programs: List<RobotProgram>) =
+        programs.map { DeleteItem(it.name, AsBackupDiff.deleteProgramCommand(it.name)) }
+
+    /** Itens para apagar no robô: cada variável com a opção do tipo (/L, /R, /S, /INT). */
+    fun variableDeleteItems(variables: List<RobotVariable>) =
+        variables.mapNotNull { v -> asVar(v)?.let { DeleteItem(it.name, AsBackupDiff.deleteVariableCommand(it)) } }
+
+    // ---------- Comparar com o robô ----------
+
+    /**
+     * A comparação "offline × robô":
+     * - offlineName: o backup do app (o que foi editado aqui);
+     * - robotName: o backup do robô (o baixado agora com SAVE/FULL, ou um escolhido);
+     * - result: as diferenças; null enquanto roda ou antes de comparar.
+     */
+    data class CompareState(
+        val running: Boolean = false,
+        val status: String? = null,
+        val offlineName: String? = null,
+        val robotName: String? = null,
+        val result: BackupComparison? = null
+    )
+
+    private val _compare = MutableStateFlow(CompareState())
+    val compare: StateFlow<CompareState> = _compare.asStateFlow()
+
+    /**
+     * Compara o backup [offlineId] com o robô: sem [robotBackupId], conecta e baixa agora
+     * (SAVE/FULL, registrado como backup, como o Atualizar); com ele, usa esse backup.
+     */
+    fun compareWithRobot(offlineId: Int, robotBackupId: Int?) {
+        if (_compare.value.running) return
+        val r = _robot.value ?: return
+        viewModelScope.launch {
+            _compare.value = CompareState(running = true, status = "Lendo o backup offline…")
+            val offline = repository.getBackupById(offlineId)
+            if (offline == null) {
+                _compare.value = CompareState(status = "O backup offline não foi encontrado")
+                return@launch
+            }
+            val robotBackup = if (robotBackupId != null) {
+                repository.getBackupById(robotBackupId)
+            } else {
+                _compare.value = _compare.value.copy(status = "Conectando ao ${r.name}…")
+                if (!checks.connectAndWait(r)) {
+                    _compare.value = CompareState(status = "Não conectou ao ${r.name}")
+                    return@launch
+                }
+                val name = repository.newSaveName(r)
+                _compare.value = _compare.value.copy(status = "Baixando o que está no robô (SAVE/FULL)…")
+                val saved = checks.commands.saveFile(robotId, "SAVE/FULL $name", name)
+                if (!saved.ok) {
+                    _compare.value = CompareState(status = saved.message)
+                    return@launch
+                }
+                repository.syncRobotFolder(r)
+                val summary = repository.getBackupsSummary(robotId).first()
+                    .firstOrNull { it.fileName.equals(saved.fileName, ignoreCase = true) }
+                summary?.let { repository.getBackupById(it.id) }
+            }
+            if (robotBackup == null) {
+                _compare.value = CompareState(status = "O backup do robô não foi encontrado")
+                return@launch
+            }
+            _compare.value = _compare.value.copy(status = "Comparando…")
+            val result = withContext(Dispatchers.Default) {
+                AsBackupDiff.compare(AsInventory.parse(offline.content), AsInventory.parse(robotBackup.content))
+            }
+            _compare.value = CompareState(
+                offlineName = offline.backupName,
+                robotName = if (robotBackupId == null) "${r.name} agora (${robotBackup.backupName})" else robotBackup.backupName,
+                result = result
+            )
+        }
+    }
+
+    fun clearCompare() {
+        if (!_compare.value.running) _compare.value = CompareState()
     }
 
     fun readMemoryNow() {
@@ -592,6 +722,7 @@ class RobotDashboardViewModel(
                 val newest = summaries.filterNot { FileUtil.isTransferFile(it.fileName) }.maxByOrNull { it.timestamp }
                     ?: summaries.maxByOrNull { it.timestamp }
                 _isShowingNewestBackup.value = targetSummary == null || targetSummary.id == newest?.id
+                _backupChoices.value = summaries.filterNot { FileUtil.isTransferFile(it.fileName) }.sortedByDescending { it.timestamp }
                 loadUsageIfChanged(summaries.size, newest?.timestamp ?: 0L)
 
                 if (targetSummary != null) {
@@ -809,6 +940,8 @@ class RobotDashboardViewModel(
             // que a visão limpa corta
             val info = AsRobotInfo.parse(content)
             _robotInfo.value = info
+            // onde cada variável é usada (programas e seções como o .SYSDATA)
+            _variableUsage.value = AsVariableUsage.analyze(AsInventory.parse(content))
             // robô ainda sem série: a do backup passa a ser a dele
             val current = _robot.value
             if (current != null && current.serialNumber == null && info.serialNumber != null) {
@@ -1028,10 +1161,11 @@ class RobotDashboardViewModel(
 
     /**
      * Apaga um ou mais programas do texto do backup, numa passada só (para não perder uma
-     * exclusão por causa de outra sendo salva ao mesmo tempo). Se o terminal estiver
-     * conectado, também manda o robô apagar cada um deles (DELETE).
+     * exclusão por causa de outra sendo salva ao mesmo tempo). Com [alsoOnRobot], também apaga
+     * no robô (DELETE/P, conferido; ver [deleteOnRobot]). Antes, com o terminal conectado, o app
+     * mandava "DELETE/D" sozinho, que apaga também sub-rotinas e variáveis de outros programas.
      */
-    fun deletePrograms(programs: List<RobotProgram>) {
+    fun deletePrograms(programs: List<RobotProgram>, alsoOnRobot: Boolean = false) {
         if (programs.isEmpty()) return
         val summary = _latestBackup.value ?: return
         viewModelScope.launch {
@@ -1039,10 +1173,7 @@ class RobotDashboardViewModel(
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
             val nameSet = programs.map { it.name.lowercase() }.toSet()
 
-            // se o robô está conectado, apaga nele também
-            if (isConnected.value) {
-                programs.forEach { terminalManager.deleteProgram(robotId, it.name) }
-            }
+            if (alsoOnRobot) deleteOnRobot(programDeleteItems(programs))
 
             val newContent = withContext(Dispatchers.Default) {
                 AsProgramBlocks.remove(fullBackup.content, nameSet)
@@ -1053,18 +1184,16 @@ class RobotDashboardViewModel(
 
     /**
      * Apaga uma ou mais variáveis do texto do backup, numa gravação só. Só mexe nas linhas de
-     * dentro das seções de variáveis (.TRANS, .REALS...). Se o terminal estiver conectado,
-     * também manda o robô apagar cada uma (DELETE).
+     * dentro das seções de variáveis (.TRANS, .REALS...). Com [alsoOnRobot], também apaga no
+     * robô (DELETE/L, /R, /S, conferido; ver [deleteOnRobot]).
      */
-    fun deleteVariables(variables: List<RobotVariable>) {
+    fun deleteVariables(variables: List<RobotVariable>, alsoOnRobot: Boolean = false) {
         if (variables.isEmpty()) return
         val summary = _latestBackup.value ?: return
         viewModelScope.launch {
             _isLoading.value = true
             val fullBackup = repository.getBackupById(summary.id) ?: return@launch
-            if (isConnected.value) {
-                variables.forEach { terminalManager.deleteVariable(robotId, it.name, it.type) }
-            }
+            if (alsoOnRobot) deleteOnRobot(variableDeleteItems(variables))
             val names = variables.map { it.name }.toSet()
             val newContent = withContext(Dispatchers.Default) {
                 val result = StringBuilder()
@@ -1241,3 +1370,23 @@ private fun variableNameOf(trimmed: String): String? {
     return if (trimmed.contains("=")) trimmed.substringBefore("=").trim()
     else trimmed.split(Regex("\\s+")).firstOrNull()
 }
+
+/** Tipo do AS de uma variável do painel (FRAME/TRANS, JOINTS, REALS, STRINGS, INTEGER). */
+private fun kindOf(type: String): AsVarKind? = when (type.uppercase()) {
+    "FRAME", "TRANS", "POS" -> AsVarKind.POSE
+    "JOINTS" -> AsVarKind.JOINT
+    "REALS" -> AsVarKind.REAL
+    "STRINGS" -> AsVarKind.STRING
+    "INTEGER" -> AsVarKind.INTEGER
+    else -> null
+}
+
+/** A variável do painel no formato da análise (com o prefixo "#" ou "$" do tipo). */
+internal fun asVar(v: RobotVariable): AsVar? {
+    val kind = kindOf(v.type) ?: return null
+    val name = if (kind.prefix.isNotEmpty() && !v.name.startsWith(kind.prefix)) kind.prefix + v.name else v.name
+    return AsVar(kind, name, v.value, v.line)
+}
+
+/** Chave da variável no [RobotDashboardViewModel.variableUsage]. */
+internal fun usageKey(v: RobotVariable): String? = asVar(v)?.key

@@ -11,9 +11,6 @@ import my.robots.core.common.ascode.AsMasterTransfer
 import my.robots.core.common.ascode.AsProgramBlocks
 import my.robots.core.model.Robot
 import my.robots.core.network.KawasakiTerminalManager
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /** Situação de um robô numa ação em grupo. */
 enum class TaskState { WAITING, CONNECTING, RUNNING, DONE, WARNING, FAILED }
@@ -44,10 +41,9 @@ class ProjectOperations(
      * chegar inteiro e o prompt voltar, e registra o arquivo como backup (syncRobotFolder).
      */
     suspend fun backupAll(robots: List<Robot>, onUpdate: (Int, RobotTask) -> Unit) = coroutineScope {
-        val stamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
         robots.map { robot ->
             async {
-                val fileName = "${FileUtil.sanitizeFileName(robot.name).replace(".as", "")}_$stamp"
+                val fileName = repository.newSaveName(robot)
                 if (!connect(robot, onUpdate)) return@async
                 onUpdate(robot.id, RobotTask(TaskState.RUNNING, "SAVE/FULL…"))
                 val result = checks.commands.saveFile(robot.id, "SAVE/FULL $fileName", fileName, SAVE_TIMEOUT_MS)
