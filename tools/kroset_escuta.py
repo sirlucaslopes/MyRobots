@@ -2,6 +2,9 @@
 Escuta entre o KIDE (ou qualquer terminal) e o K-ROSET: repassa tudo, byte a byte, e grava os dois
 lados para montar a biblioteca de comandos do app.
 
+ATENÇÃO: com o KIDE não funciona. Ele entra como "khidl" e o K-ROSET fecha essa sessão quando ela
+não vem do próprio KIDE. Para o KIDE use a captura passiva (kroset_captura.py, pelo tshark).
+
 O K-ROSET já ocupa as portas 9105, 9205... Por isso a escuta abre outras portas no PC e o KIDE
 conecta nelas (em vez de conectar direto no K-ROSET):
 
