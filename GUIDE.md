@@ -9,6 +9,356 @@ de uma tela, e não só o código.
 
 Todo o código tem comentários em português explicando o que cada classe e função faz.
 
+O guia tem duas partes: o **Manual de uso** (logo abaixo), que explica tela por tela o que
+dá para fazer no app, e as **seções numeradas** (0 a 15), com o funcionamento por dentro de
+cada módulo.
+
+## Manual de uso — o que cada parte do app faz
+
+Esta parte descreve o app **do ponto de vista de quem usa**: o que cada tela mostra e tudo o que
+dá para fazer em cada operação. Os detalhes de implementação estão nas seções numeradas
+(0 a 15), indicadas entre parênteses. Ao mudar o que uma tela faz, atualize aqui também.
+
+Padrão de todas as telas: o **título** (e um subtítulo) fica no alto, com o **⋮** (menu de itens
+pouco usados) ao lado; as **ações** ficam na linha logo abaixo, cada uma com ícone e nome. Ação
+desligada (cinza) precisa de alguma condição, por exemplo marcar um item antes.
+
+### Mapa rápido
+
+| Quero… | Onde |
+|---|---|
+| cadastrar, conectar ou desconectar um robô | Lista de robôs |
+| ver horas de uso, alarmes, memória de um robô | Painel do robô (home) |
+| baixar o backup completo agora | Painel → **Atualizar** |
+| ler, pesquisar, editar um programa | Painel → Programas → tocar no programa (Editor) |
+| copiar trechos de um programa para outro | Editor → **Editar** → marcar → **Copiar** / **Colar** |
+| trocar um texto em todo o arquivo | Editor → **Editar** → **Substituir** |
+| mandar programas, variáveis ou Data Bank para robôs | Painel → seção → marcar → **Enviar** |
+| digitar comandos AS | Painel → **Terminal** (ou o atalho do terminal no cartão) |
+| mandar o mesmo comando para vários robôs | Tela de Projeto → **Comando**, ou **Terminal Geral** |
+| backup de todos os robôs da cabine | Tela de Projeto → **Backup de todos** |
+| copiar programas do mestre para o escravo | Tela de Projeto → **Transferir** |
+| criar uma cópia de um programa em vários robôs | Tela de Projeto → **Duplicar programa** |
+| ver, importar, exportar, compartilhar backups | Painel → **Histórico de backups** |
+
+### Lista de robôs (tela inicial) — seção 7
+- **Ver:** os robôs agrupados por **fabricante → projeto → robô**; cada grupo abre e fecha. No
+  subtítulo, quantos estão conectados e a rede Wi-Fi do celular (nome e IP). A legenda mostra o
+  significado do LED: verde **Conectado** (respondendo), amarelo **Sem sinal** (conectado mas
+  quieto há 8 s), cinza **Desligado**.
+- **Cartão do robô:** nome, série, IP:porta e estado. Botões:
+  - **Conectar / Desconectar** — abre ou fecha a conexão telnet só daquele robô. Dá para ter
+    vários conectados ao mesmo tempo. Se não conectar em 7 s, aparece "Não conectou: <motivo>"
+    (recusado, sem resposta, fora da rede…).
+  - **Terminal** — abre o painel do robô direto no terminal.
+  - **⋮ → Editar** (muda fabricante, projeto, nome, IP, porta, usuário/senha do login automático)
+    e **Excluir** (pede confirmação).
+  - **Tocar no cartão** abre o painel do robô com o backup mais recente.
+- **Faixa do projeto:** "N de M conectados", **Conectar todos / Desconectar todos** (todos os
+  robôs do projeto de uma vez) e o ícone de grade, que abre a **Tela de Projeto**.
+- **"+"** cadastra um robô. Nome só com letras, números e `_` (vira o nome da pasta); porta
+  padrão 23; projeto vazio vira "Padrão"; usuário e senha são opcionais (o app faz o login
+  sozinho e guarda a senha cifrada).
+- **⋮ do topo:**
+  - **Ordenar A-Z** — liga/desliga a ordem alfabética de projetos e robôs.
+  - **Mestre / Escravo** — configura os pares de cabines (ver Tela de Projeto).
+  - **Fabricantes** — termos da pesquisa rápida do editor e comandos rápidos padrão.
+  - **Configurar Wi-Fi** — abre as configurações de Wi-Fi do Android.
+  - **Pasta dos arquivos** — onde os `.as` são gravados: Documentos/MyRobots (padrão) ou uma
+    pasta escolhida. Ao escolher uma pasta, o app grava nela os backups que faltam e importa os
+    `.as` que já estavam lá. "Usar a pasta padrão" volta para Documentos/MyRobots.
+- Ao abrir a lista, o app importa como backup os `.as` novos das pastas dos robôs. Ele **nunca
+  apaga** um backup porque o arquivo sumiu da pasta.
+
+### Fabricantes — seção 7
+Escolha o fabricante na linha de ações (Kawasaki, Fanuc, ABB, Universal).
+- **Pesquisa rápida do editor:** a lista de termos que aparece no botão de lista da pesquisa do
+  editor (ex.: `.PROGRAM`, `LMOVE`, `SPRAY`, `CALL_DBK`…). Adicionar (digitando ou tocando numa
+  sugestão), subir/descer para mudar a ordem, remover.
+- **Comandos rápidos padrão:** os botões de comando que um robô **novo** desse fabricante recebe
+  ao ser cadastrado. Adicionar, editar (nome, comando, explicação), subir/descer, remover. Os
+  robôs já cadastrados não mudam (cada um tem a sua lista no terminal).
+- **⋮:** restaurar a pesquisa ou os comandos padrão (pede confirmação).
+
+### Painel do robô — seção 10
+Tudo de um robô numa tela. A **home** mostra, de cima para baixo:
+- **Linha de conexão:** LED, estado e Conectar/Desconectar.
+- **Cartão do robô:** desenho, modelo, série, nome, eixos e:
+  - **Atualizar** — conecta (se preciso), faz `SAVE/FULL <robô>_<data_hora>`, confere se o
+    arquivo chegou inteiro, registra como backup e passa a mostrar esse backup. O andamento
+    aparece numa faixa embaixo do desenho.
+  - **Terminal** — abre o terminal do robô.
+  - Dados do último SAVE/FULL: horímetro, horas em operação (servo ligado), vezes que o motor
+    ligou, emergências, freio acionado, versão do AS, IP do controlador.
+  - **Por eixo** — cada eixo (JT1, JT2…): horas em movimento, horas nos últimos 30 dias,
+    deslocamento, temperatura mínima/máxima do encoder e alarmes dos últimos 7 dias do eixo.
+  - **Memória de programas** — total e livre (comando `FREE`). "Ler agora" (conectado) ou
+    "Conectar e ler". Abaixo de 10% livre, a barra fica amarela.
+- **Status geral:** OK / ATENÇÃO · n / SEM DADOS. Tocar abre os alarmes dos 7 dias antes do
+  backup, separados em graves, de programa/movimento e de rotina, com contagem e última vez.
+  Também avisa backup com mais de 30 dias e arquivos de outro robô na pasta.
+- **Uso do robô:** gráfico de horas em operação por dia (30 dias, 90 dias ou tudo), médias, e
+  **Exportar (Excel)** (um `.csv` que abre direto no Excel em português). Precisa de pelo menos
+  dois backups SAVE/FULL.
+- **Backup analisado:** nome e data do backup mostrado, aviso se não é o mais novo e o botão
+  **Histórico de backups**.
+- **Atalhos:** Programas, Variáveis, Data Bank, Log de Erros, Log de Operação, Log de Edição
+  (cada um com a contagem).
+- **⋮ → Ver arquivo completo:** abre o backup inteiro no editor.
+
+O voltar de uma seção volta para a home; da home, volta para a lista.
+
+#### Programas
+- **Ver:** um cartão por programa do backup: nome, comentário, tamanho, linhas e data da última
+  alteração (do cabeçalho do programa).
+- **Abrir:** tocar no cartão (ou no olho) abre só aquele programa no editor; ao salvar, só aquele
+  bloco é trocado no backup.
+- **Duplicar** (no cartão): pede o nome novo e cria a cópia no backup, com os mesmos
+  parâmetros, data e comentário.
+- **Pesquisar:** filtra enquanto digita, por nome, comentário ou grupo ("N de M").
+- **Marcar todos / Desmarcar:** marca só os que estão aparecendo (com a pesquisa, só os
+  achados).
+- Com programas marcados:
+  - **Enviar** — escolhe um ou mais robôs e faz o LOAD conferido em cada um (ver "Enviar para
+    robôs" abaixo);
+  - **Compartilhar** — junta os programas marcados num `.as` e abre o compartilhar do Android
+    (WhatsApp, e-mail, Drive…);
+  - **Excluir** — apaga os marcados do backup no app (pede confirmação). Não apaga no robô.
+
+#### Variáveis
+- **Ver:** agrupadas por tipo (Posições/TRANS, Juntas, Reais, Textos, Inteiros…), cada grupo
+  abre e fecha; posições mostram X, Y, Z, O, A, T (e JT7/JT8) em grade.
+- **Editar** (tocar no cartão) e **Duplicar** (pede o nome novo).
+- **"+" Nova variável:** pergunta o tipo — posição em transformação (X…T), posição em juntas
+  (`#nome`, JT1…JTn), real (`nome = valor`) ou texto (`$nome`). O prefixo é posto sozinho e a
+  variável entra na seção certa do backup.
+- **Pesquisar** (nome ou valor), **Marcar todos**, e com marcadas: **Enviar**, **Compartilhar**,
+  **Excluir** (só mexe nas seções de variáveis, nunca em linha de programa).
+
+#### Data Bank
+- **Ver:** uma linha por registro (DBn), com comentário e FRATE, PATTERN, ATOMIZE, HVOLT,
+  SPEED, JSPEED.
+- **Editar** (tocar), **Duplicar** (pede o número novo), **"+"** cria um registro.
+- **Pesquisar** (número, comentário ou um valor), **Marcar todos**, e com marcados:
+  - **Editar** em lote — mostra o valor comum (ou "vários") e aplica só as colunas que você
+    mudou em todos os marcados;
+  - **Enviar**, **Compartilhar**, **Excluir**.
+
+#### Logs (Erros, Operação, Edição)
+- Só existem em backup feito com SAVE/FULL (sem isso, aparecem zerados com a explicação).
+- **Erros:** código, mensagem e data; tocar abre o detalhe: estado no momento (sinais,
+  velocidade, modo), programas em execução, sequência de operações, poses e o texto original.
+- **Operação:** um evento por linha (login, SAVE, reset, troca de step) com a origem (TP, AUX…).
+- **Edição:** cada alteração de programa feita no pendant (passo incluído, apagado…).
+- **Pesquisar:** filtra por qualquer parte do texto da entrada.
+
+#### Terminal
+- **Ver:** a conversa com o robô (fundo preto, texto do robô em verde, o que você mandou em
+  azul-claro). Guarda as últimas 1000 linhas.
+- **Digitar:** cada tecla vai na hora para o robô, como num terminal de verdade; apagar manda
+  backspace. **Enviar** (ou Enter) manda o Enter; com o campo vazio manda um Enter em branco
+  (responde "Change? (If not, Press RETURN only.)").
+- **⬆ / ⬇:** histórico de comandos do próprio controlador.
+- **Raio (Comandos rápidos):** a lista de botões do robô (ver Comandos rápidos).
+- Ações: **Conectar/Desconectar**, **Arquivos** (abre a pasta dos `.as` no gerenciador de
+  arquivos do Android) e **Limpar** (limpa a tela, não mexe no robô).
+- **SAVE e LOAD digitados:** o SAVE grava o arquivo na pasta do robô (a tela mostra
+  "Recebendo…" e o tamanho); o LOAD lê o arquivo da pasta do robô. Desconectar no meio de uma
+  transferência fica para o fim dela.
+- **Perguntas do controlador** no meio de uma transferência (ex.: erro de sintaxe "0:Change to
+  comment and continue, 1:Delete program and abort") aparecem numa janela em qualquer tela e
+  precisam de resposta. Perguntas fora de transferência (ex.: "Are you sure? (Yes:1, No:0)" do
+  KILL) se respondem digitando no terminal.
+
+#### Enviar para robôs (Programas, Variáveis, Data Bank)
+- Abre a lista dos robôs agrupada por projeto, com LED e estado; marca-se um ou mais (ou o
+  projeto inteiro) e "Enviar para N robôs".
+- Para cada robô, ao mesmo tempo: conecta se preciso, espera o login e as checagens, confirma
+  que o robô está livre no prompt, faz o LOAD e confere. ✓ só com o arquivo inteiro e
+  "0 errors"; qualquer outra coisa é ✗ com o motivo. Um robô que falha não para os outros.
+- **Atenção:** o LOAD substitui sem perguntar um programa que já existe no robô.
+
+#### Ao conectar (qualquer tela)
+A cada login o app manda, sozinho, `ID`, `TIME` e `FREE`:
+- série diferente da cadastrada → pergunta se atualiza o cadastro (controlador trocado) ou mantém
+  (pode ser o robô errado);
+- relógio com mais de 2 min de diferença do celular → pergunta se corrige com a hora do
+  celular;
+- `FREE` atualiza a memória de programas do painel.
+
+### Editor de programas (AsCodeViewer) — seção 9
+Abre ao tocar num programa, em "Ver arquivo completo", em backups do histórico e em `.as`/`.pg`
+abertos de outro app. O subtítulo mostra as linhas e se há alterações não salvas.
+
+**Visualizar**
+- Código com cores da linguagem AS (comentários, textos, `.PROGRAM`/`.END`/`.TRANS`,
+  movimentos, sinais e esperas, palavras-chave, números) e número de cada linha.
+- Fica leve mesmo com dezenas de milhares de linhas. O texto não é editado digitando na área
+  do código: toda alteração passa pelas ações abaixo, para não estragar o arquivo sem querer.
+
+**Pesquisar** (ação Pesquisar)
+- Abre a barra de pesquisa: digite e toque em pesquisar (ou no "pesquisar" do teclado). A
+  linha achada fica em destaque e aparece "N de M".
+- **◀ / ▶** vão para a ocorrência anterior/próxima; pesquisar de novo o mesmo texto vai para a
+  próxima. Não diferencia maiúsculas de minúsculas.
+- **Pesquisa rápida** (ícone de lista dentro do campo): os termos da tela Fabricantes, cada um
+  com quantas linhas do arquivo o contêm (os que não aparecem ficam apagados). Tocar pesquisa
+  por ele, como a busca de instrução do teach pendant.
+
+**Editar** (ação Editar: liga o modo de edição)
+- Cada linha ganha uma **caixa de seleção** entre o número e o código, e abre a barra de edição.
+- **Marcar** — marcar linhas em lote:
+  - **Marcar todas**;
+  - **Limpar marcação**;
+  - **Da linha marcada para cima** / **para baixo** (com uma marcada);
+  - **Preencher entre as 2 marcadas** (marca o trecho inteiro entre duas linhas).
+- **Copiar** (1 ou mais linhas marcadas) — copia as linhas para a área de transferência do
+  Android, na ordem do arquivo. Dá para colar em outro programa, em outro backup ou em outro
+  app (WhatsApp, e-mail).
+- **Colar** (1 linha marcada) — insere o que estiver na área de transferência **acima** da
+  linha marcada (um texto copiado de outro app também serve; cada quebra de linha vira uma
+  linha). Sem nada copiado, avisa "Nada para colar".
+- **Linha** (1 linha marcada) — pergunta:
+  - **Editar** — muda a linha. Se for uma instrução conhecida (SPRAY_SPEED, AIRCUT_SPEED,
+    SPRAY_JSPEED, AIRCUT_JSPEED, SPRAY, PRE_SPRAY, DOUT, ACCEL, SMOOTH_RANGE, CALL_DBK,
+    CALL_PGM, TWAIT, TIMER_WAIT, UC_JUMP, LABEL, GUN, LMOVE XYZ1/XYZ2, JMOVE JOINT), abre
+    campo por campo, como o CHANGE do pendant: troca para outra instrução do mesmo grupo
+    levando os valores (ex.: SPRAY_SPEED → AIRCUT_SPEED), ON/OFF em botões, números com a
+    unidade e a prévia da linha. Recuo e comentário (`;…`) ficam iguais. "Editar como texto"
+    (e linhas fora da lista) abre a linha como texto livre.
+  - **Inserir** — linha nova no lugar da marcada (a marcada e as de baixo descem).
+  - **Adicionar** — linha nova logo depois da marcada.
+  - Nos dois, escolhe-se o grupo e a instrução (como a lista do pendant) ou "Texto livre"; a
+    linha nova usa o recuo da marcada.
+  - **Segurar uma linha** (mesmo fora do modo de edição) vai direto para o Editar dela.
+- **Excluir** (1 ou mais marcadas) — apaga as linhas marcadas.
+- **Desfazer / Refazer** — voltam e refazem cada alteração (colar, excluir, editar,
+  substituir…). Desfazer até o original deixa de contar como alteração não salva.
+
+**Substituir** (aparece no modo de edição)
+- Abre a pesquisa e, embaixo, o campo **"Substituir por"**. O que procurar é o texto da
+  pesquisa (sem diferença de maiúsculas).
+- **Substituir** — troca a ocorrência atual e vai para a próxima. Numa linha com várias, troca
+  uma de cada vez e não troca de novo o texto que acabou de entrar. A primeira vez, se a pesquisa
+  ainda não rodou, só pesquisa.
+- **Todos** — troca todas de uma vez e avisa "N substituições em M linhas". Um Desfazer volta
+  tudo.
+
+**Salvar**
+- O botão mostra **Salvo** (nada a gravar), **Salvar** (com marca de alteração), **Salvando…**
+  ou **Salvar em…** (arquivo novo, vindo de fora: escolhe-se o robô onde guardar).
+- Salvar grava no backup do app e na pasta do robô. Num programa aberto sozinho, só aquele
+  bloco `.PROGRAM … .END` é trocado no backup. A tela de variáveis (só leitura) e o arquivo
+  externo não gravam por cima do original.
+- Salvar **não manda nada ao robô**: para isso use **Enviar** no painel.
+
+**⋮ → Conversão de programa** (sobre as linhas marcadas, todas dentro de um mesmo programa)
+- **Deslocar pontos** — soma um valor em X, Y, Z, O, A, T e nos eixos externos (0 = não mexe)
+  dos pontos usados nos LMOVE e/ou JMOVE marcados.
+- **Espelhar pontos** — inverte o sinal de X, Y ou Z desses pontos.
+- Só altera pontos definidos e usados **somente** nesse programa; os usados em outro programa
+  ficam de fora e aparecem na mensagem do resultado.
+
+O voltar fecha primeiro a pesquisa, depois o modo de edição, e só então sai do editor.
+
+### Histórico de backups — seção 8
+- **Ver:** os backups do robô com data e tamanho; **pesquisar** pelo nome; ordenar
+  **Mais novos / Mais antigos**.
+- **Ler pasta** — importa os `.as` novos da pasta do robô (ex.: um SAVE feito pelo terminal).
+  Não apaga nada.
+- Em cada backup:
+  - **Ver código** — abre no editor;
+  - **Duplicar** — cópia com outro nome;
+  - **Compartilhar** — **exportar** para uma pasta escolhida ou **compartilhar** por outro app;
+  - **Excluir** — apaga do app e da pasta (pede confirmação).
+- **"+"**:
+  - **Baixar do robô conectado** — vai para o terminal;
+  - **Importar** — um `.as` do celular (até 20 MB, só texto).
+- Tocar num backup mostra ele no painel.
+
+### Comandos rápidos — seção 11
+- Botões de comando de cada robô (o raio do terminal). **Tocar** envia o comando e volta para o
+  terminal. Cada um tem **editar** e **excluir**; **"+"** cria um novo.
+- No comando, `[ROBOT]` vira o nome do robô e `[DATA]` a data e hora (`_aaaammdd_hhmm`). Ex.:
+  `SAVE/FULL [ROBOT][DATA]`.
+- A lista padrão da Kawasaki (`docs/KIDE_COMANDOS.md`):
+  - **Backups:** SAVE/FULL, SAVE/P, /L, /R, /S, /SYS, /ROB, /ALLLOG;
+  - **Consultas:** ID, FREE, estado do programa do robô e do PC 1 (`TYPE TASK`);
+  - **Controle, como no KIDE:** ERESET, HOLD, CONTINUE, ZPOW ON/OFF, SPEED 50, ABORT, KILL,
+    PCABORT 1:, PCKILL 1:;
+  - DIR.
+
+### Terminal Geral — seção 11
+- Aberto pela Tela de Projeto. O que se digita (ou o comando rápido escolhido) vai para **todos
+  os robôs conectados do projeto** ao mesmo tempo, com `[ROBOT]`/`[DATA]` trocados para cada um.
+- **Conectar** liga todos e mostra o andamento robô por robô; **Desconectar** desliga todos;
+  **Limpar** limpa a tela. A tela mostra só o que foi enviado; a resposta de cada robô fica no
+  terminal dele.
+
+### Tela de Projeto (cabine) — seção 15
+**Ver e conectar**
+- A grade da cabine com cada robô na sua vaga (LED, nome, estado) e os equipamentos
+  (transportador…) como faixas com setas do fluxo. **Tocar** num robô conecta/desconecta;
+  **segurar** abre o painel dele. Robôs sem vaga ficam em "Fora do layout".
+- Ações: **Conectar todos**, **Desconectar**, **Editar layout**, **Terminal Geral**.
+  **⋮ →** Renomear projeto, Mestre / Escravo.
+
+**Editar layout**
+- Tocar num robô o seleciona. Com um selecionado:
+  - tocar numa vaga vazia o move para lá;
+  - tocar noutro robô troca os dois de lugar;
+  - **Tirar do layout** o manda para "Fora do layout".
+- **Posicionar todos** coloca os robôs sem vaga nas vagas livres.
+- **"+"** adiciona coluna; **Adicionar linha**; **"−"** remove linha ou coluna vazia.
+- **Adicionar equipamento:** Transportador ou Outro (com nome), e muda a posição dele entre as
+  linhas.
+- **Salvar** grava; **Descartar** (ou voltar) desfaz tudo.
+
+**Ações em grupo** (cada uma abre a lista dos robôs, todos marcados, para escolher; rodam ao
+mesmo tempo, sempre conectando antes; uma falha não para os outros; **Parar** cancela no app)
+- **Backup de todos** — SAVE/FULL em cada robô, conferido, e registro do backup.
+- **Comando** — o mesmo comando em cada robô, esperando a resposta.
+- **Duplicar programa:**
+  1. **Escolher:** o programa de **ORIGEM** (com busca); a **CÓPIA** (nome novo já sugerido
+     com o próximo número livre; opção de trocar o comentário); o **FRAME DA BASE** (copiar o
+     frame para um novo, já preenchido pelo padrão, ex.: `fr_[100]` → `fr_[102]`, editável);
+     os robôs.
+  2. **Conferir:** em cada robô, se a origem existe, se o nome novo "será criado" ou "SERÁ
+     SUBSTITUÍDO", e o frame ("será criado" / "SERÁ SOBRESCRITO"). Desmarque o robô que não
+     deve receber. Depois, LOAD conferido em cada robô.
+- **Mini terminais:** as últimas linhas de cada robô e o andamento da ação (cinza na fila, azul
+  rodando, verde pronto, amarelo aviso, vermelho falha). Tocar abre o terminal do robô.
+
+**Mestre / escravo** (pares de cabines: o primer manda para o top coat, por exemplo)
+- **Configurar** (⋮ da lista, ⋮ do projeto ou botão embaixo do desenho), um cartão por projeto
+  escravo:
+  - origem → destino e o par de cada robô ("Parear pela posição" ou "Sem par");
+  - **Alterar a base no destino** (somar o offset) e o nome da variável do offset (padrão
+    `top_offset`);
+  - **Enviar a base (.TRANS) junto**;
+  - padrão do **frame da base** (`fr_[pgnum]`: o pg100 usa `fr_[100]`);
+  - um exemplo ao vivo com o pg100.
+- **Desenho:** o layout do mestre em cima, o do escravo embaixo e uma seta de cada mestre ao seu
+  escravo.
+- **Transferir:**
+  1. **Escolher:** a ORIGEM (azul) e o DESTINO (laranja), cada robô destino com a sua caixa, as
+     opções e os programas (com busca).
+  2. **Analisar:** por par e por programa:
+     - se existe na origem e no destino (linhas, data, comentário), com "SERÁ SUBSTITUÍDO"
+       quando já existe;
+     - as linhas BASE que mudam (`BASE fr_[100]` → `BASE fr_[100]+top_offset`);
+     - cada frame que vai junto (novo, igual ou "SERÁ SOBRESCRITO").
+
+     Com avisos, o botão vira "Transferir mesmo assim".
+  - Use **Atualizar** no painel dos robôs antes: as análises usam o último backup.
+
+### Abrir arquivo de outro app
+- Um `.as` ou `.pg` aberto pelo "Abrir com" (gerenciador de arquivos, WhatsApp, e-mail) abre no
+  editor sem virar backup. **Salvar em…** escolhe o robô e guarda como backup dele. Arquivo acima
+  de 20 MB ou que não seja texto é recusado com o motivo.
+
+---
+
 ## 0. Estrutura de módulos
 
 O app é dividido em módulos Gradle. Cada módulo tem uma responsabilidade só, então dá
@@ -465,9 +815,11 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   (comentários em verde, textos entre aspas em laranja, seções `.PROGRAM`/`.END`/`.TRANS`
   em amarelo, comandos de movimento em azul, sinais/esperas em verde-água, outras
   palavras-chave em roxo, números em verde-claro).
-- **Barra do topo:** voltar, nome do arquivo, lupa, lápis, disquete (chama `onSave` com as
-  linhas juntas por quebra de linha; numa tela somente-leitura o padrão não grava) e ⋮.
-- **Lupa** abre uma barra embaixo (`SearchNavigationBar`): campo de texto, botão pesquisar,
+- **Barra do topo** (`AppTopBar`): voltar, nome do arquivo, linhas no subtítulo e ⋮; na linha
+  de ações, **Pesquisar**, **Editar**, **Substituir** (só no modo de edição) e **Salvar**
+  (Salvo / Salvar / Salvando… / Salvar em…; chama `onSave` com as linhas juntas por quebra de
+  linha; numa tela somente-leitura o padrão não grava).
+- **Pesquisar** abre uma barra embaixo (`SearchNavigationBar`): campo de texto, botão pesquisar,
   setas para a linha encontrada anterior/próxima e "N de M". A pesquisa só roda no botão (ou
   no "pesquisar" do teclado, que fecha); tocar de novo com o mesmo texto vai para a próxima. A
   linha encontrada fica em destaque. O ícone de lista dentro do campo abre a **"Pesquisa rápida"**:
@@ -488,12 +840,13 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   vez e avisa "N substituições em M linhas". Cada troca entra no desfazer (Todos = um passo).
 - **Alteração pendente:** o editor compara o texto da tela com a versão salva (a que abriu ou a
   do último salvar); desfazer até voltar ao original deixa de contar como alteração.
-- **Lápis** liga o modo de edição: cada linha ganha uma caixa de seleção e abre a barra de
-  edição (`LineActionsToolbar`): marcar linhas em lote (todas, limpar, da marcada para
-  cima/baixo, entre duas), **copiar** (1+), **colar** (1, entra acima da marcada), **Edit** (1),
+- **Editar** liga o modo de edição: cada linha ganha uma caixa de seleção e abre a barra de
+  edição (`LineActionsToolbar`): **Marcar** (todas, limpar, da marcada para cima/baixo, entre
+  duas), **Copiar** (1+, para a área de transferência do Android), **Colar** (1, o que estiver na
+  área de transferência entra acima da marcada), **Linha** (1),
   **excluir** (1+) e, à direita, **desfazer** e **refazer**. As duas barras (pesquisa e
   edição) podem ficar abertas juntas.
-- **Edit** pergunta o que fazer com a linha marcada (`EditChoiceDialog`):
+- **Linha** pergunta o que fazer com a linha marcada (`EditChoiceDialog`):
   - **Editar** (também segurando a linha): se for uma instrução do catálogo `AsInstructions`
     (`:core:common`), abre `InstructionEditDialog`, como o CHANGE do teach pendant: o grupo,
     as outras instruções do grupo para trocar (levando os valores; ex.: SPRAY_SPEED →
@@ -686,8 +1039,7 @@ Tela principal de UM robô, organizada em uma "home" (`DashboardHome`) e seçõe
   aparece "N de M enviados". Um robô que falha não para os outros. O envio fica no painel
   aberto (não navega para outro robô).
 
-**Pendências / Próximos passos:** "Compartilhar programa" ainda não está implementado
-(`onShare = { /* ainda não implementado */ }` em `ProgramsPanel`).
+**Pendências / Próximos passos:** nenhuma pendência conhecida.
 
 ---
 
