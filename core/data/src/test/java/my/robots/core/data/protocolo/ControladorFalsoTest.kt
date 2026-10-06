@@ -2,6 +2,7 @@ package my.robots.core.data.protocolo
 
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import my.robots.core.network.KawasakiTerminalManager.Transfer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -191,6 +192,37 @@ class ControladorFalsoTest {
         val ev = s.terminal.getLoad(s.id).value!!
         assertFalse("LOAD com passo virado comentário foi dado como certo", ev.ok)
         assertTrue(s.comandos.sendAndAwaitPrompt(s.id, "ID", 10_000))
+    }
+
+    @Test fun `F19 pergunta do TIME aberta antes do LOAD e fechada pela confirmacao de estado`() = runBlocking {
+        val s = conectada("normal")
+        // como uma checagem do relógio que mandou TIME e ficou parada no "Change?"
+        s.terminal.sendCommand(s.id, "TIME")
+        assertTrue("o TIME não perguntou", s.espera(5_000) { s.historico().any { it.contains("Change?") } })
+        val r = s.comandos.loadFile(s.id, "transfer_pgtesteapp.as", programa, 30_000)
+        assertTrue("LOAD depois do Change? aberto: ${r.message}", r.ok)
+    }
+
+    @Test fun `F20 checagens do login ao mesmo tempo que o LOAD`() = runBlocking {
+        val s = conectada("normal")
+        // a mesma sequência do ControllerChecks (ID, TIME + Enter, FREE), com a mesma trava
+        val checagens = async {
+            s.comandos.lock(s.id).withLock {
+                s.comandos.sendAndAwaitPromptLocked(s.id, "ID", 10_000) &&
+                    run { s.terminal.sendCommand(s.id, "TIME"); s.comandos.sendAndAwaitPromptLocked(s.id, "", 10_000) } &&
+                    s.comandos.sendAndAwaitPromptLocked(s.id, "FREE", 10_000)
+            }
+        }
+        val carga = async { s.comandos.loadFile(s.id, "transfer_pgtesteapp.as", programa, 30_000) }
+        assertTrue("as checagens não terminaram", checagens.await())
+        assertTrue("LOAD junto com as checagens: ${carga.await().message}", carga.await().ok)
+    }
+
+    @Test fun `F21 LOAD sem resposta do controlador falha na confirmacao de estado`() = runBlocking {
+        val s = conectada("mudo")
+        val r = s.comandos.loadFile(s.id, "transfer_pgtesteapp.as", programa, 30_000)
+        assertFalse("LOAD num controlador mudo foi dado como certo", r.ok)
+        assertTrue(r.message, r.message.startsWith("Antes do LOAD"))
     }
 
     @Test fun `F16 dois robos ao mesmo tempo`() = runBlocking {

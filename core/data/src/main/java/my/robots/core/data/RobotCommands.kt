@@ -32,6 +32,11 @@ data class SaveResult(val ok: Boolean, val message: String, val fileName: String
  */
 class RobotCommands(private val terminal: KawasakiTerminalManager) {
 
+    companion object {
+        /** Espera do prompt em cada tentativa da confirmação de estado. */
+        private const val CONFIRM_TIMEOUT_MS = 5_000L
+    }
+
     private val locks = mutableMapOf<Int, Mutex>()
 
     /** Trava do robô: quem segura manda comandos sem misturar respostas com outros. */
@@ -94,7 +99,7 @@ class RobotCommands(private val terminal: KawasakiTerminalManager) {
         if (!terminal.getConnectionStatus(robotId).value) return LoadResult(false, "Robô desconectado")
         val bytes = content.toByteArray(Charsets.ISO_8859_1)
         return lock(robotId).withLock {
-            if (terminal.isTransferring(robotId)) return@withLock LoadResult(false, "Já há uma transferência em andamento")
+            confirmReadyLocked(robotId)?.let { return@withLock LoadResult(false, "Antes do LOAD: $it") }
             terminal.stageLoad(robotId, fileName, bytes)
             val before = terminal.getLoad(robotId).value
             val command = "LOAD $fileName"
@@ -124,7 +129,7 @@ class RobotCommands(private val terminal: KawasakiTerminalManager) {
     suspend fun saveFile(robotId: Int, command: String, expectedName: String, timeoutMs: Long = 15 * 60_000L): SaveResult {
         if (!terminal.getConnectionStatus(robotId).value) return SaveResult(false, "Robô desconectado")
         return lock(robotId).withLock {
-            if (terminal.isTransferring(robotId)) return@withLock SaveResult(false, "Já há uma transferência em andamento")
+            confirmReadyLocked(robotId)?.let { return@withLock SaveResult(false, "Antes do SAVE: $it") }
             val before = terminal.getSave(robotId).value
             val prompted = sendAndAwaitPromptLocked(robotId, command, timeoutMs)
             val save = terminal.getSave(robotId).value?.takeIf { it !== before }
@@ -169,6 +174,24 @@ class RobotCommands(private val terminal: KawasakiTerminalManager) {
             waited += 200
         }
         return false
+    }
+
+    /**
+     * Confirmação de estado antes de mandar dados (LOAD ou SAVE), para quem já segura a trava:
+     * o robô está conectado, sem transferência em andamento, sem pergunta do controlador
+     * esperando resposta e responde a um Enter voltando ao prompt ">" (duas tentativas). O Enter
+     * também encerra uma pergunta "Change?" que tenha ficado aberta (ex.: TIME das checagens).
+     * Devolve null se estiver pronto, ou o motivo.
+     */
+    suspend fun confirmReadyLocked(robotId: Int): String? {
+        if (!terminal.getConnectionStatus(robotId).value) return "robô desconectado"
+        if (terminal.isTransferring(robotId)) return "já há uma transferência em andamento"
+        if (terminal.getQuestion(robotId).value != null) return "o controlador está esperando a resposta a uma pergunta"
+        repeat(2) {
+            if (sendAndAwaitPromptLocked(robotId, "", CONFIRM_TIMEOUT_MS)) return null
+        }
+        return if (!terminal.getConnectionStatus(robotId).value) "a conexão caiu"
+        else "o controlador não voltou ao prompt (pode estar ocupado ou esperando uma resposta: veja o terminal)"
     }
 
     /** Texto que chegou depois do comando (as linhas abaixo da última que o contém). */

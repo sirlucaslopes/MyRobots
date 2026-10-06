@@ -36,6 +36,7 @@ class FileUtilTest {
         assertTrue(FileUtil.isTransferFile("var_fr__278_.as"))
         assertTrue(FileUtil.isTransferFile("db_1.as"))
         assertTrue(FileUtil.isTransferFile("DB_BATCH_1790772713551.AS"))
+        assertTrue(FileUtil.isTransferFile("dup_pg102.as"))
         assertFalse(FileUtil.isTransferFile("R10_20260929_1730.as"))
         assertFalse(FileUtil.isTransferFile("R12_full.as"))
         assertFalse(FileUtil.isTransferFile("db_19"))

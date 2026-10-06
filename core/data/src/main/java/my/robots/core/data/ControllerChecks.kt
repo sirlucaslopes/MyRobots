@@ -167,7 +167,9 @@ class ControllerChecks(
      * Conecta o robô (se ainda não estiver) e espera o login e as checagens terminarem.
      * Devolve false se não conectar ou não logar em [timeoutMs].
      */
-    suspend fun connectAndWait(robot: Robot, timeoutMs: Long = 20_000): Boolean {
+    // as checagens (ID, TIME, FREE) digitam letra por letra e podem passar de 20 s em vários
+    // robôs ao mesmo tempo: o envio esperava menos que isso e desistia com "Não conectou"
+    suspend fun connectAndWait(robot: Robot, timeoutMs: Long = 45_000): Boolean {
         if (!terminal.getConnectionStatus(robot.id).value) {
             terminal.connect(robot)
             // o socket abre em segundo plano: espera conectar antes de procurar o prompt

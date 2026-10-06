@@ -13,6 +13,7 @@ login (o teste cadastra o robô com loginUser = cenário):
     para_load     depois do primeiro pedaço o robô para de responder (não pede mais nada)
     corta_save    a conexão cai no meio do SAVE
     pede_dados    logo depois do login, pede dados (C) sem nenhum LOAD em andamento
+    mudo          depois do login para de responder a qualquer comando (sem eco, sem prompt)
     pergunta_load no meio do LOAD acha um "erro de sintaxe" e pergunta, como o K-ROSET:
                   "(0:Change to comment and continue, 1:Delete program and abort)"
 
@@ -180,6 +181,11 @@ class Sessao(threading.Thread):
             self.prompt()
             if self.cenario == "pede_dados":
                 self.pede_dados_sem_load()
+            if self.cenario == "mudo":
+                # lê e ignora tudo: o app não pode mandar dados sem a confirmação de estado
+                while True:
+                    self.recebe(1.0)
+                    self.rx.clear()
             while True:
                 cmd = self.linha().strip()
                 if cmd == "":

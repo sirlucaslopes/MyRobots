@@ -935,7 +935,11 @@ class KawasakiTerminalManager(
      * - isManualFinalize = true envia só o Enter (o texto já foi enviado tecla por tecla).
      */
     fun sendCommand(robotId: Int, command: String, isManualFinalize: Boolean = false) {
-        if (connections[robotId]?.outbox == null) return
+        val state = connections[robotId] ?: return
+        if (state.outbox == null) return
+        // mandou uma linha: o próximo ">" é um prompt novo, mesmo que o eco e o prompt cheguem
+        // juntos e a última linha continue ">" (acontece com o Enter vazio)
+        if (command != "SPACE") synchronized(state.history) { state.atPrompt = false }
         when {
             command == "SPACE" -> send(robotId, byteArrayOf(0x20))
             isManualFinalize -> send(robotId, "\r\n".toByteArray(charset))
