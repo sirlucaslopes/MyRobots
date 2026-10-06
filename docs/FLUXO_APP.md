@@ -13,7 +13,10 @@ geral de usabilidade e da organização das funções.
    juntar, mudar de lugar, renomear ou o que falta. Pode escrever direto no arquivo.
 3. Os fluxos estão em diagramas (Mermaid): o GitHub e o Claude os desenham. Losango = escolha
    ou condição; retângulo = tela ou passo; caixa arredondada = resultado.
-4. As fotos estão em `docs/telas/`. Telas sem foto estão marcadas com 📷 *foto pendente*.
+4. As fotos (celular, 06/10/2026) estão em `docs/telas/`, com o nome do código da tela
+   (ex.: `t06_5_variaveis_sem_uso.jpg`). Para analisar no Claude, suba o `.md` e as fotos
+   da parte que quiser comentar. Sem foto: G1 e G3 (só aparecem numa situação real de série
+   trocada ou de erro no meio do LOAD) e T12 (é o mesmo editor da T8).
 5. No fim há as **observações de usabilidade** que eu já notei (seção O) e um **rascunho de
    nova organização** (seção N), só para começar a conversa.
 6. Mande o arquivo de volta com as revisões preenchidas; eu leio tela por tela e faço as
@@ -89,15 +92,18 @@ flowchart TD
     G3 --> Q1(["Responde a opção escolhida"])
 ```
 
-- **G1 Série diferente** — 📷 *foto pendente*
-- **G2 Relógio do robô** — 📷 *foto pendente* (no K-ROSET aparece sempre, com 12 h a mais)
-- **G3 Pergunta do controlador** — 📷 *foto pendente*
+- **G1 Série diferente** — sem foto (precisa de um robô com a série trocada)
+- **G2 Relógio do robô** — no K-ROSET aparece sempre, com 12 h a mais:
+<img src="telas/g2_relogio.jpg" width="200" alt="g2_relogio">
+- **G3 Pergunta do controlador** — sem foto (precisa de um erro de sintaxe no meio de um LOAD)
 
 ✏️ **Revisão G:**
 
 ---
 
 ## T1. Abertura
+
+<img src="telas/t01_abertura.jpg" width="200" alt="t01_abertura">
 
 Desenho do robô por ~2,5 s e vai para a lista. Não tem ação.
 
@@ -107,7 +113,10 @@ Desenho do robô por ~2,5 s e vai para a lista. Não tem ação.
 
 ## T2. Lista de robôs (tela inicial)
 
-📷 *foto pendente*
+<img src="telas/t02_lista_robos.jpg" width="200" alt="t02_lista_robos"> <img src="telas/t02_lista_menu.jpg" width="200" alt="t02_lista_menu"> <img src="telas/t02_cartao_menu.jpg" width="200" alt="t02_cartao_menu"> <img src="telas/t02_pasta_arquivos.jpg" width="200" alt="t02_pasta_arquivos">
+
+<img src="telas/t02_lista_conectando.jpg" width="200" alt="t02_lista_conectando"> <img src="telas/t02_lista_conectado.jpg" width="200" alt="t02_lista_conectado">
+
 
 ```mermaid
 flowchart TD
@@ -156,7 +165,8 @@ flowchart TD
 
 ## T3. Cadastrar / editar robô
 
-📷 *foto pendente*
+<img src="telas/t03_cadastrar_robo.jpg" width="200" alt="t03_cadastrar_robo"> <img src="telas/t03_editar_robo.jpg" width="200" alt="t03_editar_robo">
+
 
 Campos: fabricante, projeto (com sugestões), nome (letras, números e `_`), IP, porta
 (padrão 23), login automático (usuário e senha, opcional). **Confirmar** só com nome e IP.
@@ -167,7 +177,8 @@ Campos: fabricante, projeto (com sugestões), nome (letras, números e `_`), IP,
 
 ## T4. Fabricantes
 
-📷 *foto pendente*
+<img src="telas/t04_fabricantes_1.jpg" width="200" alt="t04_fabricantes_1"> <img src="telas/t04_fabricantes_2.jpg" width="200" alt="t04_fabricantes_2"> <img src="telas/t04_fabricantes_3.jpg" width="200" alt="t04_fabricantes_3"> <img src="telas/t04_fabricantes_menu.jpg" width="200" alt="t04_fabricantes_menu">
+
 
 ```mermaid
 flowchart TD
@@ -190,7 +201,8 @@ flowchart TD
 
 ## T5. Mestre / Escravo (configuração)
 
-📷 *foto pendente*
+<img src="telas/t05_mestre_escravo_1.jpg" width="200" alt="t05_mestre_escravo_1"> <img src="telas/t05_mestre_escravo_2.jpg" width="200" alt="t05_mestre_escravo_2"> <img src="telas/t05_mestre_escravo_3.jpg" width="200" alt="t05_mestre_escravo_3">
+
 
 Aberta pelo ⋮ da lista, pelo ⋮ do projeto e pelo "Configurar" do desenho do projeto.
 
@@ -218,7 +230,10 @@ flowchart TD
 
 ### T6.1 Home
 
-📷 *foto pendente* (a home é longa: precisa de 3 ou 4 fotos)
+<img src="telas/t06_home_1.jpg" width="200" alt="t06_home_1"> <img src="telas/t06_home_2.jpg" width="200" alt="t06_home_2"> <img src="telas/t06_home_3.jpg" width="200" alt="t06_home_3"> <img src="telas/t06_home_menu.jpg" width="200" alt="t06_home_menu">
+
+<img src="telas/t06_status_geral_1.jpg" width="200" alt="t06_status_geral_1"> <img src="telas/t06_status_geral_2.jpg" width="200" alt="t06_status_geral_2"> <img src="telas/t06_por_eixo_1.jpg" width="200" alt="t06_por_eixo_1"> <img src="telas/t06_por_eixo_2.jpg" width="200" alt="t06_por_eixo_2">
+
 
 ```mermaid
 flowchart TD
@@ -264,7 +279,11 @@ flowchart TD
 
 ### T6.4 Programas
 
-📷 *foto pendente* · Excluir: ![Excluir programa](telas/programas_excluir_robo.png)
+
+<img src="telas/t06_4_programas.jpg" width="200" alt="t06_4_programas"> <img src="telas/t06_4_programas_pesquisa.jpg" width="200" alt="t06_4_programas_pesquisa"> <img src="telas/t06_4_programas_marcado.jpg" width="200" alt="t06_4_programas_marcado"> <img src="telas/t06_4_programas_duplicar.jpg" width="200" alt="t06_4_programas_duplicar">
+
+<img src="telas/programas_excluir_robo.jpg" width="200" alt="programas_excluir_robo">
+
 
 ```mermaid
 flowchart TD
@@ -284,7 +303,11 @@ flowchart TD
 
 ### T6.5 Variáveis
 
-![Variáveis com o uso](telas/variaveis_uso.png) ![Excluir variáveis](telas/variaveis_excluir_robo.png)
+
+<img src="telas/t06_5_variaveis.jpg" width="200" alt="t06_5_variaveis"> <img src="telas/t06_5_variaveis_reais.jpg" width="200" alt="t06_5_variaveis_reais"> <img src="telas/t06_5_variaveis_sem_uso.jpg" width="200" alt="t06_5_variaveis_sem_uso"> <img src="telas/t06_5_variaveis_nova.jpg" width="200" alt="t06_5_variaveis_nova">
+
+<img src="telas/variaveis_uso.jpg" width="200" alt="variaveis_uso"> <img src="telas/variaveis_excluir_robo.jpg" width="200" alt="variaveis_excluir_robo">
+
 
 ```mermaid
 flowchart TD
@@ -310,7 +333,8 @@ flowchart TD
 
 ### T6.6 Data Bank
 
-📷 *foto pendente*
+<img src="telas/t06_6_databank.jpg" width="200" alt="t06_6_databank"> <img src="telas/t06_6_databank_editar.jpg" width="200" alt="t06_6_databank_editar"> <img src="telas/t06_6_databank_editar_lote.jpg" width="200" alt="t06_6_databank_editar_lote">
+
 
 ```mermaid
 flowchart TD
@@ -329,7 +353,11 @@ flowchart TD
 
 ### T6.7 Logs (Erros, Operação, Edição)
 
-📷 *foto pendente* (lista de erros e o detalhe de um erro)
+
+<img src="telas/t06_7_log_erros.jpg" width="200" alt="t06_7_log_erros"> <img src="telas/t06_7_log_erros_pesquisa.jpg" width="200" alt="t06_7_log_erros_pesquisa"> <img src="telas/t06_7_log_erro_detalhe_1.jpg" width="200" alt="t06_7_log_erro_detalhe_1"> <img src="telas/t06_7_log_erro_detalhe_2.jpg" width="200" alt="t06_7_log_erro_detalhe_2">
+
+<img src="telas/t06_7_log_operacao.jpg" width="200" alt="t06_7_log_operacao"> <img src="telas/t06_7_log_edicao.jpg" width="200" alt="t06_7_log_edicao">
+
 
 - Só com backup SAVE/FULL; sem ele aparecem zerados com a explicação.
 - **Erros:** código, mensagem, data; tocar abre o detalhe (estado no momento, programas em
@@ -341,7 +369,8 @@ flowchart TD
 
 ### T6.8 Terminal do robô
 
-📷 *foto pendente*
+<img src="telas/t06_8_terminal.jpg" width="200" alt="t06_8_terminal">
+
 
 ```mermaid
 flowchart TD
@@ -361,9 +390,11 @@ flowchart TD
 
 ### T6.9 Comparar com o robô
 
-![Comparar: escolha](telas/comparar_inicio.png) ![Comparar: resultado](telas/comparar_resultado.png)
-![Confirmar o apagar](telas/comparar_confirmar_apagar.png) ![Resultado do apagar](telas/apagar_no_robo_resultado.png)
-![Depois de apagar](telas/comparar_depois.png)
+
+<img src="telas/comparar_inicio.jpg" width="200" alt="comparar_inicio"> <img src="telas/t06_9_comparar_trocar.jpg" width="200" alt="t06_9_comparar_trocar"> <img src="telas/comparar_resultado.jpg" width="200" alt="comparar_resultado">
+
+<img src="telas/comparar_confirmar_apagar.jpg" width="200" alt="comparar_confirmar_apagar"> <img src="telas/apagar_no_robo_resultado.jpg" width="200" alt="apagar_no_robo_resultado"> <img src="telas/comparar_depois.jpg" width="200" alt="comparar_depois">
+
 
 ```mermaid
 flowchart TD
@@ -389,7 +420,8 @@ flowchart TD
 
 ### T6.10 Enviar para robôs
 
-📷 *foto pendente*
+<img src="telas/t06_10_enviar_para_robos.jpg" width="200" alt="t06_10_enviar_para_robos">
+
 
 ```mermaid
 flowchart TD
@@ -410,7 +442,8 @@ O LOAD substitui sem perguntar um programa que já existe no robô.
 
 ## T7. Comandos rápidos
 
-📷 *foto pendente*
+<img src="telas/t07_comandos_rapidos.jpg" width="200" alt="t07_comandos_rapidos"> <img src="telas/t07_comandos_editar.jpg" width="200" alt="t07_comandos_editar">
+
 
 - Lista de botões de comando do robô. **Tocar** envia e volta ao terminal; **editar**,
   **excluir**, **"+"** novo.
@@ -425,7 +458,13 @@ O LOAD substitui sem perguntar um programa que já existe no robô.
 
 ## T8. Editor de programas
 
-📷 *foto pendente* (ver, pesquisa, modo de edição, substituir, janela da linha, conversão)
+
+<img src="telas/t08_editor.jpg" width="200" alt="t08_editor"> <img src="telas/t08_editor_pesquisa_rapida.jpg" width="200" alt="t08_editor_pesquisa_rapida"> <img src="telas/t08_editor_pesquisa.jpg" width="200" alt="t08_editor_pesquisa"> <img src="telas/t08_editor_edicao.jpg" width="200" alt="t08_editor_edicao">
+
+<img src="telas/t08_editor_marcar.jpg" width="200" alt="t08_editor_marcar"> <img src="telas/t08_editor_linha.jpg" width="200" alt="t08_editor_linha"> <img src="telas/t08_editor_instrucao.jpg" width="200" alt="t08_editor_instrucao"> <img src="telas/t08_editor_inserir.jpg" width="200" alt="t08_editor_inserir">
+
+<img src="telas/t08_editor_substituir.jpg" width="200" alt="t08_editor_substituir"> <img src="telas/t08_editor_conversao.jpg" width="200" alt="t08_editor_conversao"> <img src="telas/t08_editor_deslocar.jpg" width="200" alt="t08_editor_deslocar">
+
 
 ```mermaid
 flowchart TD
@@ -466,7 +505,8 @@ Salvar não manda nada ao robô; para mandar, é o **Enviar** do painel.
 
 ## T9. Histórico de backups
 
-📷 *foto pendente*
+<img src="telas/t09_historico.jpg" width="200" alt="t09_historico"> <img src="telas/t09_historico_criar.jpg" width="200" alt="t09_historico_criar"> <img src="telas/t09_historico_compartilhar.jpg" width="200" alt="t09_historico_compartilhar">
+
 
 ```mermaid
 flowchart TD
@@ -490,8 +530,17 @@ flowchart TD
 
 ## T10. Tela de Projeto (cabine)
 
-📷 *foto pendente* (grade, ações em grupo, mini terminais, desenho mestre/escravo,
-duplicar, transferir)
+
+<img src="telas/t10_projeto_1.jpg" width="200" alt="t10_projeto_1"> <img src="telas/t10_projeto_2.jpg" width="200" alt="t10_projeto_2"> <img src="telas/t10_projeto_3.jpg" width="200" alt="t10_projeto_3"> <img src="telas/t10_projeto_menu.jpg" width="200" alt="t10_projeto_menu">
+
+<img src="telas/t10_editar_layout_1.jpg" width="200" alt="t10_editar_layout_1"> <img src="telas/t10_editar_layout_selecionado.jpg" width="200" alt="t10_editar_layout_selecionado"> <img src="telas/t10_editar_layout_equipamento.jpg" width="200" alt="t10_editar_layout_equipamento">
+
+<img src="telas/t10_backup_todos.jpg" width="200" alt="t10_backup_todos"> <img src="telas/t10_comando.jpg" width="200" alt="t10_comando">
+
+<img src="telas/t10_duplicar_1.jpg" width="200" alt="t10_duplicar_1"> <img src="telas/t10_duplicar_2.jpg" width="200" alt="t10_duplicar_2"> <img src="telas/t10_duplicar_3.jpg" width="200" alt="t10_duplicar_3"> <img src="telas/t10_duplicar_analise.jpg" width="200" alt="t10_duplicar_analise">
+
+<img src="telas/t10_transferir_1.jpg" width="200" alt="t10_transferir_1"> <img src="telas/t10_transferir_2.jpg" width="200" alt="t10_transferir_2"> <img src="telas/t10_transferir_analise_1.jpg" width="200" alt="t10_transferir_analise_1">
+
 
 ```mermaid
 flowchart TD
@@ -530,7 +579,8 @@ flowchart TD
 
 ## T11. Terminal Geral
 
-📷 *foto pendente*
+<img src="telas/t11_terminal_geral.jpg" width="200" alt="t11_terminal_geral"> <img src="telas/t11_terminal_geral_comandos.jpg" width="200" alt="t11_terminal_geral_comandos">
+
 
 - O que se digita, ou um comando rápido, vai para **todos os robôs conectados do projeto**.
 - **Conectar** liga todos (janela com o andamento); **Desconectar**; **Limpar**.
@@ -569,6 +619,12 @@ Para você concordar, discordar ou completar (escreva ao lado de cada uma).
 | O11 | **Comparar só apaga:** o que está "só no offline" ou "diferente" precisa ir para Programas/Variáveis e usar Enviar. |
 | O12 | **SAVE digitado no terminal** não vira backup na hora (só ao abrir a lista ou em "Ler pasta"). |
 | O13 | **Nomes de backup** aparecem com o prefixo "Sinc:" (ex.: "Sinc: C02_20261006_1143.as"). |
+| O15 | **Arquivos de envio no Histórico:** `dup_pg761.as` aparece como backup no Histórico (o painel já os esconde). |
+| O16 | **`comment___` na lista de programas** do Transferir e do Duplicar (é um bloco interno do controlador; o painel já o esconde). |
+| O17 | **"Sem sinal" logo depois de conectar:** o pulso é passivo; um robô quieto há 8 s aparece amarelo mesmo estando bem (visto no C02 ao conectar). |
+| O18 | **Terminal Geral vazio:** a tela fica preta até alguém mandar algo; não mostra quem está conectado nem as respostas. |
+| O19 | **Variáveis do sistema (`!gun1`…) no topo da lista** de Posições, antes das do usuário. |
+| O20 | **Botões de janela colados na barra do Android:** no editar robô, o "Cancelar" fica junto da barra de navegação e é fácil tocar no Início. |
 | O14 | **Telas sem ponto de partida claro** para tarefas do dia a dia: "fazer backup de tudo", "mandar um programa para 3 robôs", "ver o que mudou". |
 
 ✏️ **Revisão O:**
