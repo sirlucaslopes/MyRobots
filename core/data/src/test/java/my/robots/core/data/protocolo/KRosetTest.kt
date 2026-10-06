@@ -1,6 +1,7 @@
 package my.robots.core.data.protocolo
 
 import kotlinx.coroutines.runBlocking
+import my.robots.core.data.DeleteItem
 import my.robots.core.network.KawasakiTerminalManager.Transfer
 import org.junit.AfterClass
 import org.junit.Assert.assertEquals
@@ -113,6 +114,30 @@ class KRosetTest {
         val texto = s.arquivos.texto("KROSET", r.fileName!!)!!
         assertTrue("backup pequeno demais: ${r.bytes} bytes", r.bytes > 20_000)
         assertTrue("o programa de teste não está no backup", texto.contains(".PROGRAM pgtesteapp("))
+    }
+
+    @Test fun `K07 apaga programa e variaveis no controlador e confere`() = runBlocking {
+        val s = s()
+        val arquivo = listOf(
+            ".PROGRAM pgtesteapp2()", "  TWAIT 0.1", ".END",
+            ".TRANS", "tstfrapp 1.0 2.0 3.0 0.0 0.0 0.0", ".END",
+            ".REALS", "tstrealapp = 5", ".END"
+        ).joinToString("\n", postfix = "\n")
+        val load = s.comandos.loadFile(s.id, "transfer_pgtesteapp2.as", arquivo, 60_000)
+        assertTrue("LOAD falhou: ${load.message}", load.ok)
+
+        val itens = listOf(
+            DeleteItem("pgtesteapp2", "DELETE/P pgtesteapp2"),
+            DeleteItem("tstfrapp", "DELETE/L tstfrapp"),
+            DeleteItem("tstrealapp", "DELETE/R tstrealapp")
+        )
+        val r = s.comandos.deleteItems(s.id, itens)
+        r.forEach { assertTrue("${it.item.label}: ${it.message}", it.ok) }
+
+        // de novo: já não existem, então o controlador responde com erro e o app marca falha
+        val deNovo = s.comandos.deleteItems(s.id, itens)
+        deNovo.forEach { assertFalse("${it.item.label} ainda existe", it.ok) }
+        assertTrue("o controlador parou de atender depois", s.comandos.sendAndAwaitPrompt(s.id, "ID", 15_000))
     }
 
     @Test fun `K99 apaga o programa de teste`() = runBlocking {

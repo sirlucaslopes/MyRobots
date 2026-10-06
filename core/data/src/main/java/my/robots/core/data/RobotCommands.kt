@@ -22,6 +22,12 @@ data class LoadResult(val ok: Boolean, val message: String, val errors: Int? = n
  */
 data class SaveResult(val ok: Boolean, val message: String, val fileName: String? = null, val bytes: Long = 0)
 
+/** Um item a apagar no controlador: o nome para a tela e o comando (ex.: "DELETE/P pg200"). */
+data class DeleteItem(val label: String, val command: String)
+
+/** Resultado de um item apagado no controlador, com a resposta dele em caso de erro. */
+data class DeleteResult(val item: DeleteItem, val ok: Boolean, val message: String)
+
 /**
  * Conversa com o robô em vários passos: mandar um comando e esperar o prompt voltar, LOAD e
  * SAVE com o resultado conferido. Uma trava por robô ([lock]) garante que só uma dessas
@@ -35,6 +41,7 @@ class RobotCommands(private val terminal: KawasakiTerminalManager) {
     companion object {
         /** Espera do prompt em cada tentativa da confirmação de estado. */
         private const val CONFIRM_TIMEOUT_MS = 5_000L
+
     }
 
     private val locks = mutableMapOf<Int, Mutex>()
@@ -144,6 +151,51 @@ class RobotCommands(private val terminal: KawasakiTerminalManager) {
                 !reply.contains("File save completed", ignoreCase = true) ->
                     SaveResult(false, "Sem a confirmação \"File save completed\": veja o terminal", save.fileName, save.bytes)
                 else -> SaveResult(true, "${save.fileName} · ${save.bytes / 1024} KB", save.fileName, save.bytes)
+            }
+        }
+    }
+
+    /**
+     * Apaga itens no controlador, um comando por vez (ex.: "DELETE/P pg200", "DELETE/L fr_9"),
+     * na ordem dada (programas antes das variáveis que eles usavam). Se o controlador perguntar
+     * "Are you sure ? (Yes:1, No:0)", responde 1: quem chama já confirmou com o usuário.
+     * Cada item é conferido pela resposta: o controlador pergunta mesmo quando o item não existe,
+     * e depois do 1 só volta ao prompt se apagou; qualquer texto dele (ex.: "pg200:Variable (or
+     * program) does not exist.") ou o prompt que não volta é falha.
+     * Um item que falha não para os outros.
+     */
+    suspend fun deleteItems(robotId: Int, items: List<DeleteItem>, timeoutMs: Long = 15_000): List<DeleteResult> {
+        if (!terminal.getConnectionStatus(robotId).value) return items.map { DeleteResult(it, false, "Robô desconectado") }
+        return lock(robotId).withLock {
+            confirmReadyLocked(robotId)?.let { why -> return@withLock items.map { DeleteResult(it, false, "Antes de apagar: $why") } }
+            items.map { item ->
+                val prompts = terminal.getPromptCount(robotId)
+                val before = prompts.value
+                terminal.sendCommand(robotId, item.command)
+                var answered = false
+                var prompted = false
+                var waited = 0L
+                while (waited < timeoutMs && terminal.getConnectionStatus(robotId).value) {
+                    if (prompts.value > before) { prompted = true; break }
+                    val last = terminal.getHistory(robotId).value.lastOrNull { it.isNotBlank() }.orEmpty()
+                    if (!answered && last.contains("Yes:1", ignoreCase = true)) {
+                        terminal.sendCommand(robotId, "1")
+                        answered = true
+                    }
+                    delay(200)
+                    waited += 200
+                }
+                // apagou: o controlador só volta ao prompt. Qualquer texto dele é o motivo da falha
+                // ("pg200:Variable (or program) does not exist.", "(P0117)Invalid…")
+                val reply = replyAfter(robotId, item.command)
+                val error = reply.lines().map { it.trim() }.firstOrNull {
+                    it.isNotEmpty() && !it.startsWith(">") && !it.contains("Yes:1", ignoreCase = true) && it != "1"
+                }
+                when {
+                    !prompted -> DeleteResult(item, false, "O robô não voltou ao prompt: veja o terminal")
+                    error != null -> DeleteResult(item, false, error.trimStart('^', ' ').take(100))
+                    else -> DeleteResult(item, true, if (answered) "Apagado (confirmado)" else "Apagado")
+                }
             }
         }
     }
