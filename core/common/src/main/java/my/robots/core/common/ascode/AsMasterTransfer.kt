@@ -94,6 +94,28 @@ object AsMasterTransfer {
         return found to wanted.filter { it !in foundNames }
     }
 
+    /** Nome de pose válido: letra, depois letras, números, _ e ., com índice opcional ("fr_[100]", "p[1,2]"). */
+    fun isValidPoseName(name: String): Boolean = FRAME_NAME.matches(name.trim())
+
+    /**
+     * Troca o frame [from] por [to] em todo o texto do programa, pelo nome exato ("fr_[100]" não
+     * pega "fr_[1000]" nem "xfr_[100]"). Devolve o texto novo e quantas vezes trocou.
+     */
+    fun renameFrame(code: String, from: String, to: String): Pair<String, Int> {
+        if (from.isBlank() || from == to) return code to 0
+        val regex = Regex("""(?<![\w.\]])""" + Regex.escape(from) + """(?![\w\[])""", RegexOption.IGNORE_CASE)
+        var count = 0
+        val out = regex.replace(code) { count++; to }
+        return out to count
+    }
+
+    /** A linha da .TRANS com outro nome ("fr_[100] 1 2 3 ..." -> "fr_[102] 1 2 3 ..."). */
+    fun renameTransLine(line: String, newName: String): String {
+        val t = line.trimStart()
+        val first = t.split(Regex("""\s+""")).firstOrNull().orEmpty()
+        return newName + t.removePrefix(first)
+    }
+
     /** true se o backup define a pose [name] na .TRANS (ex.: o offset no robô escravo). */
     fun definesPose(backup: String, name: String): Boolean = transLines(backup, listOf(name)).second.isEmpty()
 

@@ -28,6 +28,7 @@ import my.robots.core.common.layout.CabinState
 import my.robots.core.common.layout.Cell
 import my.robots.core.common.layout.LayoutOps
 import my.robots.core.common.FileUtil
+import my.robots.core.common.ascode.AsMasterTransfer
 import my.robots.core.common.ascode.AsProgramBlocks
 import my.robots.core.data.MasterSlaveConfig
 import my.robots.core.data.MasterSlaveOptions
@@ -363,7 +364,7 @@ class ProjectViewModel(
      * Confere em cada robô, pelo último backup, se o programa [source] existe (linhas, data) e
      * se o nome novo já existe (será substituído).
      */
-    fun analyzeDuplicate(robots: List<Robot>, source: String, newName: String, comment: String?) {
+    fun analyzeDuplicate(robots: List<Robot>, source: String, newName: String, comment: String?, frameFrom: String?, frameTo: String?) {
         _dupAnalysis.value = null
         _analyzing.value = true
         viewModelScope.launch {
@@ -371,14 +372,21 @@ class ProjectViewModel(
                 val checks = robots.map { r ->
                     val latest = latestContent(r, needPrograms = false)
                     val content = latest?.second
-                    val (src, dst) = withContext(Dispatchers.Default) {
-                        val s = content?.let { AsProgramBlocks.extract(it, source) }?.let(GroupAnalysis::programState)
-                        val d = content?.let { AsProgramBlocks.extract(it, newName) }?.let(GroupAnalysis::programState)
-                        s to d
+                    withContext(Dispatchers.Default) {
+                        val block = content?.let { AsProgramBlocks.extract(it, source) }
+                        val dst = content?.let { AsProgramBlocks.extract(it, newName) }?.let(GroupAnalysis::programState)
+                        var fSrc: String? = null
+                        var fDst: String? = null
+                        var uses = 0
+                        if (content != null && frameFrom != null && frameTo != null) {
+                            fSrc = AsMasterTransfer.transLines(content, listOf(frameFrom)).first.firstOrNull()?.trim()
+                            fDst = AsMasterTransfer.transLines(content, listOf(frameTo)).first.firstOrNull()?.trim()
+                            uses = block?.let { AsMasterTransfer.renameFrame(it, frameFrom, frameTo).second } ?: 0
+                        }
+                        DupCheck(r, latest?.first, block?.let(GroupAnalysis::programState), dst, fSrc, fDst, uses)
                     }
-                    DupCheck(r, latest?.first, src, dst)
                 }
-                _dupAnalysis.value = DuplicateAnalysis(source, newName, comment, checks)
+                _dupAnalysis.value = DuplicateAnalysis(source, newName, comment, frameFrom, frameTo, checks)
             } finally {
                 _analyzing.value = false
             }
@@ -387,13 +395,20 @@ class ProjectViewModel(
 
     fun clearDupAnalysis() { _dupAnalysis.value = null }
 
-    /** Duplica [source] como [newName] (com [comment], se houver) em cada robô escolhido. */
-    fun duplicate(robots: List<Robot>, source: String, newName: String, comment: String?) {
+    /**
+     * Duplica [source] como [newName] (com [comment], se houver) em cada robô escolhido; com
+     * [frameFrom]/[frameTo], copia também o frame da base com o nome novo.
+     */
+    fun duplicate(robots: List<Robot>, source: String, newName: String, comment: String?, frameFrom: String?, frameTo: String?) {
         if (robots.isEmpty()) return
         runAction("Duplicar $source → $newName", robots.map { it.id }) { update ->
-            operations.duplicateInRobots(robots, source, newName, comment, update)
+            operations.duplicateInRobots(robots, source, newName, comment, frameFrom, frameTo, update)
         }
     }
+
+    /** Padrão do frame da base deste projeto (configuração Mestre / Escravo), ou o padrão do app. */
+    fun framePattern(): String =
+        masterSlave.config(projectName).framePattern.ifBlank { MasterSlaveConfig.DEFAULT_FRAME_PATTERN }
 
     // ---------- Edição ----------
 

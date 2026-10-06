@@ -50,12 +50,32 @@ data class TransferAnalysis(
     val offset: String
 )
 
-/** Duplicação num robô: o programa de origem e o nome novo no último backup dele. */
-data class DupCheck(val robot: Robot, val backupAt: Long?, val source: ProgramState?, val target: ProgramState?) {
+/**
+ * Duplicação num robô, pelo último backup dele: o programa de origem e o nome novo e, com a cópia
+ * do frame, a linha do frame de origem (null = não existe), a do frame novo (null = não existe:
+ * será criado) e quantas vezes o programa usa o frame de origem.
+ */
+data class DupCheck(
+    val robot: Robot,
+    val backupAt: Long?,
+    val source: ProgramState?,
+    val target: ProgramState?,
+    val frameSource: String? = null,
+    val frameTarget: String? = null,
+    val frameUses: Int = 0
+) {
     val canDo: Boolean get() = source != null
 }
 
-data class DuplicateAnalysis(val source: String, val newName: String, val comment: String?, val checks: List<DupCheck>)
+/** A duplicação escolhida; frameFrom/frameTo = null: sem cópia do frame. */
+data class DuplicateAnalysis(
+    val source: String,
+    val newName: String,
+    val comment: String?,
+    val frameFrom: String?,
+    val frameTo: String?,
+    val checks: List<DupCheck>
+)
 
 /** Regras das análises (sem Android). */
 object GroupAnalysis {

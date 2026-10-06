@@ -161,6 +161,13 @@ projeto que ficou sem robôs (`deleteLayoutIfEmpty`).
       incompleto);
     - **desconectar no meio de um SAVE/LOAD fica adiado** até o fim (fechar a conexão no meio
       deixa o controlador esperando); a conexão que cai no meio avisa no terminal.
+  - **Confirmação de estado antes de mandar dados** (`RobotCommands.confirmReadyLocked`, em todo
+    LOAD/SAVE do app): conectado, sem transferência, sem pergunta pendente e voltando ao prompt com
+    um Enter (duas tentativas; o Enter também fecha um "Change?" que o TIME das checagens deixou
+    aberto). Falha = "Antes do LOAD: <motivo>". As checagens do login e o envio usam a mesma
+    trava por robô e não se misturam (testes F19 e F20); `connectAndWait` espera até 45 s.
+  - Depois de mandar qualquer linha, o próximo ">" conta como prompt novo (antes, um Enter vazio
+    com o eco e o prompt no mesmo pacote não era contado e a espera falhava).
   - `getSave`/`getLoad`: o último SAVE e LOAD de cada robô (arquivo, bytes, terminou, ok e o
     motivo); `getTransfer`/`isTransferring`: se há um em andamento.
   - **O nome do arquivo que o robô manda é validado** (`TransferFileNames.safeName`: só
@@ -848,12 +855,21 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
      pg102 se o pg101 existe; o nome segue a regra do manual: começa com letra, até 15 letras,
      números, `_` ou `.`; e, com "Trocar o comentário do programa", o comentário novo; vazio = sem
      comentário) e os robôs.
+     **FRAME DA BASE:** "Copiar o frame para um novo" (marcado), com o frame de origem e o da cópia
+     já preenchidos pelo padrão do projeto (`fr_[pgnum]`: pg100 → `fr_[100]`, pg102 → `fr_[102]`;
+     o da cópia acompanha o nome novo até ser editado). Nome de variável aceita `_`, `.` e índice
+     entre colchetes (`AsMasterTransfer.isValidPoseName`).
   2. **Conferir** (`analyzeDuplicate`): em cada robô, pelo último backup, se o programa de origem
      existe (linhas, data, comentário; senão fica de fora) e se o nome novo já existe ("será
      criado" ou "SERÁ SUBSTITUÍDO"); caixa por robô. Com avisos, "Duplicar mesmo assim".
+- Na conferência, com a cópia do frame: o frame de origem no robô (linha com os valores, ou "não
+  existe: frame não é copiado"), quantas vezes o programa o usa e se o frame da cópia "será
+  criado" ou "SERÁ SOBRESCRITO".
 - Execução (`ProjectOperations.duplicateInRobots`), em paralelo: tira o bloco do último backup do
-  robô, troca o nome (`AsProgramBlocks.renameHeader`) e o comentário (`setHeaderComment`), conecta
-  e faz o LOAD conferido de `dup_<nome>.as`. O resultado aparece no mini terminal de cada robô.
+  robô, troca o nome (`AsProgramBlocks.renameHeader`), o comentário (`setHeaderComment`) e o frame
+  em todo o programa (`AsMasterTransfer.renameFrame`, nome exato), junta a linha da .TRANS com o
+  nome novo (`renameTransLine`), conecta e faz o LOAD conferido de `dup_<nome>.as` (arquivo de
+  envio: `FileUtil.isTransferFile` não o trata como backup). O resultado aparece no mini terminal de cada robô.
 - A conferência usa o último backup: use o **Atualizar** no painel do robô antes, para ela ver o
   que está no controlador agora.
 

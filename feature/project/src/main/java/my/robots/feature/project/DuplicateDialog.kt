@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import my.robots.core.common.ascode.AsMasterTransfer
 import my.robots.core.designsystem.FormDialog
 import my.robots.core.model.Robot
 import java.text.SimpleDateFormat
@@ -39,12 +40,13 @@ private val NewColor = Color(0xFF81C784)
 @Composable
 internal fun DuplicateDialog(
     robots: List<Robot>,
+    framePattern: String,
     programs: List<String>?,
     analysis: DuplicateAnalysis?,
     analyzing: Boolean,
-    onAnalyze: (List<Robot>, String, String, String?) -> Unit,
+    onAnalyze: (List<Robot>, String, String, String?, String?, String?) -> Unit,
     onBackFromAnalysis: () -> Unit,
-    onConfirm: (List<Robot>, String, String, String?) -> Unit,
+    onConfirm: (List<Robot>, DuplicateAnalysis) -> Unit,
     onDismiss: () -> Unit
 ) {
     var chosenRobots by remember { mutableStateOf(robots.map { it.id }.toSet()) }
@@ -54,6 +56,17 @@ internal fun DuplicateDialog(
     var comment by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf("") }
     var excluded by remember { mutableStateOf(setOf<Int>()) }
+    // frame da base: pré-preenchido pelo padrão (fr_[pgnum]: pg100 -> fr_[100], pg102 -> fr_[102]);
+    // editado à mão, deixa de acompanhar o nome
+    var copyFrame by remember { mutableStateOf(true) }
+    var frameFrom by remember { mutableStateOf("") }
+    var frameTo by remember { mutableStateOf("") }
+    var frameToEdited by remember { mutableStateOf(false) }
+    val frameOk = !copyFrame || (AsMasterTransfer.isValidPoseName(frameFrom) && AsMasterTransfer.isValidPoseName(frameTo) &&
+        !frameFrom.equals(frameTo, ignoreCase = true))
+    fun suggestFrameTo(name: String) {
+        if (!frameToEdited) frameTo = AsMasterTransfer.frameFor(framePattern, name).orEmpty()
+    }
     val step2 = analysis != null || analyzing
     val nameOk = GroupAnalysis.isValidProgramName(newName) && !newName.equals(source, ignoreCase = true)
 
@@ -65,16 +78,21 @@ internal fun DuplicateDialog(
                 Button(
                     onClick = {
                         excluded = emptySet()
-                        onAnalyze(robots.filter { it.id in chosenRobots }, source!!, newName, if (changeComment) comment else null)
+                        onAnalyze(
+                            robots.filter { it.id in chosenRobots }, source!!, newName, if (changeComment) comment else null,
+                            if (copyFrame) frameFrom.trim() else null, if (copyFrame) frameTo.trim() else null
+                        )
                     },
-                    enabled = source != null && nameOk && chosenRobots.isNotEmpty()
+                    enabled = source != null && nameOk && frameOk && chosenRobots.isNotEmpty()
                 ) { Text("Analisar") }
             } else {
                 val a = analysis
                 val going = a?.checks?.filter { it.robot.id !in excluded && it.canDo }.orEmpty()
-                val warn = going.any { it.target != null || it.backupAt == null } || (a?.checks?.any { !it.canDo && it.robot.id !in excluded } == true)
+                val warn = going.any { it.target != null || it.backupAt == null } ||
+                    (a?.checks?.any { !it.canDo && it.robot.id !in excluded } == true) ||
+                    (a?.frameTo != null && going.any { it.frameSource == null || it.frameTarget != null })
                 Button(
-                    onClick = { onConfirm(going.map { it.robot }, a!!.source, a.newName, a.comment) },
+                    onClick = { onConfirm(going.map { it.robot }, a!!) },
                     enabled = going.isNotEmpty(),
                     colors = if (warn) ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB300), contentColor = Color.Black)
                         else ButtonDefaults.buttonColors()
@@ -107,6 +125,9 @@ internal fun DuplicateDialog(
                             val pick = {
                                 source = name
                                 newName = GroupAnalysis.nextFreeName(name, programs)
+                                frameFrom = AsMasterTransfer.frameFor(framePattern, name).orEmpty()
+                                frameToEdited = false
+                                suggestFrameTo(newName)
                             }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -126,7 +147,7 @@ internal fun DuplicateDialog(
             Block("CÓPIA", "o programa novo", NewColor) {
                 OutlinedTextField(
                     value = newName,
-                    onValueChange = { newName = it.trim() },
+                    onValueChange = { newName = it.trim(); suggestFrameTo(newName) },
                     label = { Text("Nome novo") },
                     isError = newName.isNotEmpty() && !nameOk,
                     supportingText = {
@@ -160,6 +181,47 @@ internal fun DuplicateDialog(
                     )
                 } else {
                     Text("A cópia mantém o comentário do programa de origem.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            // ---------- FRAME DA BASE ----------
+            Block("FRAME DA BASE", "a base (.TRANS) do programa", Color(0xFFFFB74D)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.small).clickable { copyFrame = !copyFrame }
+                ) {
+                    Checkbox(checked = copyFrame, onCheckedChange = { copyFrame = it })
+                    Text("Copiar o frame para um novo")
+                }
+                if (copyFrame) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = frameFrom,
+                            onValueChange = { frameFrom = it.trim() },
+                            label = { Text("Frame de origem") },
+                            isError = frameFrom.isNotEmpty() && !AsMasterTransfer.isValidPoseName(frameFrom),
+                            singleLine = true,
+                            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(Icons.AutoMirrored.Rounded.ArrowForward, null)
+                        OutlinedTextField(
+                            value = frameTo,
+                            onValueChange = { frameTo = it.trim(); frameToEdited = true },
+                            label = { Text("Frame da cópia") },
+                            isError = frameTo.isNotEmpty() && (!AsMasterTransfer.isValidPoseName(frameTo) || frameTo.equals(frameFrom, ignoreCase = true)),
+                            singleLine = true,
+                            textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Text(
+                        "No programa copiado, \"$frameFrom\" vira \"$frameTo\", e a linha dele na .TRANS vai junto com o nome novo. " +
+                            "Nome de variável: letras, números, _ e . com índice opcional, ex.: fr_[102].",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    Text("A cópia usa o mesmo frame do programa de origem.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             // ---------- ROBÔS ----------
@@ -249,6 +311,24 @@ private fun DuplicateAnalysisView(analysis: DuplicateAnalysis?, excluded: Set<In
                             else -> "${analysis.source} · ${describeDup(c.source)}"
                         }
                     )
+                    if (c.canDo && analysis.frameFrom != null && analysis.frameTo != null) {
+                        Line(
+                            "Frame", Color(0xFFFFB74D),
+                            when {
+                                c.frameSource == null -> Icons.Rounded.Warning
+                                c.frameTarget != null -> Icons.Rounded.Warning
+                                else -> Icons.Rounded.CheckCircle
+                            },
+                            if (c.frameSource == null || c.frameTarget != null) Color(0xFFFFB300) else Color(0xFF4CAF50),
+                            when {
+                                c.frameSource == null -> "${analysis.frameFrom} não existe: frame não é copiado"
+                                c.frameTarget != null -> "${analysis.frameFrom} → ${analysis.frameTo} (usado ${c.frameUses}x no programa); " +
+                                    "${analysis.frameTo} existe: SERÁ SOBRESCRITO"
+                                else -> "${analysis.frameFrom} → ${analysis.frameTo} (usado ${c.frameUses}x no programa): será criado"
+                            }
+                        )
+                        if (c.frameSource != null) Text("        " + c.frameSource, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, maxLines = 1)
+                    }
                     if (c.canDo) {
                         Line(
                             "Cópia", NewColor,

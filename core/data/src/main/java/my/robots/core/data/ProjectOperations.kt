@@ -130,14 +130,18 @@ class ProjectOperations(
 
     /**
      * Duplicar programa em grupo: em cada robô, tira [source] do último backup dele (nome
-     * exato), troca o nome para [newName] e, com [comment], o comentário do cabeçalho; conecta e
-     * faz o LOAD conferido. Um nome novo que já existe no robô é substituído (o LOAD substitui).
+     * exato), troca o nome para [newName] e, com [comment], o comentário do cabeçalho. Com
+     * [frameFrom]/[frameTo], troca o frame no programa e manda junto a linha da .TRANS com o nome
+     * novo (cópia do frame de origem do robô). Conecta e faz o LOAD conferido. Um nome novo (ou
+     * frame) que já existe no robô é substituído (o LOAD substitui).
      */
     suspend fun duplicateInRobots(
         robots: List<Robot>,
         source: String,
         newName: String,
         comment: String?,
+        frameFrom: String?,
+        frameTo: String?,
         onUpdate: (Int, RobotTask) -> Unit
     ) = coroutineScope {
         robots.map { robot ->
@@ -148,10 +152,23 @@ class ProjectOperations(
                     onUpdate(robot.id, RobotTask(TaskState.FAILED, "${robot.name} não tem backup com programas"))
                     return@async
                 }
+                var frameNote = ""
                 val file = withContext(Dispatchers.Default) {
                     AsProgramBlocks.extract(backup.content, source)?.let { block ->
-                        val renamed = AsProgramBlocks.renameHeader(block, newName)
-                        (if (comment != null) AsProgramBlocks.setHeaderComment(renamed, comment) else renamed).trimEnd() + "\n"
+                        var code = AsProgramBlocks.renameHeader(block, newName)
+                        if (comment != null) code = AsProgramBlocks.setHeaderComment(code, comment)
+                        var frameLines = emptyList<String>()
+                        if (frameFrom != null && frameTo != null) {
+                            code = AsMasterTransfer.renameFrame(code, frameFrom, frameTo).first
+                            val line = AsMasterTransfer.transLines(backup.content, listOf(frameFrom)).first.firstOrNull()
+                            if (line != null) {
+                                frameLines = listOf(AsMasterTransfer.renameTransLine(line, frameTo))
+                                frameNote = ", $frameFrom → $frameTo"
+                            } else {
+                                frameNote = " ($frameFrom não existe no ${robot.name}: frame não copiado)"
+                            }
+                        }
+                        AsMasterTransfer.buildFile(code, frameLines)
                     }
                 }
                 if (file == null) {
@@ -165,8 +182,11 @@ class ProjectOperations(
                 val result = checks.commands.loadFile(robot.id, fileName, file)
                 onUpdate(
                     robot.id,
-                    if (result.ok) RobotTask(TaskState.DONE, "$source → $newName no ${robot.name}")
-                    else RobotTask(TaskState.FAILED, result.message)
+                    when {
+                        !result.ok -> RobotTask(TaskState.FAILED, result.message)
+                        frameNote.contains("não copiado") -> RobotTask(TaskState.WARNING, "$source → $newName$frameNote")
+                        else -> RobotTask(TaskState.DONE, "$source → $newName$frameNote")
+                    }
                 )
             }
         }.awaitAll()

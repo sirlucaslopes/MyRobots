@@ -307,15 +307,16 @@ fun ProjectScreen(
     if (showDuplicate && current != null) {
         DuplicateDialog(
             robots = current.inCabinOrder,
+            framePattern = viewModel.framePattern(),
             programs = programChoices,
             analysis = dupAnalysis,
             analyzing = analyzing && dupAnalysis == null,
             onAnalyze = viewModel::analyzeDuplicate,
             onBackFromAnalysis = viewModel::clearDupAnalysis,
-            onConfirm = { robots, source, newName, comment ->
+            onConfirm = { robots, a ->
                 showDuplicate = false
                 viewModel.clearDupAnalysis()
-                viewModel.duplicate(robots, source, newName, comment)
+                viewModel.duplicate(robots, a.source, a.newName, a.comment, a.frameFrom, a.frameTo)
             },
             onDismiss = { showDuplicate = false; viewModel.clearDupAnalysis() }
         )
