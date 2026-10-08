@@ -98,6 +98,13 @@ flowchart TD
 - **G3 Pergunta do controlador** — sem foto (precisa de um erro de sintaxe no meio de um LOAD)
 
 ✏️ **Revisão G:**
+> **Proposta (Claude, 06/10):**
+> - **G2:** no K-ROSET a janela aparece toda vez (12 h a mais). Acrescentar "Não perguntar de
+>   novo para este robô" (guardado no robô). Diferença de exatamente 12 h pode ser AM/PM: avisar isso.
+> - **G1/G3:** ok como estão. Testar o G3 junto do protocolo de testes do LOAD.
+> - **Pulso "Sem sinal" (O17):** trocar a regra. Conectado e quieto = **Conectado**. "Sem sinal"
+>   só quando o app **mandou algo e não teve resposta** em 5 s, ou quando o socket caiu. Hoje um
+>   robô parado fica amarelo e ensina o usuário a ignorar o amarelo.
 
 ---
 
@@ -108,6 +115,7 @@ flowchart TD
 Desenho do robô por ~2,5 s e vai para a lista. Não tem ação.
 
 ✏️ **Revisão T1:**
+> **Proposta:** ok. Encurtar para ~1 s, ou pular quando o app volta do segundo plano.
 
 ---
 
@@ -160,6 +168,19 @@ flowchart TD
 | — | Sozinho, ao abrir | importa os `.as` novos das pastas dos robôs (nunca apaga backup) |
 
 ✏️ **Revisão T2:**
+> **Proposta:**
+> - **Dois modos de ver**, com ícones no topo: **Lista** (a de hoje) e **Cabines** (a planta com
+>   as cabines desenhadas, as ligações mestre → escravo e a edição da planta, como no protótipo
+>   combinado em 03/10). A escolha fica guardada.
+> - **Cartão do robô mais leve:** o botão azul "Conectar", repetido em 12 cartões, domina a tela
+>   (foto t02_lista_robos). Trocar por **um ícone de tomada** que muda de cor com o estado, ao lado
+>   do LED. Mesmo componente em todo lugar (ver D2).
+> - **Esconder a faixa do fabricante** quando só existe um fabricante cadastrado (hoje é sempre
+>   "Kawasaki (AS)" e gasta uma linha e um nível de recuo).
+> - **⋮ do topo vira engrenagem "Configurações"** (T13 nova): Fabricantes/bibliotecas, Pasta dos
+>   arquivos, Wi-Fi, tema e restaurar. "Mestre / Escravo" sai daqui (vai para a cabine, ver T5).
+>   O ordenar A-Z vira um ícone pequeno ou uma opção nas Configurações.
+> - Subtítulo "0 de 12 conectados · Wifi Conectado · 192.168.1.8" está bom.
 
 ---
 
@@ -172,6 +193,13 @@ Campos: fabricante, projeto (com sugestões), nome (letras, números e `_`), IP,
 (padrão 23), login automático (usuário e senha, opcional). **Confirmar** só com nome e IP.
 
 ✏️ **Revisão T3:**
+> **Proposta:**
+> - Abrir como **tela cheia** (ou bottom sheet alta) com os botões acima da barra do Android (O20,
+>   foto t03_editar_robo: "Cancelar" encostado no botão Início).
+> - Botão **"Testar conexão"** no próprio cadastro: conecta, faz login, lê o ID e já preenche a
+>   série. Hoje só se descobre que o IP está errado depois de salvar.
+> - O campo Projeto continua, mas com a planta (T2 Cabines) o robô novo cai em "Sem lugar" dentro
+>   do projeto escolhido.
 
 ---
 
@@ -196,6 +224,12 @@ flowchart TD
 ```
 
 ✏️ **Revisão T4:**
+> **Proposta:**
+> - O nome "Fabricantes" não diz o que tem dentro (pesquisa do editor e comandos padrão). Mover
+>   para **Configurações › Kawasaki** com duas seções: "Pesquisa rápida do editor" e "Comandos padrão".
+> - Com um só fabricante com suporte, a linha de ícones Kawasaki/Fanuc/ABB/Universal ocupa espaço
+>   à toa: mostrar só os fabricantes que têm robô cadastrado.
+> - Comandos com nome em português (O9), ver T7.
 
 ---
 
@@ -223,6 +257,14 @@ flowchart TD
 ```
 
 ✏️ **Revisão T5:**
+> **Proposta (O10):**
+> - Uma entrada só: **a ligação entre as cabines**. Na tela de Projeto e na planta (T2 Cabines),
+>   a ligação mestre → escravo é o botão: tocar = **Transferir**; ⋮ da ligação = **Configurar**
+>   (abre esta tela já no cartão daquela ligação). Sai do ⋮ da lista e do ⋮ do projeto.
+> - O conteúdo da tela está bom (pares, offset, .TRANS, frame, exemplo ao vivo do pg100).
+>   Ajustes: o par "R12 → C01" em dropdown ocupa muito (foto t05_1); usar linhas compactas
+>   "R12 → C01  ✎" e editar o par só ao tocar.
+> - "Nova" no topo vira "+ Ligar cabines" na planta (arrastar ou tocar mestre e escravo).
 
 ---
 
@@ -276,6 +318,20 @@ flowchart TD
 | T6.1 | ⋮ Ver arquivo completo | backup inteiro no editor |
 
 ✏️ **Revisão T6.1 a T6.3:**
+> **Proposta (O2, O3, O4): o painel vira 4 abas fixas no rodapé**, no lugar da home longa:
+> 1. **Resumo**: linha de conexão, cartão do robô (KJ264, horímetro, servo, memória), Status geral,
+>    Por eixo e Uso do robô. É a home de hoje **sem** o "Backup analisado" e sem os atalhos.
+> 2. **Arquivos**: os 6 quadrados de hoje (Programas 265, Variáveis 260, Data Bank 121, Log de
+>    Erros, Operação, Edição) + "Código completo" (hoje escondido no ⋮). No topo, uma linha fixa:
+>    "Backup em uso: 05/10 08:58 · FULL · há 1 dia  [Trocar]".
+> 3. **Sincronizar**: tudo que conversa com o robô sobre arquivos: **Fazer backup agora** (o
+>    Atualizar de hoje), **Comparar com o robô**, **Histórico** (T9) e o resultado do último envio.
+> 4. **Terminal** (T6.8) com os comandos rápidos.
+>
+> Outros ajustes:
+> - "Backup analisado" vira **"Backup em uso"**, e o nome some em favor da data (O13).
+> - O botão de sincronizar (🔄) do cartão KJ264 e o de terminal duplicam as abas: tirar.
+> - Status "ATENÇÃO · 3" no canto do cartão está ótimo; tocar continua abrindo a lista (t06_status_geral).
 
 ### T6.4 Programas
 
@@ -300,6 +356,13 @@ flowchart TD
 ```
 
 ✏️ **Revisão T6.4:**
+> **Proposta:**
+> - Tirar o **olho** de cada linha: tocar na linha já abre o programa. Fica só a caixa e o ⋮ (Duplicar).
+> - **Programas de sistema por último e recolhidos** (`autostart*.pc`, `!initvar`, `!inzone`…,
+>   `comment___`): grupo "Sistema" fechado por padrão. Hoje eles ocupam a primeira tela inteira
+>   (foto t06_4_programas) e os do usuário (pg100…) ficam lá embaixo.
+> - Ordenar por: nome, número do pg, data de modificação.
+> - O diálogo de excluir com "Apagar também no robô" é o padrão para todas as listas (ver D4).
 
 ### T6.5 Variáveis
 
@@ -330,6 +393,13 @@ flowchart TD
 ```
 
 ✏️ **Revisão T6.5:**
+> **Proposta (O6, O19):**
+> - Barra com 5 ações (Pesquisar, Marcar, Enviar, Compartilhar, Excluir). **"Sem uso" vira um
+>   chip de filtro** numa linha abaixo da pesquisa: `Todas · Sem uso · Posições · Juntas · Reais · Textos`.
+> - **Cartão compacto**: uma linha com nome, X Y Z e "usada em pg105"; tocar abre o cartão
+>   completo (O A T JT7). Hoje cada posição ocupa ~1/4 da tela e são 491 variáveis.
+> - Variáveis de sistema (`!gun1`, `!tool1`…) em grupo "Sistema" recolhido, no fim (O19).
+> - O "Sem uso: não aparece em nenhum programa" em amarelo é ótimo, manter.
 
 ### T6.6 Data Bank
 
@@ -350,6 +420,12 @@ flowchart TD
 ```
 
 ✏️ **Revisão T6.6:**
+> **Proposta (O7):**
+> - Excluir pergunta "Apagar também no robô?" como Programas e Variáveis (D4). Se o Data Bank não
+>   pode ser apagado registro a registro no controlador, a caixa aparece desabilitada com o motivo.
+> - Cartão compacto em uma linha (DB1 · FRATE 24 · PATTERN 10 · ATOMIZE 55…) com rolagem lateral
+>   sincronizada, como uma planilha, para comparar registros vizinhos.
+> - Edição em lote está ótima.
 
 ### T6.7 Logs (Erros, Operação, Edição)
 
@@ -366,6 +442,14 @@ flowchart TD
 - **Pesquisar** em qualquer parte do texto.
 
 ✏️ **Revisão T6.7:**
+> **Proposta:**
+> - **Log de Erros:** agrupar repetições seguidas ("(E1326) Safety fence is open · ×9 entre
+>   07:04 e 08:19") e filtrar com os mesmos 3 grupos do Status geral (Precisa de atenção /
+>   Programa e movimento / Rotina). Hoje a tela inteira é o mesmo E1326 (foto t06_7_log_erros).
+> - **Log de Edição:** hoje é texto cru ("Step addition ( No 1, pg712, Step 274 )"). Ler em
+>   campos: **pg712 · step 274 · Adição · 07:41**, agrupar por programa, e **tocar abre o editor no
+>   pg712, na linha do step**. Isso responde "o que mudaram no programa hoje?".
+> - **Log de Operação:** mesma ideia: origem (TP/AUX1) como etiqueta, comando em destaque.
 
 ### T6.8 Terminal do robô
 
@@ -387,6 +471,8 @@ flowchart TD
 ```
 
 ✏️ **Revisão T6.8:**
+> **Proposta (O12):** um SAVE digitado vira backup assim que a transferência termina (o terminal
+> já sabe quando o arquivo fecha), com um aviso "Backup salvo: R10 · 08:58 [Abrir]". O resto está bom.
 
 ### T6.9 Comparar com o robô
 
@@ -417,6 +503,13 @@ flowchart TD
 ```
 
 ✏️ **Revisão T6.9:**
+> **Proposta (O11):** o Comparar vira o centro da aba **Sincronizar**:
+> - Trocar "OFFLINE / ROBÔ" por **"No app" / "No robô"**.
+> - Caixa de marcar em **todos** os grupos, com a ação certa em cada um:
+>   SÓ NO ROBÔ → Apagar no robô **ou** Trazer para o app;
+>   SÓ NO APP → Enviar ao robô;
+>   DIFERENTES → Enviar ao robô **ou** Trazer do robô (com o diff já existente).
+> - Barra de baixo: "Aplicar 3 mudanças" → passa pela mesma Conferência (D3) e mostra ✓/✗.
 
 ### T6.10 Enviar para robôs
 
@@ -437,6 +530,10 @@ flowchart TD
 O LOAD substitui sem perguntar um programa que já existe no robô.
 
 ✏️ **Revisão T6.10:**
+> **Proposta (D3):** o envio passa pela mesma **Conferência** da Duplicação/Transferência:
+> "pg100 já existe no R11: SERÁ SUBSTITUÍDO". Hoje o LOAD substitui sem perguntar, e é a única
+> tela de envio sem conferência. A lista de robôs por projeto está boa; mostrar a série e o LED
+> como estão.
 
 ---
 
@@ -453,6 +550,13 @@ O LOAD substitui sem perguntar um programa que já existe no robô.
   PCABORT 1:, PCKILL 1:, DIR.
 
 ✏️ **Revisão T7:**
+> **Proposta (O9):**
+> - Nomes em português, comando igual: "Salvar tudo (FULL)", "Salvar programas", "Salvar poses",
+>   "Resetar erro", "Ligar motor", "Velocidade 50%"…
+> - **Agrupar por categoria** (já existe `CommandCategory`): Salvar · Operação · Consulta · Utilitário.
+> - **Remover "Load File"** (o `[FILE]` não funciona) ou trocar por "Carregar arquivo…" que abre a
+>   lista dos `.as` da pasta do robô.
+> - Editar e excluir num toque longo; a lixeira em cada linha some.
 
 ---
 
@@ -500,6 +604,17 @@ flowchart TD
 Salvar não manda nada ao robô; para mandar, é o **Enviar** do painel.
 
 ✏️ **Revisão T8:**
+> **Proposta:**
+> - **Barras empilhadas demais:** com pesquisa + substituir + edição abertas, o código começa na
+>   metade da tela (foto t08_editor_substituir). Juntar: (1) barra do topo só com ícones;
+>   (2) pesquisa e substituir num painel só, que recolhe; (3) as ações de edição (Copiar, Colar,
+>   Linha, Excluir, Desfazer, Refazer) numa **barra inferior que aparece só quando há linha marcada**.
+> - **"Salvo"** como rótulo de botão confunde: "Salvar" quando há mudança, "✓ Salvo" apagado quando não há.
+> - Linhas longas cortadas (`JMOVE JOINT 0000,-4.19,-26.14,-58.7…`): rolagem lateral sincronizada
+>   de todas as linhas. **Atenção:** isso já está no `.agent/plan.md` do agente do Android Studio;
+>   combinar quem faz para não haver dois agentes mexendo no `AsCodeViewer` ao mesmo tempo.
+> - O resto (Alterar linha campo a campo, Inserir instrução por categoria, Deslocar/Espelhar,
+>   pesquisa rápida com contagem) está muito bom.
 
 ---
 
@@ -525,6 +640,14 @@ flowchart TD
 ```
 
 ✏️ **Revisão T9:**
+> **Proposta (O4, O13, O15):**
+> - Título de cada backup = **data e hora** ("05/10/2026 08:58"), subtítulo = tipo e tamanho
+>   ("FULL · 77.186 linhas"). Some o "Sinc: R10_20261005_0…" cortado.
+> - Os 4 ícones de cada linha (código, duplicar, compartilhar, excluir) vão para o ⋮; tocar abre o painel.
+> - Agrupar por mês; marcar o "em uso".
+> - **Esconder arquivos de envio** (`dup_pg761.as`) como o painel já faz.
+> - "+ Criar backup › Baixar do robô conectado" (que só abre o terminal) vira **"Fazer backup agora"**,
+>   o mesmo do Sincronizar. "Importar" fica.
 
 ---
 
@@ -574,6 +697,19 @@ flowchart TD
 ```
 
 ✏️ **Revisão T10:**
+> **Proposta (O8, O10, O18):**
+> - **Ordem da tela:** 1) a cabine (grade) com conexão por toque; 2) a barra de ações em grupo;
+>   3) as ligações. Hoje a cabine fica entre o cartão de ações e dois desenhos grandes de mestre/escravo.
+> - **Texto "→ C01 → R16" em cada robô** (foto t10_projeto_1) é difícil de ler. Tirar do cartão; o
+>   par aparece na tela da ligação.
+> - **Ligações em linhas compactas:** "Primer CAT → Top Coat CAT · 4 pares · base + top_offset
+>   [Transferir]". O desenho grande de 8 caixas fica só no Configurar.
+> - **Mini terminais** viram uma linha de status embaixo de cada robô da grade (última resposta);
+>   tocar abre o terminal do robô. Some a seção "Terminais" separada.
+> - **Duplicar e Transferir em tela cheia**, não em diálogo com rolagem interna (fotos
+>   t10_duplicar_3 e t10_transferir_analise_1). A Conferência está excelente e vira o modelo de
+>   todo envio (D3).
+> - Tirar `comment___` das listas de programas (O16).
 
 ---
 
@@ -587,6 +723,9 @@ flowchart TD
 - A tela mostra só o que foi enviado; a resposta de cada robô fica no terminal dele.
 
 ✏️ **Revisão T11:**
+> **Proposta (O8, O18): remover o Terminal Geral.** A ação "Comando" da cabine já manda o mesmo
+> comando para todos e mostra a resposta de cada um. Levar para ela o botão da biblioteca (raio).
+> Ficam dois terminais: o do robô (completo) e o "Comando para todos" (com resposta por robô).
 
 ---
 
@@ -597,6 +736,7 @@ flowchart TD
   recusado.
 
 ✏️ **Revisão T12:**
+> **Proposta:** ok.
 
 ---
 
@@ -628,6 +768,10 @@ Para você concordar, discordar ou completar (escreva ao lado de cada uma).
 | O14 | **Telas sem ponto de partida claro** para tarefas do dia a dia: "fazer backup de tudo", "mandar um programa para 3 robôs", "ver o que mudou". |
 
 ✏️ **Revisão O:**
+> **Proposta:** concordo com todas. Onde cada uma é resolvida:
+> O1 → D2 · O2/O3/O4 → T6 (abas) e T9 · O5 → apagar a rota `variable_viewer` · O6 → T6.5 ·
+> O7 → D4 · O8/O18 → T11 · O9 → T7 · O10 → T5 · O11 → T6.9 · O12 → T6.8 · O13/O15 → T9 ·
+> O14 → N (tarefas do dia a dia) · O16 → T10 · O17 → G · O19 → T6.4/T6.5 · O20 → D5.
 
 ---
 
@@ -656,3 +800,71 @@ flowchart TD
 - **Configurações** num lugar só.
 
 ✏️ **Revisão N:**
+> **Proposta: aprovado com ajustes.** Ver a seção **D** e a nova organização **N2** logo abaixo.
+
+
+---
+
+## D. Decisões gerais (valem para todas as telas)
+
+| Código | Decisão |
+|---|---|
+| **D1** | **Navegação:** Início (Lista ou Cabines) → **Robô** (4 abas: Resumo, Arquivos, Sincronizar, Terminal) ou **Projeto** (cabine + ações em grupo + ligações). **Configurações** pela engrenagem. Nenhuma função importante fica só no ⋮. |
+| **D2** | **Uma só peça de conexão** (O1): LED + estado + ícone de tomada. Tocar conecta/desconecta. A mesma em: cartão da lista, bolha da planta, topo do robô, robô da cabine e lista de envio. Nomes iguais em todo lugar: Conectado / Sem sinal / Desligado / Conectando. |
+| **D3** | **Um só caminho de envio:** Escolher → **Conferência** (criado / SERÁ SUBSTITUÍDO / frame / base) → Enviar → Resultado ✓/✗ por robô. Usado por Enviar, Duplicar, Transferir, Comparar e Apagar no robô. |
+| **D4** | **Um só jeito de excluir:** em Programas, Variáveis e Data Bank sempre aparece "Apagar também no robô" (desabilitado com o motivo quando não dá). No Histórico, só apaga o arquivo. |
+| **D5** | **Telas e diálogos:** formulário longo (Duplicar, Transferir, Cadastrar) em tela cheia; diálogo só para confirmar. Botões sempre acima da barra do Android (O20). |
+| **D6** | **Itens do sistema por último e recolhidos:** `!variáveis`, `!programas`, `autostart*`, `comment___`. |
+| **D7** | **Nomes:** tudo em português; backups mostrados pela data; sem "Sinc:"; "No app / No robô" no lugar de "OFFLINE / ROBÔ"; "Backup em uso" no lugar de "Backup analisado". |
+| **D8** | **Paleta fixa:** desligar as cores dinâmicas do Android 12+ e fixar o tema atual (preto, `#171719`, azul `#367AFF`). Verde, amarelo e vermelho ficam reservados para o status. Tema "Matrix" opcional nas Configurações. |
+
+---
+
+## N2. Nova organização proposta
+
+```mermaid
+flowchart TD
+    I["Início"] -->|"ícone"| IL["Lista<br/>projeto › robô"]
+    I -->|"ícone"| IC["Cabines<br/>planta, ligações, editar planta"]
+    IL & IC -->|"tocar no robô"| R["Robô"]
+    IL & IC -->|"tocar no projeto"| P["Projeto"]
+    I -->|"engrenagem"| CFG["Configurações<br/>Kawasaki: pesquisa e comandos · Pasta · Wi-Fi · Tema · Restaurar"]
+
+    R --> R1["Resumo<br/>conexão, status, por eixo, uso, memória"]
+    R --> R2["Arquivos<br/>Programas · Variáveis · Data Bank · Logs · Código<br/>backup em uso + Trocar"]
+    R --> R3["Sincronizar<br/>Fazer backup agora · Comparar · Histórico"]
+    R --> R4["Terminal<br/>+ comandos"]
+    R2 -->|"Enviar"| CF["Conferência → Enviar → Resultado"]
+    R3 -->|"Aplicar mudanças"| CF
+
+    P --> P1["Cabine<br/>grade, conexão por toque, status por robô"]
+    P --> P2["Ações em grupo<br/>Backup de todos · Comando · Duplicar"]
+    P --> P3["Ligações mestre → escravo<br/>Transferir · Configurar"]
+    P2 & P3 --> CF
+```
+
+**Tarefas do dia a dia (O14)**, com o caminho novo:
+
+| Tarefa | Caminho |
+|---|---|
+| Backup de uma cabine inteira | Início › Projeto › Backup de todos |
+| Ver o que mudou num robô | Robô › Sincronizar › Comparar |
+| Mandar um programa para 3 robôs | Robô › Arquivos › Programas › marcar › Enviar › Conferência |
+| Passar a cabine mestre para a escrava | Início (Cabines) › tocar na ligação › Transferir |
+| Ver quem editou um programa hoje | Robô › Arquivos › Log de Edição › tocar → editor na linha |
+
+---
+
+## P. Plano por fases (proposta)
+
+| Fase | O que entra | Risco |
+|---|---|---|
+| **R1 Ajustes rápidos** | O13, O15, O16, D6 (sistema por último), O20/D5 nos diálogos, O9 (nomes + tirar Load File), O5 (rota morta), olho do T6.4, "Salvar/Salvo" do T8, "Não perguntar de novo" do G2, regra nova do "Sem sinal" (G) | baixo |
+| **R2 Robô em 4 abas** | T6 (Resumo, Arquivos, Sincronizar, Terminal), "Backup em uso", T9 novo, O4 | médio |
+| **R3 Envio e exclusão iguais** | D3 (Conferência no T6.10), D4, T6.9 com Enviar/Trazer/Apagar | médio |
+| **R4 Início e Configurações** | T2 Lista/Cabines, D2 (peça de conexão), engrenagem (T4 e Pasta), D8 | médio |
+| **R5 Projeto enxuto** | T10 reordenado, ligações compactas, T5 pela ligação, T11 removido, Duplicar/Transferir em tela cheia | médio |
+| **R6 Listas e logs** | T6.5 compacto + chips, T6.6 tipo planilha, T6.7 agrupado e Log de Edição → editor, T7 por categoria, T8 barras | baixo |
+
+Continua valendo antes de publicar: **Fase 1.5** (pasta autossuficiente, ainda não começada) e os
+testes no aparelho da Fase 0-B.
