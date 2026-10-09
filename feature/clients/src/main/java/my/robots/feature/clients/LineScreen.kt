@@ -1,5 +1,7 @@
 package my.robots.feature.clients
 
+import androidx.compose.material.icons.rounded.Add
+import my.robots.core.designsystem.RobotDialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.height
@@ -100,6 +102,8 @@ fun LineScreen(
     var typeFor by remember { mutableStateOf<StationNode?>(null) }
     var newTypeFor by remember { mutableStateOf<String?>(null) }
     var moveFor by remember { mutableStateOf<StationNode?>(null) }
+    // cadastro de robô: null = fechado; "" = sem estação escolhida; nome = já na estação
+    var addRobotTo by remember { mutableStateOf<String?>(null) }
 
     val line = ui.line(lineId)
     LaunchedEffect(line?.id) { line?.let { viewModel.touchLine(it) } }
@@ -137,7 +141,9 @@ fun LineScreen(
                         Icons.Rounded.LinkOff, "Desconectar",
                         enabled = robots.any { ui.state(it.id) != HeartbeatState.DISCONNECTED },
                         onClick = { viewModel.disconnect(robots) }
-                    )
+                    ),
+                    // projeto novo vira estação nesta linha (a usada por último)
+                    BarAction(Icons.Rounded.Add, "Novo robô", onClick = { addRobotTo = "" })
                 ),
                 menu = { close ->
                     DropdownMenuItem(text = { Text("Renomear linha") }, leadingIcon = { Icon(Icons.Rounded.Edit, null) }, onClick = { close(); renamingLine = true })
@@ -178,6 +184,7 @@ fun LineScreen(
                         onOpenRobot = onOpenRobot,
                         onConnect = { viewModel.connect(s.robots) },
                         onDisconnect = { viewModel.disconnect(s.robots) },
+                        onAddRobot = { addRobotTo = s.name },
                         onType = { typeFor = s },
                         onMove = { moveFor = s },
                         onUp = { viewModel.moveInLine(lineId, s.name, -1) },
@@ -237,6 +244,7 @@ fun LineScreen(
                                 onOpenRobot = onOpenRobot,
                                 onConnect = { viewModel.connect(s.robots) },
                                 onDisconnect = { viewModel.disconnect(s.robots) },
+                                onAddRobot = { addRobotTo = s.name },
                                 onType = { typeFor = s }, onMove = { moveFor = s }, onUp = {}, onDown = {},
                                 onToggleHidden = { viewModel.setStationHidden(s.name, false) },
                                 onRename = { renamingStation = s.name }
@@ -248,6 +256,17 @@ fun LineScreen(
         }
     }
 
+    addRobotTo?.let { station ->
+        RobotDialog(
+            existingProjects = viewModel.stationNames(),
+            initialProject = station,
+            onDismiss = { addRobotTo = null },
+            onConfirm = { name, ip, port, project, manufacturer, autoLogin, user, password ->
+                viewModel.addRobot(name, ip, port, project, manufacturer, autoLogin, user, password)
+                addRobotTo = null
+            }
+        )
+    }
     if (renamingLine && line != null) {
         NameDialog("Renomear linha", "Nome da linha", initial = line.name,
             onConfirm = { viewModel.renameLine(line.id, it); renamingLine = false }, onDismiss = { renamingLine = false })
@@ -308,6 +327,7 @@ private fun StationCard(
     onOpenRobot: (Robot) -> Unit,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onAddRobot: () -> Unit,
     onType: () -> Unit,
     onMove: () -> Unit,
     onUp: () -> Unit,
@@ -343,6 +363,7 @@ private fun StationCard(
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Mais opções da estação") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("Adicionar robô") }, leadingIcon = { Icon(Icons.Rounded.Add, null) }, onClick = { menu = false; onAddRobot() })
                         DropdownMenuItem(text = { Text("Tipo de trabalho") }, leadingIcon = { Icon(Icons.Rounded.Category, null) }, onClick = { menu = false; onType() })
                         DropdownMenuItem(text = { Text("Mover para outra linha") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.DriveFileMove, null) }, onClick = { menu = false; onMove() })
                         if (!hidden) {

@@ -1,5 +1,6 @@
 package my.robots.feature.clients
 
+import my.robots.core.model.Manufacturer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -167,6 +168,26 @@ class ClientsViewModel(
             .forEach { terminal.disconnect(it.id, clearHistory = false) }
         _connecting.value = _connecting.value - robots.map { it.id }.toSet()
     }
+
+    /**
+     * Cadastra um robô (a mesma janela da lista de robôs). O projeto é a estação: um nome que já
+     * existe põe o robô nela (fora do layout, para posicionar na tela de Projeto); um nome novo
+     * cria a estação na linha usada por último (a que está aberta).
+     */
+    fun addRobot(
+        name: String, ip: String, port: Int, project: String, manufacturer: Manufacturer,
+        autoLogin: Boolean, loginUser: String, loginPassword: String
+    ) = run {
+        repository.insertRobot(
+            Robot(
+                name = name, ip = ip, port = port, project = project, manufacturer = manufacturer,
+                autoLogin = autoLogin, loginUser = loginUser, loginPassword = loginPassword
+            )
+        )
+    }
+
+    /** Nomes das estações, para a sugestão de "Projeto / estação" no cadastro do robô. */
+    fun stationNames(): List<String> = ui.value.stations.map { it.projectName }.sortedBy { it.lowercase() }
 
     fun touchClient(id: Long) = run { repository.touchClient(id) }
     fun touchLine(line: ProductionLine) = run { repository.touchLine(line) }

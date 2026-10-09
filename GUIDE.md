@@ -29,7 +29,8 @@ desligada (cinza) precisa de alguma condição, por exemplo marcar um item antes
 |---|---|
 | ver os clientes, as linhas e as estações | Tela inicial (Clientes) |
 | criar cliente ou linha, mover/ordenar estações, tipo de trabalho | Clientes → **Novo**; Linha → ⋮ da estação |
-| cadastrar, conectar ou desconectar um robô | ⚙ → **Lista de robôs (antiga)** |
+| cadastrar um robô | Clientes → **Novo** → Novo robô; Linha → **Novo robô** ou ⋮ da estação → Adicionar robô |
+| conectar ou desconectar robôs | Linha → **Conectar** na estação ou **Conectar todos** |
 | ver horas de uso, alarmes, memória de um robô | Painel do robô (home) |
 | baixar o backup completo agora | Painel → **Atualizar** |
 | ler, pesquisar, editar um programa | Painel → Programas → tocar no programa (Editor) |
@@ -66,7 +67,9 @@ os projetos viram estações de **"Meu cliente › Linha 1"**, na ordem alfabét
 - **Filtros:** tipo de trabalho, linha, status (com robô conectado / com robô desligado) e marca.
   Os ativos aparecem como etiquetas no alto (tocar tira). Um cliente aparece se alguma linha dele
   passa; dentro dele, só as linhas e estações que passam.
-- **Novo:** "Novo cliente" e "Nova linha" (escolhe o cliente), cada um pede só o nome.
+- **Novo:** "Novo cliente" e "Nova linha" (escolhe o cliente), cada um pede só o nome; e
+  **"Novo robô"**, a mesma janela de cadastro da lista de robôs. O campo Projeto é a estação: um
+  nome que já existe põe o robô nela; um nome novo cria a estação na linha usada por último.
 - **⚙ Configurações:** **Lista de robôs (antiga)** (a tela inicial até a v1.2, com o cadastro de
   robôs, Wi-Fi e Pasta dos arquivos), Fabricantes e Mestre / Escravo. A lista antiga fica até a
   nova ser aprovada.
@@ -85,6 +88,9 @@ os projetos viram estações de **"Meu cliente › Linha 1"**, na ordem alfabét
     com todos conectados, vira **Desconectar**.
   - **Abrir estação** (ou tocar no resto do cartão) abre a Tela de Projeto.
 - **Conectar todos / Desconectar** na barra: todos os robôs da linha.
+- **Novo robô** na barra, e **Adicionar robô** no ⋮ da estação (já com a estação preenchida). O
+  robô novo entra fora do layout: posicione na Tela de Projeto (Editar layout). Um projeto novo
+  vira estação no fim desta linha.
 - **Entre duas estações:** "próxima estação", ou o envio de programas entre elas ("Primer CAT →
   Top Coat CAT") com **Enviar programas**, que abre a Tela de Projeto do destino já na
   transferência daquela origem.
@@ -850,7 +856,8 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
 
 ## 7. `:feature:robots` — Lista e Cadastro de Robôs
 
-**Arquivos:** `RobotListScreen.kt`, `RobotDialog.kt`, `RobotViewModel.kt`, `ConnectedRobotsViewModel.kt`
+**Arquivos:** `RobotListScreen.kt`, `RobotViewModel.kt`, `ConnectedRobotsViewModel.kt`. A janela de
+cadastro (`RobotDialog`) mora no `:core:designsystem`, porque as telas de Clientes também a usam.
 
 ### Lista de robôs (`RobotListScreen`)
 - Tela inicial de verdade do app (depois da splash). Agrupa os robôs em
@@ -885,7 +892,7 @@ olhos duas vezes. Depois de ~2,5 segundos chama `onAnimationFinished`, e o app n
   backups que faltam e importa os `.as` que já estavam lá (escolher a pasta `/MyRobots` antiga
   traz de volta os arquivos da v1.1). "Usar a pasta padrão" volta para Documentos/MyRobots.
 
-### Cadastro/edição (`RobotDialog`)
+### Cadastro/edição (`RobotDialog`, `:core:designsystem`; `initialProject` já escolhe a estação)
 - Campos: fabricante (dropdown), projeto (texto livre com sugestões dos projetos já
   existentes), nome (só letras/números/`_`, pois vira nome de pasta), IP, porta (padrão 23,
   a porta padrão do telnet) e bloco de login automático (usuário/senha, opcional).

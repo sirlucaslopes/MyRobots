@@ -1,4 +1,4 @@
-package my.robots.feature.robots
+package my.robots.core.designsystem
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -36,7 +36,9 @@ import my.robots.core.model.Robot
  * Campos: fabricante, projeto (com sugestões), nome, IP, porta e login automático.
  * O botão "Confirmar" só liga quando nome e IP estão preenchidos.
  * Porta vazia ou inválida vira 23, e projeto vazio vira "Padrão".
- * - existingProjects: projetos que já existem, para sugerir.
+ * - existingProjects: projetos (estações) que já existem, para sugerir.
+ * - initialProject: num cadastro novo, a estação já escolhida (ex.: "Adicionar robô" no ⋮ de uma
+ *   estação). Fica no :core:designsystem porque a lista de robôs e as telas de Clientes usam.
  * - onConfirm: devolve os dados digitados.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,13 +46,14 @@ import my.robots.core.model.Robot
 fun RobotDialog(
     robot: Robot? = null,
     existingProjects: List<String> = emptyList(),
+    initialProject: String = "",
     onDismiss: () -> Unit,
     onConfirm: (name: String, ip: String, port: Int, project: String, manufacturer: Manufacturer, autoLogin: Boolean, loginUser: String, loginPassword: String) -> Unit
 ) {
     var name by remember { mutableStateOf(robot?.name ?: "") }
     var ip by remember { mutableStateOf(robot?.ip ?: "") }
     var port by remember { mutableStateOf(robot?.port?.toString() ?: "23") }
-    var project by remember { mutableStateOf(robot?.project ?: "") }
+    var project by remember { mutableStateOf(robot?.project ?: initialProject) }
     var manufacturer by remember { mutableStateOf(robot?.manufacturer ?: Manufacturer.KAWASAKI) }
     var autoLogin by remember { mutableStateOf(robot?.autoLogin ?: false) }
     var loginUser by remember { mutableStateOf(robot?.loginUser ?: "as") }

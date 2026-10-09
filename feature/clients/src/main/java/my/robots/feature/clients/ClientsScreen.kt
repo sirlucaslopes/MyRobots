@@ -1,5 +1,7 @@
 package my.robots.feature.clients
 
+import androidx.compose.material.icons.rounded.SmartToy
+import my.robots.core.designsystem.RobotDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,6 +99,7 @@ fun ClientsScreen(
     var newLineFor by remember { mutableStateOf<Long?>(null) }
     var pickClientForLine by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Client?>(null) }
+    var newRobot by remember { mutableStateOf(false) }
 
     // atalho: um cliente visível só -> abre nele (ou direto na linha, se ele tem uma só)
     LaunchedEffect(ui.loaded) {
@@ -140,6 +143,11 @@ fun ClientsScreen(
                             enabled = ui.clients.isNotEmpty(),
                             onClick = { close(); pickClientForLine = true }
                         )
+                        DropdownMenuItem(
+                            text = { Text("Novo robô") },
+                            leadingIcon = { Icon(Icons.Rounded.SmartToy, null) },
+                            onClick = { close(); newRobot = true }
+                        )
                     }),
                     BarAction(Icons.Rounded.Settings, "Configurações", menu = { close ->
                         DropdownMenuItem(
@@ -171,7 +179,7 @@ fun ClientsScreen(
                 item { ActiveFilters(filter, ui, onChange = viewModel::setFilter) }
             }
             if (ui.loaded && ui.clients.isEmpty()) {
-                item { EmptyState(onOpenOldList) }
+                item { EmptyState(onNewRobot = { newRobot = true }) }
             } else if (ui.loaded && shown.isEmpty() && !filter.isEmpty) {
                 item {
                     Text("Nenhum cliente com esses filtros.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(8.dp))
@@ -231,6 +239,16 @@ fun ClientsScreen(
             "Nova linha · ${ui.client(cid)?.name.orEmpty()}", "Nome da linha (cabine)", confirm = "Criar",
             onConfirm = { viewModel.createLine(cid, it); newLineFor = null },
             onDismiss = { newLineFor = null }
+        )
+    }
+    if (newRobot) {
+        RobotDialog(
+            existingProjects = viewModel.stationNames(),
+            onDismiss = { newRobot = false },
+            onConfirm = { name, ip, port, project, manufacturer, autoLogin, user, password ->
+                viewModel.addRobot(name, ip, port, project, manufacturer, autoLogin, user, password)
+                newRobot = false
+            }
         )
     }
     renaming?.let { c ->
@@ -384,15 +402,15 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 
 /** Sem nenhum cliente (instalação nova, sem robôs): cadastrar pelo caminho de hoje. */
 @Composable
-private fun EmptyState(onOpenOldList: () -> Unit) {
+private fun EmptyState(onNewRobot: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Nenhum cliente ainda.", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Cadastre um robô na lista de robôs: o projeto dele vira uma estação de \"Meu cliente › Linha 1\". " +
+            "Cadastre um robô: o projeto dele vira uma estação de \"Meu cliente › Linha 1\". " +
                 "Depois dá para criar clientes e linhas e mover as estações.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Button(onClick = onOpenOldList) { Text("Abrir a lista de robôs") }
+        Button(onClick = onNewRobot) { Text("Cadastrar robô") }
     }
 }
