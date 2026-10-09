@@ -6,11 +6,16 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import my.robots.core.common.BackupZip
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsMasterTransfer
 import my.robots.core.common.ascode.AsProgramBlocks
+import my.robots.core.model.BackupSummary
 import my.robots.core.model.Robot
 import my.robots.core.network.KawasakiTerminalManager
+import java.io.OutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /** Situação de um robô numa ação em grupo. */
 enum class TaskState { WAITING, CONNECTING, RUNNING, DONE, WARNING, FAILED }
@@ -224,6 +229,36 @@ class ProjectOperations(
             if (frameLines.isNotEmpty()) append(", ${frameLines.size} frame(s)")
         }
         return Prepared(AsMasterTransfer.buildFile(code, frameLines), summary, warnings)
+    }
+
+    /**
+     * "Enviar backups": o último backup de cada robô (arquivos de envio, como dup_*.as, não
+     * contam). Null = o robô ainda não tem backup.
+     */
+    suspend fun latestBackups(robots: List<Robot>): Map<Int, BackupSummary?> = robots.associate { r ->
+        r.id to repository.getBackupsSummary(r.id).first()
+            .filter { !FileUtil.isTransferFile(it.fileName) }
+            .maxByOrNull { it.timestamp }
+    }
+
+    /**
+     * Escreve em [out] um .zip com o backup escolhido de cada robô, um arquivo separado por robô
+     * (nomes em [BackupZip.entryNames]). Lê um backup por vez, para não ter todos na memória
+     * juntos (um SAVE/FULL tem uns 4,5 MB). Devolve quantos arquivos entraram.
+     */
+    suspend fun writeBackupsZip(choices: List<Pair<Robot, BackupSummary>>, out: OutputStream): Int = withContext(Dispatchers.IO) {
+        val names = BackupZip.entryNames(choices.map { (r, b) -> r.name to b.fileName })
+        val zip = ZipOutputStream(out)
+        var count = 0
+        choices.zip(names).forEach { (choice, name) ->
+            val backup = repository.getBackupById(choice.second.id) ?: return@forEach
+            zip.putNextEntry(ZipEntry(name))
+            zip.write(backup.content.toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+            count++
+        }
+        zip.finish()
+        count
     }
 
     /** O backup mais recente do robô que tem programas (arquivos de envio não contam). */

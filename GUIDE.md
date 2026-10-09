@@ -37,6 +37,7 @@ desligada (cinza) precisa de alguma condição, por exemplo marcar um item antes
 | digitar comandos AS | Painel → **Terminal** (ou o atalho do terminal no cartão) |
 | mandar o mesmo comando para vários robôs | Tela de Projeto → **Comando**, ou **Terminal Geral** |
 | backup de todos os robôs da cabine | Tela de Projeto → **Backup de todos** |
+| mandar o último backup de cada robô (WhatsApp, e-mail, pasta) | Tela de Projeto → **Enviar backups** |
 | copiar programas do mestre para o escravo | Tela de Projeto → **Transferir** |
 | criar uma cópia de um programa em vários robôs | Tela de Projeto → **Duplicar programa** |
 | ver, importar, exportar, compartilhar backups | Painel → **Histórico de backups** |
@@ -362,6 +363,14 @@ O voltar fecha primeiro a pesquisa, depois o modo de edição, e só então sai 
 **Ações em grupo** (cada uma abre a lista dos robôs, todos marcados, para escolher; rodam ao
 mesmo tempo, sempre conectando antes; uma falha não para os outros; **Parar** cancela no app)
 - **Backup de todos** — SAVE/FULL em cada robô, conferido, e registro do backup.
+- **Enviar backups** — o **último backup de cada robô** marcado num **.zip só**, um arquivo
+  separado por robô (`R10_20261005_0857.as`, `R11_…`). A lista mostra a data do último backup
+  de cada robô (robô sem backup fica de fora). O destino é escolhido uma vez:
+  - **Compartilhar** — abre o compartilhar do Android (WhatsApp, e-mail, Drive…);
+  - **Salvar** — o Android pergunta a pasta e o nome (`<projeto>_backups_<aaaammdd_hhmm>.zip`).
+
+  Não fala com o robô: para mandar backups de agora, faça antes o Backup de todos. O .zip abre
+  no Windows, no 7-Zip e no celular.
 - **Comando** — o mesmo comando em cada robô, esperando a resposta.
 - **Duplicar programa:**
   1. **Escolher:** o programa de **ORIGEM** (com busca); a **CÓPIA** (nome novo já sugerido
@@ -1262,8 +1271,13 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
 - No robô de um par mestre/escravo, a vaga mostra "← R10" (escravo) ou "→ R14" (mestre).
 
 ### Ações em grupo
-- Cartão com **Backup de todos**, **Comando** e, se o projeto tiver pares, **Mestre → escravo**.
+- Cartão com **Backup de todos**, **Comando**, **Duplicar programa** e **Enviar backups**.
   Cada uma abre a lista dos robôs (todos marcados) para escolher. Uma ação por vez.
+- **Enviar backups** (`ExportBackupsDialog.kt`): `ProjectOperations.latestBackups` acha o último
+  backup de cada robô (sem os arquivos de envio) e `writeBackupsZip` escreve o .zip lendo um
+  backup por vez (nomes em `BackupZip.entryNames`, `:core:common`: o nome do robô na frente se
+  faltar, `_2` se repetir, sem pastas). Compartilhar grava em `cacheDir/shared_backups` e usa o
+  `FileProvider`; Salvar usa `CreateDocument("application/zip")`. Não conecta em nenhum robô.
 - Todas rodam ao mesmo tempo, um robô por conexão, e **sempre conectam antes** (`ControllerChecks.
   connectAndWait`: login e checagens). Um robô que falha não para os outros.
 - **Backup de todos:** `SAVE/FULL <robô>_<aaaammdd_hhmm>` em cada robô; espera o arquivo chegar

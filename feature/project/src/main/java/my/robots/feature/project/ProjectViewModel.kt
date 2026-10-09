@@ -37,6 +37,7 @@ import my.robots.core.data.ProjectOperations.MasterSlavePair
 import my.robots.core.data.RobotRepository
 import my.robots.core.data.RobotTask
 import my.robots.core.data.TaskState
+import my.robots.core.model.BackupSummary
 import my.robots.core.model.EquipmentType
 import my.robots.core.model.HeartbeatState
 import my.robots.core.model.ProjectEquipment
@@ -255,6 +256,37 @@ class ProjectViewModel(
     /** Backup (SAVE/FULL) de cada robô escolhido. */
     fun backupAll(robots: List<Robot>) =
         runAction("Backup de todos", robots.map { it.id }) { operations.backupAll(robots, it) }
+
+    // ---------- Enviar backups (o último de cada robô num .zip) ----------
+
+    /** Um robô na janela "Enviar backups" e o último backup dele (null = sem backup). */
+    data class ExportRow(val robot: Robot, val backup: BackupSummary?)
+
+    private val _exportRows = MutableStateFlow<List<ExportRow>?>(null)
+    /** Robôs e o último backup de cada um; null enquanto carrega. */
+    val exportRows: StateFlow<List<ExportRow>?> = _exportRows.asStateFlow()
+
+    fun loadExportRows(robots: List<Robot>) {
+        _exportRows.value = null
+        viewModelScope.launch {
+            val latest = operations.latestBackups(robots)
+            _exportRows.value = robots.map { ExportRow(it, latest[it.id]) }
+        }
+    }
+
+    /** Nome do .zip: "<projeto>_backups_<aaaammdd_hhmm>.zip". */
+    fun exportFileName(): String {
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd_HHmm", java.util.Locale.US).format(java.util.Date())
+        return FileUtil.sanitizeFileName(projectName.trim()).removeSuffix(".as") + "_backups_$stamp.zip"
+    }
+
+    /** Escreve o .zip com o último backup de cada robô de [robotIds]. Devolve quantos entraram. */
+    suspend fun writeExport(robotIds: Set<Int>, out: java.io.OutputStream): Int {
+        val choices = _exportRows.value.orEmpty()
+            .filter { it.robot.id in robotIds && it.backup != null }
+            .map { it.robot to it.backup!! }
+        return operations.writeBackupsZip(choices, out)
+    }
 
     /** O mesmo comando em cada robô escolhido. */
     fun commandAll(robots: List<Robot>, command: String) {

@@ -1,5 +1,15 @@
 package my.robots.feature.project
 
+import android.content.Intent
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.FileProvider
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -100,6 +110,32 @@ fun ProjectScreen(
     var showDuplicate by remember { mutableStateOf(false) }
     val programChoices by viewModel.programChoices.collectAsState()
     var showBackupAll by remember { mutableStateOf(false) }
+    // Enviar backups: janela aberta, texto enquanto monta o .zip e os robôs escolhidos para o Salvar
+    var showExport by remember { mutableStateOf(false) }
+    var exportBusy by remember { mutableStateOf<String?>(null) }
+    var exportIds by remember { mutableStateOf(emptySet<Int>()) }
+    val exportRows by viewModel.exportRows.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // "Salvar": o Android pergunta a pasta e o nome uma vez; o .zip é escrito direto lá
+    val saveZipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            exportBusy = "Montando o .zip…"
+            val n = try {
+                context.contentResolver.openOutputStream(uri)?.use { viewModel.writeExport(exportIds, it) } ?: 0
+            } catch (e: Exception) {
+                -1
+            }
+            exportBusy = null
+            if (n > 0) showExport = false
+            Toast.makeText(
+                context,
+                if (n > 0) "$n backup(s) salvos no .zip" else "Não foi possível salvar o .zip",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
     var showCommandAll by remember { mutableStateOf(false) }
     // pares da transferência aberta (os de um desenho mestre -> escravo)
     var transferPairs by remember { mutableStateOf<List<MasterSlavePair>?>(null) }
@@ -194,6 +230,10 @@ fun ProjectScreen(
                         viewModel.loadProgramChoices(v.inCabinOrder)
                         showDuplicate = true
                     },
+                    onExport = {
+                        viewModel.loadExportRows(v.inCabinOrder)
+                        showExport = true
+                    },
                     onCancel = viewModel::cancelAction,
                     onClear = viewModel::clearTasks
                 )
@@ -280,6 +320,40 @@ fun ProjectScreen(
         )
     }
     val current = view
+    if (showExport) {
+        ExportBackupsDialog(
+            rows = exportRows,
+            busy = exportBusy,
+            onSave = { ids ->
+                exportIds = ids
+                saveZipLauncher.launch(viewModel.exportFileName())
+            },
+            onShare = { ids ->
+                scope.launch {
+                    exportBusy = "Montando o .zip…"
+                    try {
+                        // a pasta temporária liberada no FileProvider (file_paths.xml)
+                        val dir = File(context.cacheDir, "shared_backups").apply { mkdirs() }
+                        val file = File(dir, viewModel.exportFileName())
+                        val n = withContext(Dispatchers.IO) { file.outputStream().use { viewModel.writeExport(ids, it) } }
+                        val uri = FileProvider.getUriForFile(context, "my.robots.fileprovider", file)
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/zip"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            putExtra(Intent.EXTRA_SUBJECT, file.name)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Enviar $n backup(s)"))
+                        showExport = false
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Não foi possível montar o .zip: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                    exportBusy = null
+                }
+            },
+            onDismiss = { showExport = false }
+        )
+    }
     if (showBackupAll && current != null) {
         RobotChooserDialog(
             title = "Backup de todos",

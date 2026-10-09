@@ -12,6 +12,7 @@ import androidx.compose.material.icons.rounded.ArrowDropDown
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -61,6 +62,7 @@ internal fun GroupActionsCard(
     onBackup: () -> Unit,
     onCommand: () -> Unit,
     onDuplicate: () -> Unit,
+    onExport: () -> Unit,
     onCancel: () -> Unit,
     onClear: () -> Unit
 ) {
@@ -76,6 +78,10 @@ internal fun GroupActionsCard(
                 }
                 FilledTonalButton(onClick = onDuplicate, enabled = running == null) {
                     Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Duplicar programa")
+                }
+                // o último backup de cada robô num .zip: não fala com o robô, então vale sempre
+                FilledTonalButton(onClick = onExport) {
+                    Icon(Icons.Rounded.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Enviar backups")
                 }
             }
             if (tasks.isNotEmpty()) {
