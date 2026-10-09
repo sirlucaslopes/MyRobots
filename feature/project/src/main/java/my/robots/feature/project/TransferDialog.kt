@@ -48,7 +48,8 @@ internal fun TransferDialog(
     onAnalyze: (List<MasterSlavePair>, List<String>, Boolean, Boolean) -> Unit,
     onBackFromAnalysis: () -> Unit,
     onConfirm: (List<MasterSlavePair>, List<String>, Boolean, Boolean) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    crossLine: Boolean = false
 ) {
     var chosenPairs by remember { mutableStateOf(pairs.map { it.slave.id }.toSet()) }
     var chosenPrograms by remember { mutableStateOf(listOf<String>()) }
@@ -92,6 +93,18 @@ internal fun TransferDialog(
             else TextButton(onClick = onDismiss) { Text("Cancelar") }
         }
     ) {
+        // origem e destino em linhas de produção diferentes (fora do mesmo processo)
+        if (crossLine) {
+            Surface(color = Color(0xFFFFB300), shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Origem e destino em linhas diferentes",
+                    color = Color.Black,
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
         if (!step2) {
             // ---------- 1. ORIGEM ----------
             SideBlock("ORIGEM (mestre)", "de onde os programas saem", OriginColor) {

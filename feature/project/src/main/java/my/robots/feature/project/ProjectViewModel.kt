@@ -123,6 +123,10 @@ class ProjectViewModel(
     val layout: StateFlow<ProjectLayout?> = repository.getProjectLayout(projectName)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    /** Todas as estações (para saber se mestre e escravo estão em linhas diferentes, F6). */
+    val stations: StateFlow<List<ProjectLayout>> = repository.stations
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     /** Todos os robôs do app (os pares mestre/escravo ligam projetos diferentes). */
     val allRobots: StateFlow<List<Robot>> = repository.allRobots
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

@@ -1,5 +1,7 @@
 package my.robots.feature.project
 
+import my.robots.core.data.hierarchy.ClientTree
+import androidx.compose.runtime.saveable.rememberSaveable
 import android.content.Intent
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -89,7 +91,8 @@ fun ProjectScreen(
     onOpenTerminal: () -> Unit,
     onOpenRobotTerminal: (Robot) -> Unit,
     onOpenMasterSlave: () -> Unit,
-    onRenamed: (String) -> Unit
+    onRenamed: (String) -> Unit,
+    autoTransferFrom: String? = null
 ) {
     val view by viewModel.view.collectAsState()
     val draft by viewModel.draft.collectAsState()
@@ -139,6 +142,39 @@ fun ProjectScreen(
     var showCommandAll by remember { mutableStateOf(false) }
     // pares da transferência aberta (os de um desenho mestre -> escravo)
     var transferPairs by remember { mutableStateOf<List<MasterSlavePair>?>(null) }
+    // F6: transferência entre estações de linhas diferentes pede confirmação antes
+    var transferCross by remember { mutableStateOf(false) }
+    var crossWarn by remember { mutableStateOf<ProjectPairView?>(null) }
+    val stations by viewModel.stations.collectAsState()
+    fun openTransfer(pv: ProjectPairView) {
+        viewModel.loadProgramChoices(pv.pairs.map { it.master })
+        transferCross = ClientTree.isCrossLine(pv.masterName, pv.slaveName, stations)
+        transferPairs = pv.pairs
+    }
+    fun requestTransfer(pv: ProjectPairView) {
+        if (ClientTree.isCrossLine(pv.masterName, pv.slaveName, stations)) crossWarn = pv else openTransfer(pv)
+    }
+    // vindo do "Transferir" da tela da Linha: abre a transferência daquele mestre sozinha
+    var autoTransferDone by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(autoTransferFrom, pairViews, stations) {
+        if (autoTransferFrom == null || autoTransferDone) return@LaunchedEffect
+        val pv = pairViews.firstOrNull { it.masterName == autoTransferFrom && it.slaveName == viewModel.projectName }
+        if (pv != null) {
+            autoTransferDone = true
+            requestTransfer(pv)
+        } else {
+            // os pares chegam do banco: espera um pouco antes de dizer que não há
+            kotlinx.coroutines.delay(2500)
+            if (!autoTransferDone) {
+                autoTransferDone = true
+                Toast.makeText(
+                    context,
+                    "$autoTransferFrom → ${viewModel.projectName}: sem pares de robôs. Configure em Mestre / Escravo.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
 
     val editing = draft != null
     val shown = draft ?: view
@@ -277,10 +313,7 @@ fun ProjectScreen(
                             // a transferência fica embaixo do desenho dos pares que ela usa
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(
-                                    onClick = {
-                                        viewModel.loadProgramChoices(pv.pairs.map { it.master })
-                                        transferPairs = pv.pairs
-                                    },
+                                    onClick = { requestTransfer(pv) },
                                     enabled = running == null,
                                     modifier = Modifier.weight(1f)
                                 ) {
@@ -410,7 +443,16 @@ fun ProjectScreen(
                 viewModel.clearAnalysis()
                 viewModel.transfer(selected, programs, withFrames, applyOffset)
             },
-            onDismiss = { transferPairs = null; viewModel.clearAnalysis() }
+            onDismiss = { transferPairs = null; viewModel.clearAnalysis() },
+            crossLine = transferCross
+        )
+    }
+    crossWarn?.let { pv ->
+        CrossLineWarning(
+            target = pv.slaveName,
+            action = "transferir",
+            onContinue = { crossWarn = null; openTransfer(pv) },
+            onDismiss = { crossWarn = null }
         )
     }
     if (showAddEquipment) {

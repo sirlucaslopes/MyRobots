@@ -45,6 +45,14 @@ class MasterSlaveViewModel(
     val robots: StateFlow<List<Robot>> = repository.allRobots
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** Todas as estações: mestre e escravo em linhas diferentes pedem confirmação (F6). */
+    val stations: StateFlow<List<ProjectLayout>> = repository.stations
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** As estações [a] e [b] estão em linhas de produção diferentes? */
+    fun isCrossLine(a: String, b: String): Boolean =
+        my.robots.core.data.hierarchy.ClientTree.isCrossLine(a, b, stations.value)
+
     /** Projetos com robôs, em ordem alfabética. */
     val projects: StateFlow<List<String>> = repository.allRobots
         .map { all -> all.map { it.project }.filter { it.isNotBlank() }.distinct().sorted() }

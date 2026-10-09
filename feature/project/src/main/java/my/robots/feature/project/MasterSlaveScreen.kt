@@ -38,6 +38,10 @@ fun MasterSlaveScreen(viewModel: MasterSlaveViewModel, onBack: () -> Unit) {
     val robots by viewModel.robots.collectAsState()
     var showNew by remember { mutableStateOf(false) }
     var toRemove by remember { mutableStateOf<SlaveSetup?>(null) }
+    // F6: ligar estações de linhas diferentes pede confirmação (criar, ou trocar o mestre)
+    val stations by viewModel.stations.collectAsState()
+    var crossCreate by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var crossSave by remember { mutableStateOf<SlaveSetup?>(null) }
 
     Scaffold(
         topBar = {
@@ -76,7 +80,10 @@ fun MasterSlaveScreen(viewModel: MasterSlaveViewModel, onBack: () -> Unit) {
                     projects = projects,
                     robots = robots,
                     pairByPosition = { master -> viewModel.pairByPosition(setup.slaveProject, master) },
-                    onSave = viewModel::save,
+                    onSave = { s ->
+                        val changedMaster = setups.firstOrNull { it.slaveProject == s.slaveProject }?.masterProject != s.masterProject
+                        if (changedMaster && viewModel.isCrossLine(s.masterProject, s.slaveProject)) crossSave = s else viewModel.save(s)
+                    },
                     onRemove = { toRemove = setup }
                 )
             }
@@ -87,9 +94,24 @@ fun MasterSlaveScreen(viewModel: MasterSlaveViewModel, onBack: () -> Unit) {
         NewSetupDialog(
             projects = projects,
             taken = setups.map { it.slaveProject }.toSet(),
-            onCreate = { slave, master -> showNew = false; viewModel.create(slave, master) },
+            onCreate = { slave, master ->
+                showNew = false
+                if (viewModel.isCrossLine(master, slave)) crossCreate = slave to master else viewModel.create(slave, master)
+            },
             onDismiss = { showNew = false }
         )
+    }
+    crossCreate?.let { (slave, master) ->
+        CrossLineWarning(target = slave, action = "reaproveitar os programas do $master", onContinue = {
+            crossCreate = null
+            viewModel.create(slave, master)
+        }, onDismiss = { crossCreate = null })
+    }
+    crossSave?.let { s ->
+        CrossLineWarning(target = s.slaveProject, action = "reaproveitar os programas do ${s.masterProject}", onContinue = {
+            crossSave = null
+            viewModel.save(s)
+        }, onDismiss = { crossSave = null })
     }
     toRemove?.let { s ->
         AlertDialog(

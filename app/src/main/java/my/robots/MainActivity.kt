@@ -1,5 +1,9 @@
 package my.robots
 
+import my.robots.feature.clients.ClientScreen
+import my.robots.feature.clients.ClientsScreen
+import my.robots.feature.clients.ClientsViewModelFactory
+import my.robots.feature.clients.LineScreen
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -151,18 +155,70 @@ class MainActivity : ComponentActivity() {
                     val searchTerms by app.manufacturerSettings.searchTerms(Manufacturer.KAWASAKI).collectAsState()
                     CompositionLocalProvider(LocalSearchTerms provides searchTerms) {
                     NavHost(navController = navController, startDestination = "splash") {
-                        // Tela 1: abertura animada. Ao terminar, vai para a lista de robôs (e some do histórico de voltar).
+                        // Tela 1: abertura animada. Ao terminar, vai para a tela de Clientes (e some do histórico de voltar).
                         composable("splash") {
                             SplashScreen(
                                 onAnimationFinished = {
-                                    navController.navigate("robot_list") {
+                                    navController.navigate("clients") {
                                         popUpTo("splash") { inclusive = true }
                                     }
                                 }
                             )
                         }
 
-                        // Tela 2: lista de robôs.
+                        // Estação = projeto: abre a tela de Projeto de hoje.
+                        fun openStation(name: String) {
+                            navController.navigate("project/${URLEncoder.encode(name, StandardCharsets.UTF_8.toString())}")
+                        }
+                        val clientsFactory = ClientsViewModelFactory(repository, terminalManager)
+
+                        // Tela inicial (v1.3): Clientes → Cliente → Linha → Estação → Robô.
+                        composable("clients") {
+                            ClientsScreen(
+                                viewModel = viewModel(factory = clientsFactory),
+                                onOpenClient = { navController.navigate("client/$it") },
+                                onOpenLine = { navController.navigate("line/$it") },
+                                onOpenStation = ::openStation,
+                                onOpenOldList = { navController.navigate("robot_list") },
+                                onOpenManufacturers = { navController.navigate("manufacturers") },
+                                onOpenMasterSlave = { navController.navigate("master_slave") }
+                            )
+                        }
+
+                        // Um cliente: as linhas dele.
+                        composable(
+                            route = "client/{clientId}",
+                            arguments = listOf(navArgument("clientId") { type = NavType.LongType })
+                        ) { entry ->
+                            ClientScreen(
+                                viewModel = viewModel(factory = clientsFactory),
+                                clientId = entry.arguments?.getLong("clientId") ?: 0L,
+                                onBack = { navController.popBackStack() },
+                                onOpenLine = { navController.navigate("line/$it") },
+                                onOpenStation = ::openStation
+                            )
+                        }
+
+                        // Uma linha: as estações na ordem do processo. Transferir abre a tela de
+                        // Projeto do escravo já na transferência daquele mestre.
+                        composable(
+                            route = "line/{lineId}",
+                            arguments = listOf(navArgument("lineId") { type = NavType.LongType })
+                        ) { entry ->
+                            LineScreen(
+                                viewModel = viewModel(factory = clientsFactory),
+                                lineId = entry.arguments?.getLong("lineId") ?: 0L,
+                                onBack = { navController.popBackStack() },
+                                onOpenStation = ::openStation,
+                                onTransfer = { master, slave ->
+                                    val enc = { n: String -> URLEncoder.encode(n, StandardCharsets.UTF_8.toString()) }
+                                    navController.navigate("project/${enc(slave)}?transferFrom=${enc(master)}")
+                                }
+                            )
+                        }
+
+                        // Lista de robôs (a tela inicial até a v1.2). Fica no ⋮ Configurações da tela
+                        // de Clientes como "Lista de robôs (antiga)" enquanto a nova é testada.
                         // - Tocar no robô -> painel dele, com o backup mais recente (-1).
                         // - Ícone do terminal -> painel do robô já no terminal.
                         // - Ícone do projeto -> tela de Projeto (a cabine).
@@ -209,11 +265,17 @@ class MainActivity : ComponentActivity() {
                         // - "Terminal Geral" / "Modo avançado" -> terminal geral do projeto.
                         // - Renomear -> troca esta tela pela do nome novo.
                         composable(
-                            route = "project/{projectName}",
-                            arguments = listOf(navArgument("projectName") { type = NavType.StringType })
+                            route = "project/{projectName}?transferFrom={transferFrom}",
+                            arguments = listOf(
+                                navArgument("projectName") { type = NavType.StringType },
+                                navArgument("transferFrom") { type = NavType.StringType; nullable = true; defaultValue = null }
+                            )
                         ) { backStackEntry ->
                             val encodedProject = backStackEntry.arguments?.getString("projectName") ?: ""
                             val projectName = URLDecoder.decode(encodedProject, StandardCharsets.UTF_8.toString())
+                            // vindo do "Transferir" da tela da Linha: o projeto mestre (abre a transferência)
+                            val transferFrom = backStackEntry.arguments?.getString("transferFrom")
+                                ?.let { URLDecoder.decode(it, StandardCharsets.UTF_8.toString()) }
                             val projectViewModel: ProjectViewModel = viewModel(
                                 factory = ProjectViewModelFactory(repository, terminalManager, app.projectOperations, app.masterSlaveOptions, projectName)
                             )
@@ -227,9 +289,10 @@ class MainActivity : ComponentActivity() {
                                 onRenamed = { newName ->
                                     val encodedNew = URLEncoder.encode(newName, StandardCharsets.UTF_8.toString())
                                     navController.navigate("project/$encodedNew") {
-                                        popUpTo("project/{projectName}") { inclusive = true }
+                                        popUpTo("project/{projectName}?transferFrom={transferFrom}") { inclusive = true }
                                     }
-                                }
+                                },
+                                autoTransferFrom = transferFrom
                             )
                         }
 

@@ -58,6 +58,7 @@ dependencies {
     implementation(project(":feature:dashboard"))
     implementation(project(":feature:terminal"))
     implementation(project(":feature:project"))
+    implementation(project(":feature:clients"))
 
     // ---- Bibliotecas usadas diretamente pelo app ----
     implementation(libs.androidx.core.ktx)
