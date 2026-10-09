@@ -17,7 +17,7 @@ cada módulo.
 
 Esta parte descreve o app **do ponto de vista de quem usa**: o que cada tela mostra e tudo o que
 dá para fazer em cada operação. Os detalhes de implementação estão nas seções numeradas
-(0 a 15), indicadas entre parênteses. Ao mudar o que uma tela faz, atualize aqui também.
+(0 a 16), indicadas entre parênteses. Ao mudar o que uma tela faz, atualize aqui também.
 
 Padrão de todas as telas: o **título** (e um subtítulo) fica no alto, com o **⋮** (menu de itens
 pouco usados) ao lado; as **ações** ficam na linha logo abaixo, cada uma com ícone e nome. Ação
@@ -27,7 +27,9 @@ desligada (cinza) precisa de alguma condição, por exemplo marcar um item antes
 
 | Quero… | Onde |
 |---|---|
-| cadastrar, conectar ou desconectar um robô | Lista de robôs |
+| ver os clientes, as linhas e as estações | Tela inicial (Clientes) |
+| criar cliente ou linha, mover/ordenar estações, tipo de trabalho | Clientes → **Novo**; Linha → ⋮ da estação |
+| cadastrar, conectar ou desconectar um robô | ⚙ → **Lista de robôs (antiga)** |
 | ver horas de uso, alarmes, memória de um robô | Painel do robô (home) |
 | baixar o backup completo agora | Painel → **Atualizar** |
 | ler, pesquisar, editar um programa | Painel → Programas → tocar no programa (Editor) |
@@ -44,7 +46,56 @@ desligada (cinza) precisa de alguma condição, por exemplo marcar um item antes
 | ver o que mudou entre o app e o robô, apagar o que sobrou no robô | Painel → **Comparar com o robô** |
 | achar variáveis que nenhum programa usa | Painel → Variáveis → **Sem uso** |
 
-### Lista de robôs (tela inicial) — seção 7
+### Clientes (tela inicial, v1.3) — seção 16
+O app é organizado em **Cliente → Linha → Estação → Robô**. A **estação** é o "projeto" de até a
+v1.2 (a cabine): tocar nela abre a Tela de Projeto de sempre. Na primeira abertura da v1.3, todos
+os projetos viram estações de **"Meu cliente › Linha 1"**, na ordem alfabética.
+- **Ver:** um cartão por cliente, com "N linhas · X de Y conectados" e o último uso. Dentro, a
+  **mini planta de cada linha**: o nome, o tipo de trabalho e as estações na ordem do processo.
+  Cada estação é um bloquinho com **um quadrado por robô na cor do status** (verde Conectado,
+  amarelo Sem sinal, cinza Desligado), no formato da grade da cabine, e o nome embaixo.
+  - entre as estações: `→`; `⇄` azul quando uma reaproveita os programas da outra (o par
+    mestre/escravo de antes);
+  - `⇄` amarelo no fim: a linha tem ligação com **outra linha**.
+- **Ordem:** o cliente usado por último vem primeiro.
+- **Atalhos:** com um cliente só, o app abre direto nele; se ele tem uma linha só, direto nas
+  estações dela.
+- **Tocar** no cartão abre o cliente; tocar num bloquinho de estação abre a Tela de Projeto.
+- **⋮ do cliente:** Renomear e Ocultar/Mostrar. **Ocultar nunca apaga nada**: os ocultos
+  ficam em "Mostrar ocultos (N)", no fim da lista, apagados e com a etiqueta "oculto".
+- **Filtros:** tipo de trabalho, linha, status (com robô conectado / com robô desligado) e marca.
+  Os ativos aparecem como etiquetas no alto (tocar tira). Um cliente aparece se alguma linha dele
+  passa; dentro dele, só as linhas e estações que passam.
+- **Novo:** "Novo cliente" e "Nova linha" (escolhe o cliente), cada um pede só o nome.
+- **⚙ Configurações:** **Lista de robôs (antiga)** (a tela inicial até a v1.2, com o cadastro de
+  robôs, Wi-Fi e Pasta dos arquivos), Fabricantes e Mestre / Escravo. A lista antiga fica até a
+  nova ser aprovada.
+
+### Cliente (as linhas dele)
+- Um cartão por linha: LED do pior estado, nome, tipo de trabalho (o mais comum entre as
+  estações), "N estações · X de Y conectados" e a mini planta. Tocar abre a linha.
+- **Nova linha** na barra; **⋮ da linha:** Renomear e Ocultar; ⋮ do topo: renomear ou ocultar o
+  cliente. Linhas ocultas em "Mostrar ocultas".
+
+### Linha (estações na ordem do processo)
+- Uma estação por cartão: a mini grade, o LED do pior estado, o nome, "N robôs · X
+  conectados" e o tipo de trabalho. **Tocar abre a Tela de Projeto.**
+- **Entre duas estações:** "próxima estação", ou a ligação ("Top Coat reaproveita os programas
+  do Primer") com **Transferir**, que abre a Tela de Projeto do escravo já na transferência
+  daquele mestre.
+- **Ligação com outra linha:** seção com borda tracejada amarela, com a linha (e o cliente) da
+  outra ponta e Transferir.
+- **⋮ da estação:** Tipo de trabalho (ou "Novo tipo…"), Mover para outra linha, Subir/Descer (a
+  ordem do processo), Ocultar e Renomear.
+
+### Linha diferente (aviso)
+- Transferir, ou ligar duas estações em Mestre / Escravo, quando elas estão em **linhas
+  diferentes**: antes aparece "**Linha diferente.** Atenção: [destino] é de outra linha e não está
+  no mesmo processo. Tem certeza que deseja …?", com **Cancelar** e **Continuar mesmo assim**.
+- Na conferência da transferência, uma faixa amarela: "Origem e destino em linhas diferentes".
+- Dentro da mesma linha, nada muda.
+
+### Lista de robôs (antiga) — seção 7
 - **Ver:** os robôs agrupados por **fabricante → projeto → robô**; cada grupo abre e fecha. No
   subtítulo, quantos estão conectados e a rede Wi-Fi do celular (nome e IP). A legenda mostra o
   significado do LED: verde **Conectado** (respondendo), amarelo **Sem sinal** (conectado mas
@@ -422,10 +473,11 @@ para melhorar uma parte sem mexer nas outras.
 :app                     MainActivity, MyRobotsApp e o mapa de navegação (liga as telas)
 
 :core:common             FileUtil (nomes de arquivo), AsProgramBlocks (blocos .PROGRAM) e LayoutOps (grade da cabine)
-:core:model              Robot, Backup, QuickCommand, Manufacturer, ProjectLayout, ProjectEquipment
+:core:model              Robot, Backup, QuickCommand, Manufacturer, ProjectLayout (a estação), ProjectEquipment,
+                         Client, ProductionLine, WorkType
 :core:database           Room: AppDatabase, os DAOs, as migrações e o schema exportado
 :core:network            KawasakiTerminalManager (terminal TCP/telnet)
-:core:data               RobotRepository (junta banco + arquivos)
+:core:data               RobotRepository (junta banco + arquivos); hierarchy.ClientTree (regras da tela inicial)
 :core:designsystem       Tema (cores, fontes, formas) + bibliotecas de Compose compartilhadas
 
 :feature:splash          Tela de abertura
@@ -435,6 +487,7 @@ para melhorar uma parte sem mexer nas outras.
 :feature:dashboard       Painel do robô: terminal, programas, variáveis, Data Bank
 :feature:terminal        Terminal Geral (vários robôs) e comandos rápidos
 :feature:project         Tela de Projeto: a cabine com os robôs e o editor do layout
+:feature:clients         Tela inicial: Clientes → Cliente → Linha (a estação abre a Tela de Projeto)
 ```
 
 ### Regras de dependência (para manter tudo organizado)
@@ -505,7 +558,8 @@ para melhorar uma parte sem mexer nas outras.
 
 ## 2. `:core:database` — persistência local (Room)
 
-`AppDatabase` (versão 6) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao` e `ProjectDao`.
+`AppDatabase` (versão 8) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao`, `ProjectDao` e
+`HierarchyDao` (clientes, linhas, tipos de trabalho e onde fica cada estação).
 Guarda robôs, backups, comandos rápidos e o layout da cabine de cada projeto
 (`project_layouts`, `project_equipment`). O `ProjectDao` grava a edição do layout numa transação
 (`saveLayout`), renomeia o projeto em todas as tabelas (`renameProject`) e apaga o layout de um
@@ -522,9 +576,21 @@ projeto que ficou sem robôs (`deleteLayoutIfEmpty`).
 - **Migrações:** `MIGRATION_4_5` (v1.2, tela de Projeto) acrescenta `layoutRow`/`layoutCol` em
   `robots` (robôs antigos ficam fora do layout) e cria `project_layouts` e `project_equipment`.
   `MIGRATION_5_6` acrescenta `serialNumber` em `robots` (nulo até ser descoberto).
+  `MIGRATION_6_7` traz os pares mestre/escravo (`masterRobotId`, `masterProject`, `baseOffset`).
+  `MIGRATION_7_8` (v1.3) cria `clients`, `lines` e `work_types` (Pintura, Solda, Manipulação,
+  Selagem) e dá à estação (`project_layouts`) `lineId`, `workType`, `sortOrder` e `hidden`.
+  Todo projeto vira estação de "Meu cliente" › "Linha 1", inclusive os que só existiam em
+  `robots.project` (ganham o layout 2×2), na ordem alfabética; os pares mestre/escravo não
+  mudam. Com o banco vazio, o cliente não é criado: `HierarchyDao.ensureStations` cria quando
+  aparece o primeiro robô.
+- **`ensureStations`** (ao abrir o app e ao cadastrar ou mudar o projeto de um robô): projeto
+  novo vira estação no fim da linha usada por último; estação sem linha vai para essa linha.
+- Renomear um projeto (`renameProject`) também troca o nome em quem o tinha como mestre.
 - **Teste de migração:** `MigrationTest` (androidTest, `MigrationTestHelper`) cria o banco v4
   com dados e confere que eles continuam lá na versão atual, e valida a `MIGRATION_4_5` (contra o
-  `5.json`) e a `MIGRATION_5_6` (contra o `6.json`) com `runMigrationsAndValidate`. Roda com o celular ligado:
+  `5.json`), a `MIGRATION_5_6`, a `MIGRATION_6_7` e a `MIGRATION_7_8` (contra o `8.json`, com
+  projetos, um projeto só nos robôs, pares mestre/escravo e equipamentos; e com o banco vazio)
+  com `runMigrationsAndValidate`. Roda com o celular ligado:
   `.\gradlew.bat :core:database:connectedDebugAndroidTest` (passou em 02/10/2026 num Galaxy S25).
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
@@ -1173,9 +1239,12 @@ fica reservado para não mudar as referências às seções seguintes.
 
 | Rota | Tela | Observação |
 |---|---|---|
-| `splash` | `SplashScreen` | início; some do histórico ao terminar |
-| `robot_list` | `RobotListScreen` | lista de robôs; tocar no robô → `robot_dashboard/{id}/-1` |
-| `project/{projectName}` | `ProjectScreen` | cabine do projeto; segurar um robô → `robot_dashboard/{id}/-1`; renomear troca a rota pelo nome novo |
+| `splash` | `SplashScreen` | início; some do histórico ao terminar e vai para `clients` |
+| `clients` | `ClientsScreen` | tela inicial (v1.3); atalho para `client/{id}` ou `line/{id}` com um cliente só |
+| `client/{clientId}` | `ClientScreen` | as linhas do cliente |
+| `line/{lineId}` | `LineScreen` | as estações da linha; tocar → `project/{nome}`; Transferir → `project/{escravo}?transferFrom={mestre}` |
+| `robot_list` | `RobotListScreen` | lista de robôs (antiga, pelo ⚙ da tela inicial); tocar no robô → `robot_dashboard/{id}/-1` |
+| `project/{projectName}?transferFrom={mestre}` | `ProjectScreen` | cabine do projeto (a estação); segurar um robô → `robot_dashboard/{id}/-1`; renomear troca a rota pelo nome novo; com `transferFrom`, abre a transferência daquele mestre |
 | `multi_terminal/{projectName}` | `MultiRobotTerminalScreen` | terminal de todos os robôs do projeto (aberto pela tela de Projeto) |
 | `quick_commands/{manufacturer}/{robotId}` | `QuickCommandScreen` | biblioteca de comandos |
 | `backup_list/{robotId}` | `BackupHistoryScreen` | histórico de backups do robô |
@@ -1370,3 +1439,42 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
 do arquivo e a janela (os robôs da cabine não estavam ao alcance); falta rodar com um par real.
 Buscar programa em todos e verificar erros (Fase 2.2) ainda não existem. Arrastar robôs na grade
 pode vir depois, em cima das mesmas funções do `LayoutOps`.
+
+---
+
+## 16. `:feature:clients` — Tela inicial (Clientes → Linha → Estação)
+
+**Arquivos:** `ClientsScreen.kt` (tela inicial e filtros), `ClientScreen.kt` (as linhas de um
+cliente, `LineCard`), `LineScreen.kt` (as estações de uma linha), `ClientsComponents.kt` (mini
+grade da estação, mini planta da linha, janelas de nome e de escolha) e `ClientsViewModel.kt`.
+As regras ficam em `ClientTree` (`:core:data`, pacote `hierarchy`, testadas na JVM em
+`ClientTreeTest`): montar a árvore sem ou com os ocultos, ordem pelo último uso, atalhos (um
+cliente / uma linha), filtro, ligações (`links`, a partir de `ProjectLayout.masterProject`),
+linhas diferentes (`isCrossLine`), tipo da linha, pior estado e Subir/Descer (`moved`).
+
+- **Dados:** `RobotRepository.clients`, `lines`, `stations` (todas as linhas de
+  `project_layouts`), `workTypes` e `allRobots`; o status de cada robô é o heartbeat do
+  `KawasakiTerminalManager` (o mesmo LED do resto do app). Não há "alarme" ao vivo: o app ainda
+  não lê alarme do robô, então os cartões mostram só os conectados.
+- **Uma instância do ViewModel por tela** (rotas `clients`, `client/{id}`, `line/{id}`); os
+  filtros valem na tela inicial enquanto ela estiver na pilha.
+- **Último uso:** abrir um cliente (`touchClient`) ou uma linha (`touchLine`, que também marca o
+  cliente) grava a hora; a tela inicial ordena por ela.
+- **Ocultar:** `hidden` no cliente, na linha ou na estação. Nada é apagado: a tela tem "Mostrar
+  ocultos/ocultas" no fim.
+- **Mover estação:** vai para o fim da outra linha e a ordem da linha antiga é refeita sem buraco
+  (`HierarchyDao.moveStation`). **Subir/Descer** regrava a ordem da linha toda
+  (`reorderLine`).
+- **Renomear estação** usa o `renameProject` de sempre (robôs, layout, equipamentos e quem a tem
+  como mestre).
+- **Transferir** (Linha): `project/{escravo}?transferFrom={mestre}`; a `ProjectScreen` abre a
+  transferência daquele par quando os pares chegam do banco (sem pares de robôs, avisa e manda
+  configurar em Mestre / Escravo).
+- **F6, linhas diferentes:** `CrossLineWarning` (`:feature:project`) antes de abrir a
+  transferência (`ProjectScreen`) e antes de criar ou trocar o mestre em Mestre / Escravo; a
+  `TransferDialog` recebe `crossLine` e mostra a faixa amarela.
+
+**Pendências / Próximos passos:** 3D da estação, assistente de nova estação (hoje uma estação
+nasce do projeto de um robô cadastrado na lista antiga), Pack and Go, tela de boas-vindas, robô
+em 4 abas e o contrato da marca (fases B, D, E, G e H do `docs/PLANO_MESTRE.md`). A lista de
+robôs antiga sai quando a nova entrada for aprovada.

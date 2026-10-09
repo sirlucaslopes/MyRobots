@@ -118,7 +118,7 @@ flowchart TD
       já foi coberto pelos commits de 02 a 05/10.
 - [ ] 0-B.D: acentos nos arquivos AS (precisa de um SAVE/FULL real).
 - [ ] 0-B.F: Play Console (política de privacidade, Data Safety). É com você.
-- [ ] Colocar no repositório o `FLUXO_APP.md` revisado (com as propostas de 06/10).
+- [x] Colocar no repositório o `FLUXO_APP.md` revisado (com as propostas de 06/10). `ffc6f36`, 07/10/2026.
 - [ ] Revisão de segurança da senha aberta no `robo.myrobots` (aceita em 01/10; rever antes da release).
 
 ### Perguntas em aberto
@@ -178,7 +178,7 @@ flowchart TD
 
 ### Fase C: hierarquia Cliente → Linha → Estação 🆕
 
-- [ ] C1. Banco v8:
+- [~] C1. Banco v8:
   - tabela `clients` (nome, `hidden`, ordem);
   - tabela `lines` (`clientId`, nome, `hidden`, ordem). O **processo** é desta tabela: a ordem das
     estações e as ligações valem dentro da linha;
@@ -190,10 +190,14 @@ flowchart TD
     07/10). A tabela de ligações guarda as duas estações, sem exigir que estejam na mesma linha.
   - Migração 7 → 8: cada projeto atual vira uma estação, dentro de uma linha "Linha 1" de um
     cliente "Meu cliente". Os pares mestre/escravo atuais viram ligações dessa linha.
-- [ ] C2. Ocultar e mostrar cliente, linha ou estação (nada é apagado). Os ocultos ficam numa lista
+      **08/10/2026, `8d45090`:** feito; a estação continua sendo `project_layouts` (sem tabela `stations`) e as ligações continuam em `masterProject`. Falta rodar o `MigrationTest` no aparelho.
+- [~] C2. Ocultar e mostrar cliente, linha ou estação (nada é apagado). Os ocultos ficam numa lista
       própria nas Configurações.
-- [ ] C3. Seção de **filtros**: cliente, linha, marca, tipo de trabalho, data, status.
-- [ ] C4. Tipos de trabalho editáveis nas Configurações.
+      **08/10/2026, `cb1fe7f`:** feito; os ocultos ficam em "Mostrar ocultos" na própria tela (cliente, linha e estação), não nas Configurações.
+- [~] C3. Seção de **filtros**: cliente, linha, marca, tipo de trabalho, data, status.
+      **08/10/2026, `cb1fe7f`:** tipo de trabalho, linha, status e marca. Filtro por cliente e por data ainda não.
+- [~] C4. Tipos de trabalho editáveis nas Configurações.
+      **08/10/2026, `cb1fe7f`:** só criar ("Novo tipo…" no ⋮ da estação). Renomear e apagar tipos nas Configurações ainda não.
 - [ ] C5. Atualizar o `GUIDE.md` e o `FLUXO_APP.md` (Projeto → Estação, com Cliente e Linha acima).
 
 ### Fase D: pasta autossuficiente (Fase 1.5 do PLANO_V1_2)
@@ -217,12 +221,15 @@ flowchart TD
 
 ### Fase F: Linha e Estação 🆕
 
-- [ ] F0. **Tela inicial = Clientes:** cada cliente com as linhas dele e um resumo (ativos e
+- [~] F0. **Tela inicial = Clientes:** cada cliente com as linhas dele e um resumo (ativos e
       alarmes). Tocar abre o cliente. Com um cliente só, abre direto nele.
-- [ ] F0b. **Cliente:** as linhas (cabines) dele, cada uma com uma mini-planta, o tipo de trabalho
+      **08/10/2026, `cb1fe7f`:** feito, com atalhos de um cliente e de uma linha. Sem alarme ao vivo: mostra só os conectados.
+- [~] F0b. **Cliente:** as linhas (cabines) dele, cada uma com uma mini-planta, o tipo de trabalho
       e o resumo. Com uma linha só, abre direto nela.
-- [ ] F1. **Linha:** estações na ordem do processo, mini-cabine com uma cor por
+      **08/10/2026, `cb1fe7f`:** feito.
+- [~] F1. **Linha:** estações na ordem do processo, mini-cabine com uma cor por
       robô, ativos e alarmes, setas de "reaproveita os programas de". Filtros no topo.
+      **08/10/2026, `cb1fe7f`:** feito sem 3D: mini grade com um quadrado por robô na cor do status, ligações e Transferir. Filtros só na tela inicial.
 - [ ] F2. **Estação:** cabine em 3D, chips de status, **Funções** (Backup de todos, Comando para
       todos, Duplicar, Transferir) e **Alarmes**.
 - [ ] F3. **3D:** carregar um `.glb` de braço robótico genérico com SceneView/Filament. Começa como
@@ -230,7 +237,7 @@ flowchart TD
       ângulos dos eixos podem vir do robô. Se o aparelho não suportar 3D, mostrar a grade 2D atual.
 - [ ] F4. Remover o Terminal Geral (o "Comando para todos" já mostra a resposta de cada robô) (O8, O18).
 - [ ] F5. Ligações em linhas compactas; tirar o texto "→ C01 → R16" dos cartões.
-- [ ] F6. 🆕 **Reaproveitar entre linhas diferentes** (mesmo cliente):
+- [~] F6. 🆕 **Reaproveitar entre linhas diferentes** (mesmo cliente):
   - dentro da mesma linha: ligação natural, sem aviso extra;
   - entre linhas diferentes: ao **criar a ligação** e ao **executar** (Transferir, Duplicar para
     outra linha), mostrar o alerta "Atenção: esta linha é diferente e não está no mesmo processo.
@@ -238,6 +245,7 @@ flowchart TD
   - na Conferência, uma faixa amarela fixa "Origem e destino em linhas diferentes" acima da lista;
   - na tela da Linha, a ligação para outra linha aparece com a etiqueta da linha de destino
     (ex.: "→ Honda · Cabine 2"), com o traço diferente da ligação interna.
+      **08/10/2026, `cb1fe7f`:** aviso ao transferir e ao criar ou trocar o mestre em Mestre / Escravo; faixa amarela na conferência; ⇄ amarelo e seção tracejada na Linha. O Duplicar é dentro de uma estação, então não cruza linhas.
 
 ### Fase G: Nova estação + Perfil da marca + Configurações 🆕
 
