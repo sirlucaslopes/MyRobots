@@ -210,6 +210,8 @@ class MainActivity : ComponentActivity() {
                                 lineId = entry.arguments?.getLong("lineId") ?: 0L,
                                 onBack = { navController.popBackStack() },
                                 onOpenStation = ::openStation,
+                                // tocar num robô da cabine: o painel dele
+                                onOpenRobot = { robot -> navController.navigate("robot_dashboard/${robot.id}/-1") },
                                 onTransfer = { master, slave ->
                                     val enc = { n: String -> URLEncoder.encode(n, StandardCharsets.UTF_8.toString()) }
                                     navController.navigate("project/${enc(slave)}?transferFrom=${enc(master)}")

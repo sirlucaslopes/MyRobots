@@ -215,5 +215,5 @@ internal fun Led(state: HeartbeatState, size: Dp = 10.dp) {
     Surface(Modifier.size(size), shape = RoundedCornerShape(50), color = stateColor(state)) {}
 }
 
-/** Uma ligação de reaproveitamento no texto: "Top Coat reaproveita os programas do Primer". */
-internal fun linkText(link: StationLink): String = "${link.slave} reaproveita os programas do ${link.master}"
+/** Envio de programas entre estações, no texto: "Primer CAT → Top Coat CAT" (de onde → para onde). */
+internal fun linkText(link: StationLink): String = "${link.master.trim()} → ${link.slave.trim()}"

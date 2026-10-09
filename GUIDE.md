@@ -78,13 +78,18 @@ os projetos viram estações de **"Meu cliente › Linha 1"**, na ordem alfabét
   cliente. Linhas ocultas em "Mostrar ocultas".
 
 ### Linha (estações na ordem do processo)
-- Uma estação por cartão: a mini grade, o LED do pior estado, o nome, "N robôs · X
-  conectados" e o tipo de trabalho. **Tocar abre a Tela de Projeto.**
-- **Entre duas estações:** "próxima estação", ou a ligação ("Top Coat reaproveita os programas
-  do Primer") com **Transferir**, que abre a Tela de Projeto do escravo já na transferência
-  daquele mestre.
-- **Ligação com outra linha:** seção com borda tracejada amarela, com a linha (e o cliente) da
-  outra ponta e Transferir.
+- Uma estação por cartão: o LED do pior estado, o nome, "N robôs · X conectados", o tipo de
+  trabalho e a **cabine**: um quadrado por robô, na vaga dele, com o nome e a cor do status.
+  - **Tocar num robô abre o painel dele.**
+  - **Conectar** liga os robôs desligados da estação ("Conectando…" enquanto não respondem);
+    com todos conectados, vira **Desconectar**.
+  - **Abrir estação** (ou tocar no resto do cartão) abre a Tela de Projeto.
+- **Conectar todos / Desconectar** na barra: todos os robôs da linha.
+- **Entre duas estações:** "próxima estação", ou o envio de programas entre elas ("Primer CAT →
+  Top Coat CAT") com **Enviar programas**, que abre a Tela de Projeto do destino já na
+  transferência daquela origem.
+- **Enviar programas para outra linha:** seção com borda tracejada amarela, com a linha (e o
+  cliente) da outra ponta.
 - **⋮ da estação:** Tipo de trabalho (ou "Novo tipo…"), Mover para outra linha, Subir/Descer (a
   ordem do processo), Ocultar e Renomear.
 
@@ -1467,7 +1472,11 @@ linhas diferentes (`isCrossLine`), tipo da linha, pior estado e Subir/Descer (`m
   (`reorderLine`).
 - **Renomear estação** usa o `renameProject` de sempre (robôs, layout, equipamentos e quem a tem
   como mestre).
-- **Transferir** (Linha): `project/{escravo}?transferFrom={mestre}`; a `ProjectScreen` abre a
+- **Robô na cabine** (Linha, `StationRobotGrid`/`RobotTile`): tocar abre `robot_dashboard/{id}/-1`.
+- **Conectar / Desconectar** (estação e linha): `ClientsViewModel.connect`/`disconnect` chamam o
+  `KawasakiTerminalManager` para cada robô; `connecting` guarda os pedidos por 10 s para mostrar
+  "Conectando…".
+- **Enviar programas** (Linha): `project/{escravo}?transferFrom={mestre}`; a `ProjectScreen` abre a
   transferência daquele par quando os pares chegam do banco (sem pares de robôs, avisa e manda
   configurar em Mestre / Escravo).
 - **F6, linhas diferentes:** `CrossLineWarning` (`:feature:project`) antes de abrir a

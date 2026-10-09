@@ -144,6 +144,30 @@ class ClientsViewModel(
         if (moved != names) repository.reorderLine(moved)
     }
 
+    private val _connecting = MutableStateFlow<Set<Int>>(emptySet())
+    /** Robôs com a conexão pedida há pouco e ainda sem resposta ("Conectando…"). */
+    val connecting: StateFlow<Set<Int>> = _connecting.asStateFlow()
+
+    /** Conecta os robôs desligados da lista (uma conexão cada, como no resto do app). */
+    fun connect(robots: List<Robot>) {
+        val off = robots.filter { ui.value.state(it.id) == HeartbeatState.DISCONNECTED }
+        if (off.isEmpty()) return
+        _connecting.value = _connecting.value + off.map { it.id }
+        off.forEach { terminal.connect(it) }
+        // o pedido some quando o robô responde ou depois de 10 s (não conectou: volta a "Conectar")
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(10_000)
+            _connecting.value = _connecting.value - off.map { it.id }.toSet()
+        }
+    }
+
+    /** Desconecta os robôs conectados da lista. */
+    fun disconnect(robots: List<Robot>) {
+        robots.filter { ui.value.state(it.id) != HeartbeatState.DISCONNECTED }
+            .forEach { terminal.disconnect(it.id, clearHistory = false) }
+        _connecting.value = _connecting.value - robots.map { it.id }.toSet()
+    }
+
     fun touchClient(id: Long) = run { repository.touchClient(id) }
     fun touchLine(line: ProductionLine) = run { repository.touchLine(line) }
 }
