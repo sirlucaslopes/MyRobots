@@ -406,8 +406,8 @@ O voltar fecha primeiro a pesquisa, depois o modo de edição, e só então sai 
 ### Tela de Projeto (cabine) — seção 15
 **Ver e conectar**
 - A grade da cabine com cada robô na sua vaga (LED, nome, estado) e os equipamentos
-  (transportador…) como faixas com setas do fluxo. **Tocar** num robô conecta/desconecta;
-  **segurar** abre o painel dele. Robôs sem vaga ficam em "Fora do layout".
+  (transportador…) como faixas com setas do fluxo. **Tocar** num robô abre o painel dele;
+  **segurar** conecta/desconecta. Robôs sem vaga ficam em "Fora do layout".
 - Ações: **Conectar todos**, **Desconectar**, **Editar layout**, **Terminal Geral**.
   **⋮ →** Renomear projeto, Mestre / Escravo.
 
@@ -1256,7 +1256,7 @@ fica reservado para não mudar as referências às seções seguintes.
 | `client/{clientId}` | `ClientScreen` | as linhas do cliente |
 | `line/{lineId}` | `LineScreen` | as estações da linha; tocar → `project/{nome}`; Transferir → `project/{escravo}?transferFrom={mestre}` |
 | `robot_list` | `RobotListScreen` | lista de robôs (antiga, pelo ⚙ da tela inicial); tocar no robô → `robot_dashboard/{id}/-1` |
-| `project/{projectName}?transferFrom={mestre}` | `ProjectScreen` | cabine do projeto (a estação); segurar um robô → `robot_dashboard/{id}/-1`; renomear troca a rota pelo nome novo; com `transferFrom`, abre a transferência daquele mestre |
+| `project/{projectName}?transferFrom={mestre}` | `ProjectScreen` | cabine do projeto (a estação); tocar num robô → `robot_dashboard/{id}/-1` (segurar conecta/desconecta); renomear troca a rota pelo nome novo; com `transferFrom`, abre a transferência daquele mestre |
 | `multi_terminal/{projectName}` | `MultiRobotTerminalScreen` | terminal de todos os robôs do projeto (aberto pela tela de Projeto) |
 | `quick_commands/{manufacturer}/{robotId}` | `QuickCommandScreen` | biblioteca de comandos |
 | `backup_list/{robotId}` | `BackupHistoryScreen` | histórico de backups do robô |
@@ -1344,7 +1344,7 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
 ### Visualização
 - "N de M conectados", **Conectar todos** e **Desconectar todos**.
 - A grade da cabine: cada robô num cartão com o LED de heartbeat (`HeartbeatDot`), o nome e o
-  estado. **Tocar conecta ou desconecta; segurar abre o painel do robô.** Linhas sem nenhum robô
+  estado. **Tocar abre o painel do robô; segurar conecta ou desconecta.** (Até 08/10 era o contrário.) Linhas sem nenhum robô
   ficam ocultas.
 - Equipamentos como faixas entre as linhas, com setas do sentido do fluxo.
 - **Fora do layout:** robôs sem vaga (todos, antes de montar a cabine), também com LED.

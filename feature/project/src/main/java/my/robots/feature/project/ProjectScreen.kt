@@ -282,8 +282,9 @@ fun ProjectScreen(
                 selected = selected,
                 connected = connected,
                 heartbeats = heartbeats,
-                onRobotTap = { robot -> if (editing) viewModel.tapRobot(robot.id) else viewModel.toggleConnection(robot) },
-                onRobotLongPress = { robot -> if (!editing) onOpenRobot(robot) },
+                // tocar abre o painel do robô; segurar conecta/desconecta (no modo edição, toque seleciona)
+                onRobotTap = { robot -> if (editing) viewModel.tapRobot(robot.id) else onOpenRobot(robot) },
+                onRobotLongPress = { robot -> if (!editing) viewModel.toggleConnection(robot) },
                 onCellTap = viewModel::tapCell,
                 onAddRow = viewModel::addRow,
                 onAddCol = viewModel::addCol,
@@ -300,8 +301,9 @@ fun ProjectScreen(
                 selected = selected,
                 connected = connected,
                 heartbeats = heartbeats,
-                onRobotTap = { robot -> if (editing) viewModel.tapRobot(robot.id) else viewModel.toggleConnection(robot) },
-                onRobotLongPress = { robot -> if (!editing) onOpenRobot(robot) },
+                // tocar abre o painel do robô; segurar conecta/desconecta (no modo edição, toque seleciona)
+                onRobotTap = { robot -> if (editing) viewModel.tapRobot(robot.id) else onOpenRobot(robot) },
+                onRobotLongPress = { robot -> if (!editing) viewModel.toggleConnection(robot) },
                 onAreaTap = viewModel::takeSelectedOut
             )
 
@@ -336,7 +338,7 @@ fun ProjectScreen(
                     )
                 }
                 Text(
-                    "Toque num robô para conectar ou desconectar. Segure para abrir o painel dele.",
+                    "Toque num robô para abrir o painel dele. Segure para conectar ou desconectar.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
