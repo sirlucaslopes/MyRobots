@@ -56,17 +56,21 @@ internal fun ExportBackupsDialog(
     FormDialog(
         title = "Enviar backups",
         onDismiss = { if (busy == null) onDismiss() },
+        // um embaixo do outro, em largura total: Compartilhar (o mais usado), Salvar, Cancelar
+        stackedButtons = true,
         confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onSave(chosen) }, enabled = ok) {
-                    Icon(Icons.Rounded.SaveAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Salvar")
-                }
-                Button(onClick = { onShare(chosen) }, enabled = ok) {
-                    Icon(Icons.Rounded.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Compartilhar")
-                }
+            Button(onClick = { onShare(chosen) }, enabled = ok, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.Share, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                Text("Compartilhar (WhatsApp, e-mail…)")
+            }
+            OutlinedButton(onClick = { onSave(chosen) }, enabled = ok, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Rounded.SaveAlt, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+                Text("Salvar numa pasta")
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = busy == null) { Text("Cancelar") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = busy == null, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
+        }
     ) {
         Text(
             "O último backup de cada robô marcado vai num arquivo .zip, um arquivo separado por robô. " +

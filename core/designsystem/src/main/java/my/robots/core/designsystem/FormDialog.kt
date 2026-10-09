@@ -23,6 +23,10 @@ import androidx.compose.ui.window.DialogProperties
  *
  * Os botões ficam fixos embaixo do conteúdo (fora da rolagem). Tocar fora não fecha a janela,
  * para não perder o que foi digitado sem querer: fecha-se pelo botão de cancelar.
+ *
+ * [stackedButtons]: com mais de uma ação (ex.: Compartilhar e Salvar), os botões ficam um
+ * embaixo do outro em largura total (confirmar primeiro, cancelar por último), em vez de
+ * espremidos numa linha só. Quem chama passa `Modifier.fillMaxWidth()` em cada botão.
  */
 @Composable
 fun FormDialog(
@@ -30,6 +34,7 @@ fun FormDialog(
     onDismiss: () -> Unit,
     confirmButton: @Composable () -> Unit,
     dismissButton: @Composable () -> Unit,
+    stackedButtons: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Dialog(
@@ -58,13 +63,23 @@ fun FormDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         content = content
                     )
-                    Row(
-                        modifier = Modifier.align(Alignment.End).padding(top = 16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        dismissButton()
-                        confirmButton()
+                    if (stackedButtons) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            confirmButton()
+                            dismissButton()
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.align(Alignment.End).padding(top = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            dismissButton()
+                            confirmButton()
+                        }
                     }
                 }
             }
