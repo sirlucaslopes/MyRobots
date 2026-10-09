@@ -74,10 +74,14 @@ class MigrationTest {
             val commands = db.quickCommandDao().getQuickCommandsForRobot(1).first()
             assertEquals(listOf("SAVE/FULL [ROBOT][DATA]"), commands.map { it.command })
 
-            // 4 -> 5: robô antigo fica fora do layout, e o projeto ainda não tem layout
+            // 4 -> 5: robô antigo fica fora do layout
             assertEquals(null, robot.layoutRow)
             assertEquals(null, robot.layoutCol)
-            assertEquals(null, db.projectDao().getLayout("CAT Primer").first())
+            // 7 -> 8: o projeto vira estação de "Meu cliente" › "Linha 1", com o layout padrão
+            val station = db.projectDao().getLayout("CAT Primer").first()!!
+            assertEquals(1L, station.lineId)
+            assertEquals(2, station.rowCount)
+            assertEquals(listOf("Meu cliente"), db.hierarchyDao().clients().first().map { it.name })
             // 5 -> 6: série ainda desconhecida
             assertEquals(null, robot.serialNumber)
         }
@@ -152,6 +156,84 @@ class MigrationTest {
                 assertEquals(true, c.isNull(0))
                 assertEquals("top_offset", c.getString(1))
             }
+            close()
+        }
+    }
+
+    /**
+     * 7 -> 8: Cliente → Linha → Estação. Dois projetos com layout (um escravo do outro) e um
+     * que só existe nos robôs: os três viram estações de "Meu cliente" › "Linha 1", na ordem
+     * alfabética, e os pares mestre/escravo continuam. Schema igual ao 8.json.
+     */
+    @Test
+    fun migracao7Para8ValidaContraOSchema() {
+        helper.createDatabase(dbName, 7).apply {
+            execSQL(
+                "INSERT INTO robots (id, name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword, layoutRow, layoutCol, serialNumber, masterRobotId) " +
+                    "VALUES (1, 'R10', '172.20.32.45', 23, 'Primer CAT', 'KAWASAKI', 0, 'as', '', 1, 0, '3772', NULL)"
+            )
+            execSQL(
+                "INSERT INTO robots (id, name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword, layoutRow, layoutCol, serialNumber, masterRobotId) " +
+                    "VALUES (2, 'R14', '172.20.32.41', 23, 'Top Coat CAT', 'KAWASAKI', 0, 'as', '', 1, 0, '3771', 1)"
+            )
+            execSQL(
+                "INSERT INTO robots (id, name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword, layoutRow, layoutCol, serialNumber, masterRobotId) " +
+                    "VALUES (3, 'C01', '192.168.1.15', 2301, 'k-roset', 'KAWASAKI', 0, 'as', '', NULL, NULL, NULL, NULL)"
+            )
+            execSQL("INSERT INTO project_layouts (projectName, rowCount, colCount, masterProject, baseOffset) VALUES ('Primer CAT', 3, 2, NULL, 'top_offset')")
+            execSQL("INSERT INTO project_layouts (projectName, rowCount, colCount, masterProject, baseOffset) VALUES ('Top Coat CAT', 2, 2, 'Primer CAT', 'top_offset')")
+            execSQL("INSERT INTO project_equipment (id, projectName, type, name, position, flowDirection, sortOrder) VALUES (1, 'Primer CAT', 'CONVEYOR', '', 1, 1, 0)")
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 8, true, MIGRATION_7_8).apply {
+            query("SELECT id, name, hidden FROM clients").use { c ->
+                assertEquals(1, c.count)
+                c.moveToFirst()
+                assertEquals("Meu cliente", c.getString(1))
+                assertEquals(0, c.getInt(2))
+            }
+            query("SELECT id, clientId, name FROM lines").use { c ->
+                assertEquals(1, c.count)
+                c.moveToFirst()
+                assertEquals(1, c.getInt(1))
+                assertEquals("Linha 1", c.getString(2))
+            }
+            // todas as estações na linha 1, em ordem alfabética (sem diferença de maiúsculas)
+            query("SELECT projectName, lineId, sortOrder, rowCount, masterProject, hidden FROM project_layouts ORDER BY sortOrder").use { c ->
+                val rows = mutableListOf<String>()
+                while (c.moveToNext()) {
+                    assertEquals(1, c.getInt(1))
+                    assertEquals(0, c.getInt(5))
+                    rows += "${c.getString(0)}:${c.getInt(2)}:${c.getInt(3)}:${c.getString(4)}"
+                }
+                assertEquals(listOf("k-roset:0:2:null", "Primer CAT:1:3:null", "Top Coat CAT:2:2:Primer CAT"), rows)
+            }
+            // pares de robôs, posições e equipamentos não mudam
+            query("SELECT masterRobotId, layoutRow FROM robots WHERE id = 2").use { c ->
+                c.moveToFirst()
+                assertEquals(1, c.getInt(0))
+                assertEquals(1, c.getInt(1))
+            }
+            query("SELECT COUNT(*) FROM project_equipment WHERE projectName = 'Primer CAT'").use { c ->
+                c.moveToFirst()
+                assertEquals(1, c.getInt(0))
+            }
+            query("SELECT name FROM work_types ORDER BY sortOrder").use { c ->
+                val names = mutableListOf<String>()
+                while (c.moveToNext()) names += c.getString(0)
+                assertEquals(listOf("Pintura", "Solda", "Manipulação", "Selagem"), names)
+            }
+            close()
+        }
+    }
+
+    /** 7 -> 8 com o banco vazio: nenhum cliente é criado (o app cria com o primeiro robô). */
+    @Test
+    fun migracao7Para8ComBancoVazio() {
+        helper.createDatabase(dbName, 7).close()
+        helper.runMigrationsAndValidate(dbName, 8, true, MIGRATION_7_8).apply {
+            query("SELECT COUNT(*) FROM clients").use { c -> c.moveToFirst(); assertEquals(0, c.getInt(0)) }
+            query("SELECT COUNT(*) FROM work_types").use { c -> c.moveToFirst(); assertEquals(4, c.getInt(0)) }
             close()
         }
     }

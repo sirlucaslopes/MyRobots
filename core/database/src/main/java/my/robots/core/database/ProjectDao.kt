@@ -52,6 +52,10 @@ abstract class ProjectDao {
     @Query("UPDATE project_equipment SET projectName = :newName WHERE projectName = :oldName")
     protected abstract suspend fun renameEquipment(oldName: String, newName: String)
 
+    /** Quem tinha o projeto antigo como mestre passa a apontar para o nome novo. */
+    @Query("UPDATE project_layouts SET masterProject = :newName WHERE masterProject = :oldName")
+    protected abstract suspend fun renameMasterReferences(oldName: String, newName: String)
+
     /**
      * Grava a edição do layout de uma vez: tamanho da grade, posição de cada robô
      * (robotId -> linha/coluna, null = fora do layout) e a lista completa de equipamentos,
@@ -82,6 +86,8 @@ abstract class ProjectDao {
         renameRobotsProject(oldName, newName)
         if (countLayouts(newName) > 0) deleteLayout(oldName) else renameLayout(oldName, newName)
         renameEquipment(oldName, newName)
+        // a ligação mestre/escravo é pelo nome: sem isto, renomear o mestre desfazia a ligação
+        renameMasterReferences(oldName, newName)
     }
 
     @Query("UPDATE robots SET masterRobotId = :masterId WHERE id = :robotId")

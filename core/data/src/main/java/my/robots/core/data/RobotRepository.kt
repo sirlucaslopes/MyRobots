@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import my.robots.core.database.BackupDao
+import my.robots.core.database.HierarchyDao
 import my.robots.core.database.ProjectDao
 import my.robots.core.database.QuickCommandDao
 import my.robots.core.database.RobotDao
@@ -39,6 +40,7 @@ class RobotRepository(
     private val quickCommandDao: QuickCommandDao,
     private val backupDao: BackupDao,
     private val projectDao: ProjectDao,
+    private val hierarchyDao: HierarchyDao,
     private val files: RobotFilesStorage,
     private val secrets: SecretCipher
 ) {
@@ -83,6 +85,8 @@ class RobotRepository(
     suspend fun insertRobot(robot: Robot) {
         val id = robotDao.insertRobot(toDb(robot)).toInt()
         seedQuickCommandsForRobot(id, robot.manufacturer)
+        // projeto novo vira estação (na linha usada por último)
+        hierarchyDao.ensureStations()
     }
 
     /**
@@ -121,7 +125,10 @@ class RobotRepository(
             )
         }
         robotDao.updateRobot(toDb(positioned))
-        if (current != null && current.project != robot.project) projectDao.deleteLayoutIfEmpty(current.project)
+        if (current != null && current.project != robot.project) {
+            projectDao.deleteLayoutIfEmpty(current.project)
+            hierarchyDao.ensureStations()
+        }
     }
 
     /**
@@ -181,6 +188,55 @@ class RobotRepository(
      * Renomeia o projeto nos robôs, no layout e nos equipamentos (numa transação).
      */
     suspend fun renameProject(oldName: String, newName: String) = projectDao.renameProject(oldName, newName)
+
+    // ---------- Cliente → Linha → Estação (banco v8) ----------
+    // A estação é o projeto de até a v1.2 (a linha de project_layouts). Ver HierarchyDao.
+
+    val clients: Flow<List<Client>> = hierarchyDao.clients()
+    val lines: Flow<List<ProductionLine>> = hierarchyDao.lines()
+    /** Todas as estações (layout de cada projeto, com a linha e a ordem do processo). */
+    val stations: Flow<List<ProjectLayout>> = hierarchyDao.stations()
+    val workTypes: Flow<List<WorkType>> = hierarchyDao.workTypes()
+
+    /**
+     * Garante que todo projeto tem estação e toda estação tem linha (cria "Meu cliente" ›
+     * "Linha 1" se ainda não houver nenhuma). Chamado ao abrir o app e ao cadastrar ou mudar
+     * o projeto de um robô.
+     */
+    suspend fun ensureStations() = hierarchyDao.ensureStations()
+
+    suspend fun createClient(name: String): Long = hierarchyDao.insertClient(Client(name = name.trim(), lastUsedAt = System.currentTimeMillis()))
+
+    /** Linha nova no fim das linhas do cliente. */
+    suspend fun createLine(clientId: Long, name: String): Long {
+        val order = lines.first().count { it.clientId == clientId }
+        return hierarchyDao.insertLine(ProductionLine(clientId = clientId, name = name.trim(), sortOrder = order, lastUsedAt = System.currentTimeMillis()))
+    }
+
+    suspend fun renameClient(id: Long, name: String) = hierarchyDao.renameClient(id, name.trim())
+    suspend fun renameLine(id: Long, name: String) = hierarchyDao.renameLine(id, name.trim())
+    suspend fun setClientHidden(id: Long, hidden: Boolean) = hierarchyDao.setClientHidden(id, hidden)
+    suspend fun setLineHidden(id: Long, hidden: Boolean) = hierarchyDao.setLineHidden(id, hidden)
+    suspend fun setStationHidden(name: String, hidden: Boolean) = hierarchyDao.setStationHidden(name, hidden)
+    suspend fun setStationWorkType(name: String, workType: String?) = hierarchyDao.setStationWorkType(name, workType)
+    suspend fun addWorkType(name: String) {
+        val order = workTypes.first().size
+        hierarchyDao.insertWorkType(WorkType(name.trim(), order))
+    }
+
+    /** Marca o cliente (e a linha) como usados agora: a tela inicial mostra o último usado primeiro. */
+    suspend fun touchClient(id: Long) = hierarchyDao.touchClient(id, System.currentTimeMillis())
+    suspend fun touchLine(line: ProductionLine) {
+        val now = System.currentTimeMillis()
+        hierarchyDao.touchLine(line.id, now)
+        hierarchyDao.touchClient(line.clientId, now)
+    }
+
+    /** Move a estação para o fim de outra linha. */
+    suspend fun moveStation(name: String, toLineId: Long) = hierarchyDao.moveStation(name, toLineId)
+
+    /** Grava a ordem do processo de uma linha (as estações na ordem de [names]). */
+    suspend fun reorderLine(names: List<String>) = hierarchyDao.reorderLine(names)
 
     // ---------- Comandos rápidos ----------
     /**

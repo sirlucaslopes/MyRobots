@@ -88,6 +88,7 @@ class MyRobotsApp : Application() {
             database.quickCommandDao(),
             database.backupDao(),
             database.projectDao(),
+            database.hierarchyDao(),
             RobotFilesStorage(this).also { filesStorage = it },
             KeystoreSecretCipher()
         )
@@ -102,8 +103,14 @@ class MyRobotsApp : Application() {
 
         migrateFilesToNewFolderOnce()
 
-        // senhas de login gravadas em texto puro até a v1.1 passam a ser guardadas cifradas
+        // senhas de login gravadas em texto puro até a v1.1 passam a ser guardadas cifradas;
+        // e todo projeto vira estação de uma linha (Cliente → Linha → Estação, banco v8)
         applicationScope.launch(Dispatchers.IO) {
+            try {
+                robotRepository.ensureStations()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             try {
                 robotRepository.encryptLegacyPasswords()
             } catch (e: Exception) {
