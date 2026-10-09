@@ -1781,8 +1781,10 @@ fun VariableDuplicateDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var newName by remember { mutableStateOf("${variable.name}_copy") }
-    val error = if (viewModel != null) remember(newName) { viewModel.validateProgramName(newName) } else null
+    // fr_[100] -> fr_[101] (próximo índice livre); speed -> speed_2
+    var newName by remember { mutableStateOf(viewModel?.suggestVariableCopyName(variable.name) ?: "${variable.name}_2") }
+    // regra de nome de VARIÁVEL (aceita "_" e o índice entre colchetes), não a de programa
+    val error = if (viewModel != null) remember(newName) { viewModel.validateVariableName(newName.trim()) } else null
 
     FormDialog(
         onDismiss = onDismiss,
@@ -1800,7 +1802,7 @@ fun VariableDuplicateDialog(
             )
         },
         confirmButton = {
-            Button(onClick = { onConfirm(newName) }, enabled = error == null) { Text("Confirmar") }
+            Button(onClick = { onConfirm(newName.trim()) }, enabled = error == null) { Text("Confirmar") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancelar") }

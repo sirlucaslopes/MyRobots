@@ -30,6 +30,7 @@ import my.robots.core.common.ascode.AsInventory
 import my.robots.core.common.ascode.AsVar
 import my.robots.core.common.ascode.AsVarKind
 import my.robots.core.common.ascode.AsVariableUsage
+import my.robots.core.common.ascode.AsVariableNames
 import my.robots.core.common.ascode.BackupComparison
 import my.robots.core.data.DeleteItem
 import my.robots.core.data.DeleteResult
@@ -1012,15 +1013,19 @@ class RobotDashboardViewModel(
 
     /**
      * Confere se um nome de variável é válido. Devolve o texto do erro, ou null se estiver ok.
-     * Regras: não vazio, não começa com número, sem espaços e (se for nova) sem repetir nome.
+     * Regra do AS ([AsVariableNames]): letra, depois letras, números, "_" e ".", com índice de
+     * array opcional ("fr_[100]"); e, se for nova, sem repetir o nome.
      */
     fun validateVariableName(name: String, isNew: Boolean = true): String? {
-        if (name.isBlank()) return "O nome não pode ser vazio"
-        if (name.first().isDigit()) return "O nome não pode começar com um número"
-        if (name.contains(" ")) return "O nome não pode conter espaços"
-        if (isNew && _variables.value.any { it.name.equals(name, ignoreCase = true) }) return "Já existe uma variável com este nome"
+        AsVariableNames.error(name)?.let { return it }
+        if (isNew && _variables.value.any { it.name.replace(" ", "").equals(name.trim().replace(" ", ""), ignoreCase = true) }) {
+            return "Já existe uma variável com este nome"
+        }
         return null
     }
+
+    /** Nome sugerido para a cópia de uma variável: o próximo índice livre ou "<nome>_2". */
+    fun suggestVariableCopyName(name: String): String = AsVariableNames.nextFree(name, _variables.value.map { it.name })
 
     /**
      * Confere o número de uma linha do Data Bank. Devolve o texto do erro, ou null se estiver ok.
@@ -1362,7 +1367,8 @@ class RobotDashboardViewModel(
 private const val DataBankKeep = "\u0000keep"
 
 /** Seções do backup que guardam variáveis. */
-private val VARIABLE_SECTIONS = setOf(".TRANS", ".REALS", ".STRINGS", ".INTEGER", ".POS", ".JOINT", ".POINT")
+// .JOINTS é o nome da seção no SAVE (posições em juntas); sem ele, editar ou excluir um "#nome" não achava a linha
+private val VARIABLE_SECTIONS = setOf(".TRANS", ".JOINTS", ".REALS", ".STRINGS", ".INTEGER", ".POS", ".JOINT", ".POINT")
 
 /** Nome da variável numa linha de seção ("a1 0 0 0..." ou "speed = 50"), ou null. */
 private fun variableNameOf(trimmed: String): String? {

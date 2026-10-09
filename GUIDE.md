@@ -132,7 +132,12 @@ O voltar de uma seção volta para a home; da home, volta para a lista.
 #### Variáveis
 - **Ver:** agrupadas por tipo (Posições/TRANS, Juntas, Reais, Textos, Inteiros…), cada grupo
   abre e fecha; posições mostram X, Y, Z, O, A, T (e JT7/JT8) em grade.
-- **Editar** (tocar no cartão) e **Duplicar** (pede o nome novo).
+- **Editar** (tocar no cartão) e **Duplicar** (pede o nome novo, já sugerido: num array, o
+  próximo índice livre, `fr_[100]` → `fr_[101]`; senão `<nome>_2`).
+- **Nome da variável** (criar, editar, duplicar): uma letra, depois letras, números, `_` e `.`,
+  com índice de array opcional entre colchetes (`fr_[100]`, `p[1,2]`), sem espaços; o prefixo
+  `#` ou `$` vem do tipo (`AsVariableNames`, `:core:common`). Antes, o Duplicar usava a regra de
+  nome de programa e recusava `[`.
 - **"+" Nova variável:** pergunta o tipo — posição em transformação (X…T), posição em juntas
   (`#nome`, JT1…JTn), real (`nome = valor`) ou texto (`$nome`). O prefixo é posto sozinho e a
   variável entra na seção certa do backup.

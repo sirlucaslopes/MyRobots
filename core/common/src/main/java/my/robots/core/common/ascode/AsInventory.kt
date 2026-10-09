@@ -205,3 +205,43 @@ object AsVariableUsage {
         return out.toString()
     }
 }
+
+/**
+ * Nome de variável do AS: prefixo do tipo opcional ("#" juntas, "$" texto), uma letra, depois
+ * letras, números, "_" e ".", e índice de array opcional entre colchetes com números
+ * ("fr_[100]", "p[1,2]"). É o que o controlador aceita e o que os backups já usam.
+ */
+object AsVariableNames {
+    private val NAME = Regex("""^[#$]?[A-Za-z][A-Za-z0-9_.]*(\[\d+(,\d+)*])?$""")
+
+    fun isValid(name: String): Boolean = NAME.matches(name.trim())
+
+    /** O que está errado no nome, para a tela; null se estiver certo. */
+    fun error(name: String): String? {
+        val n = name.trim().removePrefix("#").removePrefix("$")
+        return when {
+            n.isEmpty() -> "O nome não pode ser vazio"
+            n.contains(' ') -> "O nome não pode conter espaços"
+            !n.first().isLetter() -> "O nome começa com uma letra"
+            !isValid(name) -> "Use letras, números, _ e . e, num array, o índice entre colchetes: fr_[100]"
+            else -> null
+        }
+    }
+
+    /**
+     * Sugestão de nome para a cópia que ainda não existe em [taken]: num elemento de array, o
+     * próximo índice livre ("fr_[100]" -> "fr_[101]"); senão "<nome>_2", "<nome>_3"…
+     */
+    fun nextFree(name: String, taken: Collection<String>): String {
+        val used = taken.map { it.replace(" ", "").lowercase() }.toSet()
+        val m = Regex("""^(.*)\[\s*(\d+)\s*]$""").find(name.trim())
+        if (m != null) {
+            var i = m.groupValues[2].toInt() + 1
+            while ("${m.groupValues[1]}[$i]".replace(" ", "").lowercase() in used) i++
+            return "${m.groupValues[1]}[$i]"
+        }
+        var i = 2
+        while ("${name}_$i".lowercase() in used) i++
+        return "${name}_$i"
+    }
+}

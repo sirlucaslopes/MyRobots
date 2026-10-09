@@ -160,6 +160,25 @@ class AsInventoryTest {
     }
 
     @Test
+    fun nome_de_variavel_aceita_colchetes_e_sublinhado() {
+        listOf("fr_[100]", "fr_", "p[1,2]", "top_offset", "a.b", "#home", "\$msg", "x1").forEach {
+            assertTrue("deveria aceitar $it", AsVariableNames.isValid(it))
+            assertNull(AsVariableNames.error(it))
+        }
+        listOf("1fr", "fr x", "fr_[ 100 ]", "fr_[n]", "fr-1", "fr_[100", "", "_a").forEach {
+            assertFalse("deveria recusar $it", AsVariableNames.isValid(it))
+        }
+        assertEquals("O nome não pode conter espaços", AsVariableNames.error("fr x"))
+    }
+
+    @Test
+    fun sugestao_de_nome_para_a_copia() {
+        assertEquals("fr_[102]", AsVariableNames.nextFree("fr_[100]", listOf("fr_[100]", "fr_[101]")))
+        assertEquals("speed_2", AsVariableNames.nextFree("speed", listOf("speed")))
+        assertEquals("speed_3", AsVariableNames.nextFree("speed", listOf("speed", "SPEED_2")))
+    }
+
+    @Test
     fun comando_de_apagar_sem_o_forcado() {
         assertEquals("DELETE/P pg200", AsBackupDiff.deleteProgramCommand("pg200"))
         val v = inv.variables
