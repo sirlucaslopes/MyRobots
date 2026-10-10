@@ -290,8 +290,7 @@ flowchart TD
   - [ ] Guardar os valores num lugar só (`AppSettings`, em DataStore ou numa tabela), lido pelo
         `KawasakiTerminalManager` e pelo `:core:data`, com limites mínimo e máximo para ninguém
         travar um controlador com um tempo curto demais.
-  - [ ] Pergunta em aberto: os tempos valem para o aparelho todo ou por estação? Proposta: para o
-        aparelho todo (mais simples, e não entram no Pack and Go).
+  - [x] Os tempos valem **para o aparelho todo** (decidido em 09/10); não entram no Pack and Go.
 
 ### Fase H: Pack and Go 🆕
 
@@ -418,6 +417,11 @@ flowchart TD
 ```
 
 ### 6.4 Robô: Resumo
+- [~] Proposta das 4 abas em preview (09/10): linha de conexão fixa acima das abas; Resumo com o
+      cartão do controlador, ATENÇÃO (alarmes), Por eixo, memória e Uso do robô; Arquivos com
+      "Backup em uso" e Código completo; Sincronizar com Fazer backup, Comparar e Histórico por
+      mês; Terminal com comandos rápidos. Falta decidir: abas no rodapé ou no topo, ordem padrão
+      dos programas, backup novo vira "em uso" sozinho.
 - [ ] Fluxograma: (a fazer)
 
 ### 6.5 Robô: Arquivos (Programas, Variáveis, Data Bank, Logs, Código)
