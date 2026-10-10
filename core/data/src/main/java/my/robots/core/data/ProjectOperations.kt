@@ -232,6 +232,26 @@ class ProjectOperations(
     }
 
     /**
+     * "Carregar" das ações em grupo: o mesmo arquivo ([content], montado com os itens escolhidos)
+     * em cada robô, ao mesmo tempo. Em cada um: conecta (login e checagens), grava a cópia na
+     * pasta dele ([fileName], um arquivo de envio "load_…") e faz o LOAD conferido.
+     */
+    suspend fun loadToRobots(robots: List<Robot>, fileName: String, content: String, onUpdate: (Int, RobotTask) -> Unit) = coroutineScope {
+        robots.map { robot ->
+            async {
+                if (!connect(robot, onUpdate)) return@async
+                onUpdate(robot.id, RobotTask(TaskState.RUNNING, "Carregando $fileName…"))
+                repository.saveFileToRobotFolder(robot.id, fileName, content)
+                val result = checks.commands.loadFile(robot.id, fileName, content, LOAD_TIMEOUT_MS)
+                onUpdate(robot.id, if (result.ok) RobotTask(TaskState.DONE, result.message) else RobotTask(TaskState.FAILED, result.message))
+            }
+        }.awaitAll()
+    }
+
+    /** Texto do backup [backupId] (para o Carregar e a conferência), ou null. */
+    suspend fun backupContent(backupId: Int): String? = repository.getBackupById(backupId)?.content
+
+    /**
      * "Enviar backups": o último backup de cada robô (arquivos de envio, como dup_*.as, não
      * contam). Null = o robô ainda não tem backup.
      */

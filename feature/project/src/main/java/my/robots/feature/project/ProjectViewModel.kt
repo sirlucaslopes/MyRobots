@@ -30,6 +30,9 @@ import my.robots.core.common.layout.LayoutOps
 import my.robots.core.common.FileUtil
 import my.robots.core.common.ascode.AsMasterTransfer
 import my.robots.core.common.ascode.AsProgramBlocks
+import my.robots.core.common.ascode.AsLoadFile
+import my.robots.core.common.ascode.LoadCheck
+import my.robots.core.common.ascode.LoadItem
 import my.robots.core.data.MasterSlaveConfig
 import my.robots.core.data.MasterSlaveOptions
 import my.robots.core.data.ProjectOperations
@@ -260,6 +263,84 @@ class ProjectViewModel(
     /** Backup (SAVE/FULL) de cada robô escolhido. */
     fun backupAll(robots: List<Robot>) =
         runAction("Backup de todos", robots.map { it.id }) { operations.backupAll(robots, it) }
+
+    // ---------- Carregar (LOAD de um arquivo, com os itens escolhidos, em vários robôs) ----------
+
+    /** O arquivo de origem do Carregar, já separado em itens (programas, variáveis…). */
+    data class LoadSource(val label: String, val fileStem: String, val items: List<LoadItem>)
+
+    private val _loadSource = MutableStateFlow<LoadSource?>(null)
+    val loadSource: StateFlow<LoadSource?> = _loadSource.asStateFlow()
+
+    private val _loadBusy = MutableStateFlow<String?>(null)
+    /** Texto enquanto lê/analisa o arquivo ou confere os destinos (null = parado). */
+    val loadBusy: StateFlow<String?> = _loadBusy.asStateFlow()
+
+    private val _loadChecks = MutableStateFlow<Map<Int, LoadCheck>?>(null)
+    /** Conferência por robô de destino (null = ainda não conferido). */
+    val loadChecks: StateFlow<Map<Int, LoadCheck>?> = _loadChecks.asStateFlow()
+
+    fun clearLoad() {
+        _loadSource.value = null
+        _loadChecks.value = null
+        _loadBusy.value = null
+    }
+
+    fun clearLoadChecks() { _loadChecks.value = null }
+
+    /** Backups de um robô para escolher a origem (sem os arquivos de envio), do mais novo ao mais antigo. */
+    suspend fun backupsOf(robotId: Int): List<BackupSummary> = repository.getBackupsSummary(robotId).first()
+        .filterNot { FileUtil.isTransferFile(it.fileName) }
+        .sortedByDescending { it.timestamp }
+
+    /** Origem = um backup de um robô. */
+    fun openLoadFromBackup(robot: Robot, backup: BackupSummary) {
+        viewModelScope.launch {
+            _loadBusy.value = "Lendo o backup do ${robot.name}…"
+            val content = operations.backupContent(backup.id)
+            _loadSource.value = content?.let {
+                val items = withContext(Dispatchers.Default) { AsLoadFile.items(it) }
+                LoadSource("${robot.name} · ${backup.fileName}", backup.fileName.substringBeforeLast('.'), items)
+            }
+            _loadBusy.value = if (content == null) "Não foi possível ler o backup" else null
+        }
+    }
+
+    /** Origem = um arquivo do aparelho (já lido e conferido pelo ExternalAsFile). */
+    fun openLoadFromText(fileName: String, content: String) {
+        viewModelScope.launch {
+            _loadBusy.value = "Analisando $fileName…"
+            val items = withContext(Dispatchers.Default) { AsLoadFile.items(content) }
+            _loadSource.value = LoadSource(fileName, fileName.substringBeforeLast('.'), items)
+            _loadBusy.value = null
+        }
+    }
+
+    /** Confere os itens escolhidos contra o último backup de cada robô de destino. */
+    fun checkLoad(robots: List<Robot>, chosen: List<LoadItem>) {
+        viewModelScope.launch {
+            _loadBusy.value = "Conferindo o último backup de cada robô…"
+            val latest = operations.latestBackups(robots)
+            _loadChecks.value = robots.associate { r ->
+                val target = latest[r.id]?.let { operations.backupContent(it.id) }
+                r.id to withContext(Dispatchers.Default) { AsLoadFile.check(chosen, target) }
+            }
+            _loadBusy.value = null
+        }
+    }
+
+    /**
+     * Faz o LOAD dos itens escolhidos em cada robô (ao mesmo tempo), com o andamento nos mini
+     * terminais. O arquivo vai como "load_<origem>.as" (arquivo de envio, não vira backup).
+     */
+    fun runLoad(robots: List<Robot>, chosen: List<LoadItem>) {
+        val src = _loadSource.value ?: return
+        val content = AsLoadFile.build(chosen)
+        val stem = FileUtil.sanitizeFileName(src.fileStem).removeSuffix(".as").take(24)
+        val fileName = "load_$stem.as"
+        clearLoad()
+        runAction("Carregar ${chosen.size} item(ns)", robots.map { it.id }) { operations.loadToRobots(robots, fileName, content, it) }
+    }
 
     // ---------- Enviar backups (o último de cada robô num .zip) ----------
 

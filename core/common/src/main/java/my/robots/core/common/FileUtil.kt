@@ -12,9 +12,9 @@ object FileUtil {
     /**
      * Arquivos que o app grava na pasta do robô só para mandar ao controlador com LOAD
      * (envio de programa, variável ou Data Bank): transfer_<nome>.as, transfer_batch_<hora>.as,
-     * var_<nome>.as, db_<n>.as, db_batch_<hora>.as e dup_<programa>.as (duplicação). Não são backups.
+     * var_<nome>.as, db_<n>.as, db_batch_<hora>.as, dup_<programa>.as (duplicação) e load_<arquivo>.as (Carregar das ações em grupo). Não são backups.
      */
-    private val TRANSFER_FILE = Regex("""^(transfer_|var_|db_|dup_)[^/\\]*\.as$""", RegexOption.IGNORE_CASE)
+    private val TRANSFER_FILE = Regex("""^(transfer_|var_|db_|dup_|load_)[^/\\]*\.as$""", RegexOption.IGNORE_CASE)
 
     fun isTransferFile(fileName: String): Boolean = TRANSFER_FILE.matches(fileName)
 

@@ -41,6 +41,7 @@ desligada (cinza) precisa de alguma condição, por exemplo marcar um item antes
 | mandar o mesmo comando para vários robôs | Tela de Projeto → **Comando**, ou **Terminal Geral** |
 | backup de todos os robôs da cabine | Tela de Projeto → **Backup de todos** |
 | mandar o último backup de cada robô (WhatsApp, e-mail, pasta) | Tela de Projeto → **Enviar backups** |
+| carregar (LOAD) partes de um arquivo em vários robôs | Tela de Projeto → **Carregar** |
 | copiar programas do mestre para o escravo | Tela de Projeto → **Transferir** |
 | criar uma cópia de um programa em vários robôs | Tela de Projeto → **Duplicar programa** |
 | ver, importar, exportar, compartilhar backups | Painel → **Histórico de backups** |
@@ -425,6 +426,24 @@ O voltar fecha primeiro a pesquisa, depois o modo de edição, e só então sai 
 **Ações em grupo** (cada uma abre a lista dos robôs, todos marcados, para escolher; rodam ao
 mesmo tempo, sempre conectando antes; uma falha não para os outros; **Parar** cancela no app)
 - **Backup de todos** — SAVE/FULL em cada robô, conferido, e registro do backup.
+- **Carregar** — o LOAD de um arquivo em vários robôs, só com o que você escolher. Tela cheia,
+  em quatro passos:
+  1. **Robôs** da estação que recebem (um ou mais, todos marcados de início);
+  2. **Arquivo:** **Arquivo do aparelho (.as)** (até 20 MB, só texto) ou o **backup de um robô**
+     (qualquer robô do app; a lista de backups dele, do mais novo ao mais antigo);
+  3. **O que vai:** tudo o que tem no arquivo, por grupo: Programas (linhas e comentário),
+     Posições, Posições em juntas, Reais, Textos, Inteiros, Data Bank e **Dados do sistema**
+     (`.SYSDATA`, `.AUXDATA`, `.NETCONF`…; em amarelo, com o aviso de que mudam a configuração do
+     controlador; o `.NETCONF` muda até o IP). Nada vem marcado; cada grupo tem a caixa "todos",
+     abre e fecha, e a busca acha pelo nome ou valor. Os logs do controlador não aparecem;
+  4. **Conferir:** em cada robô, pelo último backup dele: programas novos e os que **SERÃO
+     SUBSTITUÍDOS** (com os nomes), variáveis novas, que mudam de valor e iguais, Data Bank
+     substituído, dados do sistema e "sem backup: não dá para saber". Caixa por robô; com aviso o
+     botão vira "Carregar mesmo assim".
+
+  Depois, em cada robô ao mesmo tempo: conecta, grava a cópia na pasta dele
+  (`load_<origem>.as`, arquivo de envio: não vira backup) e faz o LOAD conferido. O andamento
+  aparece no cartão das ações e nos mini terminais.
 - **Enviar backups** — o **último backup de cada robô** marcado num **.zip só**, um arquivo
   separado por robô (`R10_20261005_0857.as`, `R11_…`). A lista mostra a data do último backup
   de cada robô (robô sem backup fica de fora). O destino é escolhido uma vez:
@@ -1352,7 +1371,15 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
 - No robô de um par mestre/escravo, a vaga mostra "← R10" (escravo) ou "→ R14" (mestre).
 
 ### Ações em grupo
-- Cartão com **Backup de todos**, **Comando**, **Duplicar programa** e **Enviar backups**.
+- Cartão com **Backup de todos**, **Comando**, **Duplicar programa**, **Carregar** e **Enviar backups**.
+- **Carregar** (`LoadDialog.kt`): `AsLoadFile` (`:core:common`, testado em `AsLoadFileTest`) separa o
+  arquivo em itens (`LoadItem`: programa = bloco inteiro; variável = a linha dentro da seção;
+  registro da `.sprdb`; seção do sistema inteira, inclusive as de uma linha só como
+  `.NETCONF     192.168.0.2,…`; logs fora), monta o arquivo só com os escolhidos (`build`:
+  sistema, programas, variáveis na seção delas, Data Bank) e confere contra o último backup de
+  cada destino (`check` → `LoadCheck`). A execução é `ProjectOperations.loadToRobots` (conecta,
+  grava `load_<origem>.as` na pasta e `RobotCommands.loadFile`), pelo `runAction` das ações em
+  grupo. `FileUtil.isTransferFile` reconhece `load_*.as`.
   Cada uma abre a lista dos robôs (todos marcados) para escolher. Uma ação por vez.
 - **Enviar backups** (`ExportBackupsDialog.kt`): `ProjectOperations.latestBackups` acha o último
   backup de cada robô (sem os arquivos de envio) e `writeBackupsZip` escreve o .zip lendo um

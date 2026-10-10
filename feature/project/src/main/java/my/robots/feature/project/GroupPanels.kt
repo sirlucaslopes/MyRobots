@@ -1,5 +1,6 @@
 package my.robots.feature.project
 
+import androidx.compose.material.icons.rounded.Upload
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -62,6 +63,7 @@ internal fun GroupActionsCard(
     onBackup: () -> Unit,
     onCommand: () -> Unit,
     onDuplicate: () -> Unit,
+    onLoad: () -> Unit,
     onExport: () -> Unit,
     onCancel: () -> Unit,
     onClear: () -> Unit
@@ -78,6 +80,10 @@ internal fun GroupActionsCard(
                 }
                 FilledTonalButton(onClick = onDuplicate, enabled = running == null) {
                     Icon(Icons.Rounded.ContentCopy, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Duplicar programa")
+                }
+                // LOAD de um arquivo (backup de um robô ou do aparelho), só com os itens escolhidos
+                FilledTonalButton(onClick = onLoad, enabled = running == null) {
+                    Icon(Icons.Rounded.Upload, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Carregar")
                 }
                 // o último backup de cada robô num .zip: não fala com o robô, então vale sempre
                 FilledTonalButton(onClick = onExport) {

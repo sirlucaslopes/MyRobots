@@ -1,5 +1,6 @@
 package my.robots.feature.project
 
+import my.robots.core.common.ExternalAsFile
 import my.robots.core.data.hierarchy.ClientTree
 import androidx.compose.runtime.saveable.rememberSaveable
 import android.content.Intent
@@ -113,6 +114,21 @@ fun ProjectScreen(
     var showDuplicate by remember { mutableStateOf(false) }
     val programChoices by viewModel.programChoices.collectAsState()
     var showBackupAll by remember { mutableStateOf(false) }
+    // Carregar: janela aberta, a origem analisada, o andamento e a conferência por robô
+    var showLoad by remember { mutableStateOf(false) }
+    val loadSource by viewModel.loadSource.collectAsState()
+    val loadBusy by viewModel.loadBusy.collectAsState()
+    val loadChecks by viewModel.loadChecks.collectAsState()
+    val allRobotsForLoad by viewModel.allRobots.collectAsState()
+    // arquivo do aparelho: lido com as mesmas regras do "abrir com" (até 20 MB, só texto)
+    val loadContext = LocalContext.current
+    val openFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        when (val r = ExternalAsFile.read(loadContext, uri, requireAsExtension = false)) {
+            is ExternalAsFile.Result.Ok -> viewModel.openLoadFromText(r.fileName, r.content)
+            is ExternalAsFile.Result.Rejected -> Toast.makeText(loadContext, r.reason, Toast.LENGTH_LONG).show()
+        }
+    }
     // Enviar backups: janela aberta, texto enquanto monta o .zip e os robôs escolhidos para o Salvar
     var showExport by remember { mutableStateOf(false) }
     var exportBusy by remember { mutableStateOf<String?>(null) }
@@ -266,6 +282,10 @@ fun ProjectScreen(
                         viewModel.loadProgramChoices(v.inCabinOrder)
                         showDuplicate = true
                     },
+                    onLoad = {
+                        viewModel.clearLoad()
+                        showLoad = true
+                    },
                     onExport = {
                         viewModel.loadExportRows(v.inCabinOrder)
                         showExport = true
@@ -355,6 +375,23 @@ fun ProjectScreen(
         )
     }
     val current = view
+    if (showLoad && current != null) {
+        LoadDialog(
+            targets = current.inCabinOrder,
+            allRobots = allRobotsForLoad,
+            connected = connected,
+            source = loadSource,
+            busy = loadBusy,
+            checks = loadChecks,
+            backupsOf = viewModel::backupsOf,
+            onPickDeviceFile = { openFileLauncher.launch(arrayOf("*/*")) },
+            onPickBackup = viewModel::openLoadFromBackup,
+            onCheck = viewModel::checkLoad,
+            onBackFromCheck = viewModel::clearLoadChecks,
+            onConfirm = { robots, items -> showLoad = false; viewModel.runLoad(robots, items) },
+            onDismiss = { showLoad = false; viewModel.clearLoad() }
+        )
+    }
     if (showExport) {
         ExportBackupsDialog(
             rows = exportRows,
