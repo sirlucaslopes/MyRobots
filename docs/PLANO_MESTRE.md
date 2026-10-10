@@ -267,6 +267,21 @@ flowchart TD
       robô é o primeiro passo. Exige já: base e ferramenta (BASE/TOOL) de cada robô na cinemática
       e um leitor de trajetória em `:core`, porque a busca de pontos LMOVE/JMOVE de hoje está no
       `PointTransform` de `:feature:codeeditor` e uma feature não pode usar outra.
+- [ ] F3d. 🆕 **Montador de robô (ferramenta de montagem):** o primeiro passo do F3c. Trabalha peça
+      por peça e não exige o robô na posição zero. Desenho: fileira "Montador de robô · KJ264" do
+      artifact "Estação com modo 3D".
+  1. **Carregar o robô 3D** (.glb com as peças ou um arquivo por peça), com o aviso de que o robô
+     precisa vir dividido: base, uma peça por eixo, ferramenta. Peça única não monta.
+  2. **Dizer o que é cada peça:** tocar e escolher Base, Eixo (numerado: Eixo 1, 2, 3…),
+     Ferramenta ou Outro. Peças sem tipo ficam marcadas.
+  3. **Base:** fixar e posicionar em relação ao zero do espaço 3D (X, Y, Z, giro) ou pôr no zero.
+  4. **Criar o eixo com a peça isolada:** rastreio de **Círculo** (face redonda → centro e
+     direção), **Aresta**, **Vértice** ou **2 pontos** (frente e trás da junta). O app sugere, o
+     usuário confirma ou corrige.
+  5. **Limites e teste:** sentido positivo, mínimo e máximo, controle que gira a peça na hora.
+  6. **Eixos na ordem** (base ao eixo 6), com Testar em cada um e Testar todos.
+  7. **Flange e ferramenta (TCP)**, com os valores do TOOL do controlador.
+  - Ferramentas de peça em qualquer passo: Isolar, Mover (setas), Girar (anéis) e Fixar.
 - [ ] F4. Remover o Terminal Geral (o "Comando para todos" já mostra a resposta de cada robô) (O8, O18).
 - [ ] F5. Ligações em linhas compactas; tirar o texto "→ C01 → R16" dos cartões.
 - [~] F6. 🆕 **Reaproveitar entre linhas diferentes** (mesmo cliente):
