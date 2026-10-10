@@ -218,6 +218,10 @@ flowchart TD
       **Sincronizar** e **Terminal**, com a linha de conexão fixa acima das abas.
 - [ ] E1b. 🆕 Programas em ordem do **número do pg** por padrão, com opção de ordenar por nome e
       por data de alteração (decidido em 09/10).
+- [ ] E1d. 🆕 **Uso do robô clicável** (09/10): tocar numa barra troca os números de cima (Em
+      operação, Ligado, Motor ligado) pelos valores **daquele dia**, com a data; tocar de novo volta
+      à média do período. Hoje o toque só mostra uma linha de texto e os números ficam na média
+      (`RobotUsageCard`).
 - [ ] E1c. 🆕 **Carregar arquivo no Sincronizar** (09/10): o mesmo Carregar da Estação (robôs →
       arquivo → o que vai → conferir), aberto com **só este robô marcado** (dá para marcar outros
       da estação). Analisa e deixa escolher qual parte mandar.
@@ -438,6 +442,7 @@ flowchart TD
     R -- "Por eixo" --> PE["horas, deslocamento, temperatura, alarmes do eixo"]
     R -- "Ler agora / Conectar e ler" --> FR["FREE"]
     R -- "Exportar (Excel)" --> XL[".csv"]
+    R -- "tocar numa barra do gráfico" --> DY["números de cima mostram aquele dia<br/>tocar de novo: média do período"]
     TB -- "Arquivos" --> AR[[6.5 Arquivos]]
     TB -- "Sincronizar" --> SN[[6.6 Sincronizar]]
     TB -- "Terminal" --> TM[[6.7 Terminal]]
