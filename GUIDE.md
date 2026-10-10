@@ -509,6 +509,7 @@ para melhorar uma parte sem mexer nas outras.
 :core:network            KawasakiTerminalManager (terminal TCP/telnet)
 :core:data               RobotRepository (junta banco + arquivos); hierarchy.ClientTree (regras da tela inicial)
 :core:designsystem       Tema (cores, fontes, formas) + bibliotecas de Compose compartilhadas
+:core:kinematics         Cinemática: matemática 3D, pose da Kawasaki (XYZOAT), modelo do robô, direta e inversa
 
 :feature:splash          Tela de abertura
 :feature:robots          Lista e cadastro de robôs, status do Wifi
@@ -540,7 +541,8 @@ para melhorar uma parte sem mexer nas outras.
 
 ### Como testar
 - Testes JVM (lógica AS, nomes de arquivo, validação de arquivo externo, deslocar pontos):
-  `./gradlew testDebugUnitTest`. Ficam em `:core:common`, `:core:network` e `:feature:codeeditor`.
+  `./gradlew testDebugUnitTest`. Ficam em `:core:common`, `:core:network`, `:core:kinematics` e
+  `:feature:codeeditor`.
 - Teste de migração do banco (precisa de celular ou emulador):
   `./gradlew :core:database:connectedDebugAndroidTest`.
 
@@ -858,6 +860,41 @@ vira backup no banco quando a lista de robôs abre (sincronização do `RobotVie
     `AsInventoryTest`.
 
 **Pendências / Próximos passos:** nenhuma pendência conhecida.
+
+### `:core:kinematics` — cinemática dos robôs (v1.3, branch `melhorias/estacao-3d`)
+
+Base do ambiente 3D, do montador de robô e, depois, da trajetória dos programas e da simulação
+(Plano Mestre, F3c e F3d). Kotlin puro: as classes não usam nada do Android, e todos os testes
+rodam no PC. Distâncias em mm, ângulos dos eixos em graus.
+
+- `Vec3` e `Transform`: ponto/vetor e transformação rígida (rotação + translação). `a * b`
+  aplica `b` e depois `a`. `Transform.fromAxis(ponto, direção)` transforma um eixo marcado na
+  peça (um ponto e uma direção) num sistema completo, com Z no sentido positivo.
+- `KawasakiPose`: X, Y, Z, O, A, T como no `WHERE` e no `.TRANS`. O, A, T são Euler Z-Y-Z
+  (`Rz(O)·Ry(A)·Rz(T)`). Com A = 0° ou 180°, O e T giram no mesmo eixo: a conversão deixa O = 0
+  e põe o giro todo em T. `parse` lê uma linha de `.TRANS`; `format` escreve com 3 casas.
+- `RobotModel`: peças em cadeia (base → eixo 1 → … → flange). Cada `Joint` liga a peça pai à
+  filha e guarda o eixo marcado **nas duas peças**, cada um nas coordenadas do arquivo da sua
+  peça: por isso as peças podem vir do CAD fora da posição zero e se encaixam sozinhas.
+  `zeroOffsetDeg` acerta o zero do 3D com o zero do controlador; `inverted()` troca o sentido
+  positivo (e os limites). `RobotModel.assembled(...)` monta direto quando todas as peças vieram
+  no mesmo sistema; `angleInFileDeg` diz o ângulo de cada eixo na pose em que o arquivo veio.
+  - `partTransforms`: posição de cada peça no espaço 3D (o que o 3D desenha).
+  - `tcp` / `tcpPose`: o TCP no sistema do robô (o que o `WHERE` mostra), com o `tool` (TOOL do
+    controlador) e o `robotFrame` (sistema do robô dentro da peça base; até a validação com o
+    `WHERE`, fica no eixo 1). `placement` é onde a base fica no espaço 3D.
+- `InverseKinematics`: mínimos quadrados amortecidos com Jacobiano numérico. Serve para
+  qualquer robô montado, inclusive punho com offset (o KJ264 tem punho 3R oco), que não tem
+  fórmula fechada. Parte da posição atual (`seed`) e devolve a solução mais próxima dela, então
+  eixos de várias voltas (±720°) não "desenrolam". O resultado sempre respeita os limites; alvo
+  fora do alcance volta com `success = false` e o erro que sobrou.
+- Testes (`KawasakiPoseTest`, `RobotModelTest`, `InverseKinematicsTest`) usam um robô de 6 eixos
+  com medidas inventadas (`RoboTeste`), não as do KJ264. Cobrem a ida e volta do XYZOAT, peças
+  soltas que encaixam igual às montadas, sentido invertido e a inversa achando poses alcançáveis.
+
+**Pendências / Próximos passos:** salvar e ler o modelo em arquivo (JSON); ajuste fino com
+leituras do `WHERE`; leitor de trajetória dos programas (pontos de `.TRANS` na ordem dos
+`LMOVE`/`JMOVE`) que hoje vive no `PointTransform` do `:feature:codeeditor`.
 
 ---
 

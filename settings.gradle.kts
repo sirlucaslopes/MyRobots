@@ -32,6 +32,7 @@ include(":core:database")
 include(":core:network")
 include(":core:data")
 include(":core:designsystem")
+include(":core:kinematics")
 
 // Módulos "feature": cada um é uma parte do app (tela + regras dela)
 include(":feature:splash")
