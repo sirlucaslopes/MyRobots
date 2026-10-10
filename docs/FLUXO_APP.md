@@ -810,7 +810,7 @@ flowchart TD
 | Código | Decisão |
 |---|---|
 | **D1** | **Navegação:** Início (Lista ou Cabines) → **Robô** (4 abas: Resumo, Arquivos, Sincronizar, Terminal) ou **Projeto** (cabine + ações em grupo + ligações). **Configurações** pela engrenagem. Nenhuma função importante fica só no ⋮. |
-| **D2** | **Uma só peça de conexão** (O1): LED + estado + ícone de tomada. Tocar conecta/desconecta. A mesma em: cartão da lista, bolha da planta, topo do robô, robô da cabine e lista de envio. Nomes iguais em todo lugar: Conectado / Sem sinal / Desligado / Conectando. |
+| **D2** | **Uma só peça de conexão** (O1): LED + estado + ícone de tomada. **Tocar abre o painel do robô; segurar conecta/desconecta** (revisto em 09/10, como ficou na v1.3). A mesma em: cartão da lista, bolha da planta, topo do robô, robô da cabine e lista de envio. Nomes iguais em todo lugar: Conectado / Sem sinal / Desligado / Conectando. |
 | **D3** | **Um só caminho de envio:** Escolher → **Conferência** (criado / SERÁ SUBSTITUÍDO / frame / base) → Enviar → Resultado ✓/✗ por robô. Usado por Enviar, Duplicar, Transferir, Comparar e Apagar no robô. |
 | **D4** | **Um só jeito de excluir:** em Programas, Variáveis e Data Bank sempre aparece "Apagar também no robô" (desabilitado com o motivo quando não dá). No Histórico, só apaga o arquivo. |
 | **D5** | **Telas e diálogos:** formulário longo (Duplicar, Transferir, Cadastrar) em tela cheia; diálogo só para confirmar. Botões sempre acima da barra do Android (O20). |

@@ -1,7 +1,8 @@
 # Plano mestre do MyRobots
 
 > Documento vivo. **Marque `[x]` quando terminar** e escreva a data e o commit ao lado.
-> Atualizado em 07/10/2026 (várias linhas por cliente) a partir da branch `melhorias/v1.2` (último commit `48c9785`).
+> Atualizado em 09/10/2026 (fluxogramas de Clientes, Cliente e Linha, como ficaram na v1.3) na branch
+> `melhorias/v1.3-clientes` (último commit `93beca9`).
 >
 > Detalhes técnicos que já existem **não são repetidos aqui**, só referenciados:
 > - `docs/PLANO_V1_2.md`: fases 0, 0-B, 0-C, 1, 1.5 e 2, com passos, migrações e testes.
@@ -22,7 +23,7 @@ flowchart TD
     C --> L2["Outra linha do mesmo cliente"]
     L --> E["Estação<br/>local de trabalho · 1+ robôs · tipo de trabalho<br/>3D, status, funções, alarmes"]
     E --> R["Robô<br/>Resumo · Arquivos · Sincronizar · Terminal"]
-    E -. "reaproveita os programas de" .-> E2["Outra estação"]
+    E -. "Enviar programas" .-> E2["Outra estação"]
     CT[["Contrato da marca<br/>(o que o robô é e sabe fazer)"]] -.-> E & R
     PG[["Pack and Go<br/>(empacotar / desempacotar)"]] -.-> E
 ```
@@ -36,8 +37,8 @@ flowchart TD
 - **Processo não é um nível:** ele vive dentro de **cada Linha** e define:
   - a **ordem** em que as estações aparecem na Linha;
   - os **filtros**;
-  - as **ligações de reaproveitamento** entre estações (também entre linhas diferentes do mesmo cliente, com aviso). É o mestre/escravo de hoje, renomeado para
-    "**reaproveita os programas de**".
+  - as **ligações de reaproveitamento** entre estações (também entre linhas diferentes do mesmo cliente, com aviso). É o mestre/escravo de hoje. Na tela ficou
+    "**Primer CAT → Top Coat CAT**" com o botão **Enviar programas** (v1.3, 09/10).
 - **As ligações são só trabalho de arquivo OFFLINE pelo app:** copiar, duplicar e transferir
   programas, base e frames. O app **não** entra no online do equipamento nem na comunicação entre
   robôs durante a produção. Isso está **fora de escopo**.
@@ -246,6 +247,17 @@ flowchart TD
   - na tela da Linha, a ligação para outra linha aparece com a etiqueta da linha de destino
     (ex.: "→ Honda · Cabine 2"), com o traço diferente da ligação interna.
       **08/10/2026, `cb1fe7f`:** aviso ao transferir e ao criar ou trocar o mestre em Mestre / Escravo; faixa amarela na conferência; ⇄ amarelo e seção tracejada na Linha. O Duplicar é dentro de uma estação, então não cruza linhas.
+- [ ] F7. 🆕 **Ajustes da revisão da v1.3** (09/10):
+  - [ ] **LED da estação e da linha:** hoje "Desligado ganha de tudo", e um robô desligado deixa a
+        estação cinza mesmo com os outros conectados. Regra nova: **amarelo** se algum robô está
+        sem sinal; senão **verde** se algum está conectado; **cinza só se todos** estão desligados.
+        Mudar o `ClientTree.worstState` (e o nome, porque deixa de ser "o pior") e o `ClientTreeTest`.
+  - [ ] **Robô novo com estação nova:** hoje cai na linha usada por último. Pela tela inicial,
+        perguntar a linha quando o nome da estação for novo; pela Linha, continua nela.
+  - [ ] **Segurar um robô na Linha** conecta ou desconecta só ele, igual à Estação (D2). Hoje a
+        Linha só tem o toque.
+  - [ ] Tirar **Mestre / Escravo** do ⚙ da tela inicial (a configuração vai para a Estação, ver 6.3).
+  - [ ] Rodar o `MigrationTest` 7 → 8 no aparelho.
 
 ### Fase G: Nova estação + Perfil da marca + Configurações 🆕
 
@@ -292,13 +304,63 @@ flowchart TD
 > Vamos preencher uma por uma. Ao detalhar, troque `(a fazer)` pelo diagrama Mermaid.
 
 ### 6.0 Clientes (tela inicial)
-- [ ] Fluxograma: (a fazer)
+- [x] Fluxograma (como ficou na v1.3, `cb1fe7f` a `d8aedf0`):
+
+```mermaid
+flowchart TD
+    A([Abrir o app]) --> Q1{Quantos clientes visíveis?}
+    Q1 -- "1" --> Q2{Quantas linhas?}
+    Q2 -- "1" --> L[[6.1 Linha]]
+    Q2 -- "2+" --> C[[6.0b Cliente]]
+    Q1 -- "2+ ou 0" --> T["Clientes<br/>cartões pelo último uso<br/>mini planta de cada linha"]
+    T -- "tocar no cartão" --> C
+    T -- "tocar num bloquinho de estação" --> E[[6.3 Estação]]
+    T -- "⋮ do cliente" --> M1["Renomear · Ocultar"]
+    M1 -- "Ocultar" --> H["some da lista<br/>fica em Mostrar ocultos (N)"]
+    T -- "Filtro" --> F[[6.2 Filtros]]
+    F -- "etiquetas no alto · tocar tira" --> T
+    T -- "Novo" --> N{O quê?}
+    N -- "Novo cliente / Nova linha" --> NM["pede só o nome<br/>(a linha pergunta o cliente)"] --> T
+    N -- "Novo robô" --> RD["janela de cadastro<br/>estação existente ou nova"]
+    RD -- "estação nova" --> RL["F7: perguntar a linha"] --> T
+    T -- "⚙" --> S["Lista de robôs (antiga) · Fabricantes<br/>(Mestre / Escravo sai, F7)"]
+```
+
+- **Diferenças em relação ao protótipo de 07/10:** sem selo de alarme (o app ainda não lê alarme;
+  mostra só os conectados) e sem a tela de boas-vindas (fica para a Fase D, 6.14).
 
 ### 6.0b Cliente (as linhas dele)
-- [ ] Fluxograma: (a fazer)
+- [x] Fluxograma (v1.3):
+
+```mermaid
+flowchart TD
+    A([Tocar num cliente]) --> Q{Quantas linhas visíveis?}
+    Q -- "1" --> L[[6.1 Linha]]
+    Q -- "2+" --> T["Cliente<br/>um cartão por linha: LED, nome, tipo,<br/>N estações · X de Y conectados, mini planta"]
+    T -- "tocar na linha" --> L
+    T -- "Nova linha" --> NL["nome"] --> T
+    T -- "⋮ da linha" --> ML["Renomear · Ocultar"]
+    T -- "⋮ do topo" --> MC["Renomear · Ocultar o cliente"]
+    T -- "Mostrar ocultas" --> T
+```
 
 ### 6.1 Linha (estações na ordem do processo)
-- [ ] Fluxograma: (a fazer)
+- [x] Fluxograma (v1.3):
+
+```mermaid
+flowchart TD
+    A([Abrir uma linha]) --> T["Linha<br/>estações na ordem do processo<br/>cabine com um quadrado por robô"]
+    T -- "tocar num robô" --> R[[6.4 Painel do robô]]
+    T -- "segurar um robô (F7)" --> X["conecta / desconecta só ele"]
+    T -- "Abrir estação / tocar no cartão" --> E[[6.3 Estação]]
+    T -- "Conectar (estação)" --> CN["liga os desligados<br/>vira Desconectar com todos ligados"]
+    T -- "Conectar todos (barra)" --> CN
+    T -- "Novo robô / ⋮ Adicionar robô" --> RD["cadastro já com a estação<br/>robô entra fora do layout"]
+    T -- "entre duas estações: Enviar programas" --> Q{Mesma linha?}
+    Q -- "sim" --> TR[[Estação destino com a transferência aberta]]
+    Q -- "não" --> W["Linha diferente: Cancelar ·<br/>Continuar mesmo assim"] --> TR
+    T -- "⋮ da estação" --> ME["Tipo de trabalho · Mover para outra linha ·<br/>Subir / Descer · Ocultar · Renomear"]
+```
 
 ### 6.2 Filtros
 - [ ] Fluxograma: (a fazer)
