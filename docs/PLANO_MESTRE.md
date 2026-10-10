@@ -260,6 +260,13 @@ flowchart TD
       gerar a cabine 2D olhando de cima. A vista vira posições e contornos de cada item (não uma
       foto), para o layout continuar nítido e o toque em cada robô funcionar. Estação sem nada
       montado em 3D continua com o layout 2D de hoje.
+- [ ] F3c. 🆕 **Programas em 3D (objetivo final do 3D):** escolher um programa e ver a trajetória
+      sobre a linha (pontos na ordem, setas de direção, trecho com a pistola ligada destacado,
+      ponto fora do alcance em vermelho), no estilo do DXQ da Dürr; tocar num ponto seleciona a
+      linha no editor e vice-versa; mover pontos no 3D; simular com barra de tempo. O montador de
+      robô é o primeiro passo. Exige já: base e ferramenta (BASE/TOOL) de cada robô na cinemática
+      e um leitor de trajetória em `:core`, porque a busca de pontos LMOVE/JMOVE de hoje está no
+      `PointTransform` de `:feature:codeeditor` e uma feature não pode usar outra.
 - [ ] F4. Remover o Terminal Geral (o "Comando para todos" já mostra a resposta de cada robô) (O8, O18).
 - [ ] F5. Ligações em linhas compactas; tirar o texto "→ C01 → R16" dos cartões.
 - [~] F6. 🆕 **Reaproveitar entre linhas diferentes** (mesmo cliente):
