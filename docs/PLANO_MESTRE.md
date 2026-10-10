@@ -249,12 +249,18 @@ flowchart TD
       Carregar, Comando, Duplicar programa, Enviar programas), **Ligações** dentro da estação (no
       lugar da tela Mestre / Escravo) e **Atividade** (mini terminais). Ver 6.3.
       **Sem seção de alarmes** (decidido em 09/10): alarme aparece só no painel do robô, como hoje.
-- [ ] F3. **3D:** carregar um `.glb` de braço robótico genérico com SceneView/Filament. Começa como
+- [~] F3. **3D:** carregar um `.glb` de braço robótico genérico com SceneView/Filament. Começa como
       efeito visual: anel de status no chão, movimento quando ativo, pisca em alarme. No futuro, os
       ângulos dos eixos podem vir do robô. Se o aparelho não suportar 3D, mostrar a grade 2D atual.
       🆕 **10/10:** o 3D é um **modo do bloco da cabine** (seletor Cabine 2D | 3D), não uma tela
       separada; tela cheia com o cartão do robô tocado. Desenho: artifact "Estação com modo 3D".
       Plano do motor 3D e do montador de robô: `docs/GEMEO_DIGITAL.md` e `referencias/README.md`.
+      **10/10/2026, `61d6717`/`c7cdc6d`:** fase 1 feita (o Filament dentro do app): módulo
+      `:feature:robot3d` com Filament 1.75.1 (a 1.76+ exige Kotlin 2.4), tela "Visualizador 3D
+      (teste)" pelo ⋮ da Estação com o robô de teste do `:core:kinematics` (um controle por eixo),
+      abrir .glb pelo seletor, câmera por gestos, vistas Iso/Topo/Frente, grade e eixos com Z para
+      cima. Falta: medir os 60 quadros/s no celular, o modo 3D do bloco da cabine, anel de status
+      e a volta para a grade 2D em aparelho sem 3D.
 - [ ] F3b. 🆕 **Estação montada em 3D (futuro, opcional):** montar a estação inteira no 3D (robôs,
       trilhos, suportes, pistolas, equipamentos) e, numa opção **Usar a vista aérea no layout**,
       gerar a cabine 2D olhando de cima. A vista vira posições e contornos de cada item (não uma

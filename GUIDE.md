@@ -10,14 +10,14 @@ de uma tela, e não só o código.
 Todo o código tem comentários em português explicando o que cada classe e função faz.
 
 O guia tem duas partes: o **Manual de uso** (logo abaixo), que explica tela por tela o que
-dá para fazer no app, e as **seções numeradas** (0 a 15), com o funcionamento por dentro de
+dá para fazer no app, e as **seções numeradas** (0 a 17), com o funcionamento por dentro de
 cada módulo.
 
 ## Manual de uso — o que cada parte do app faz
 
 Esta parte descreve o app **do ponto de vista de quem usa**: o que cada tela mostra e tudo o que
 dá para fazer em cada operação. Os detalhes de implementação estão nas seções numeradas
-(0 a 16), indicadas entre parênteses. Ao mudar o que uma tela faz, atualize aqui também.
+(0 a 17), indicadas entre parênteses. Ao mudar o que uma tela faz, atualize aqui também.
 
 Padrão de todas as telas: o **título** (e um subtítulo) fica no alto, com o **⋮** (menu de itens
 pouco usados) ao lado; as **ações** ficam na linha logo abaixo, cada uma com ícone e nome. Ação
@@ -410,7 +410,7 @@ O voltar fecha primeiro a pesquisa, depois o modo de edição, e só então sai 
   (transportador…) como faixas com setas do fluxo. **Tocar** num robô abre o painel dele;
   **segurar** conecta/desconecta. Robôs sem vaga ficam em "Fora do layout".
 - Ações: **Conectar todos**, **Desconectar**, **Editar layout**, **Terminal Geral**.
-  **⋮ →** Renomear projeto, Mestre / Escravo.
+  **⋮ →** Renomear projeto, Mestre / Escravo, Visualizador 3D (teste).
 
 **Editar layout**
 - Tocar num robô o seleciona. Com um selecionado:
@@ -487,6 +487,18 @@ mesmo tempo, sempre conectando antes; uma falha não para os outros; **Parar** c
      Com avisos, o botão vira "Transferir mesmo assim".
   - Use **Atualizar** no painel dos robôs antes: as análises usam o último backup.
 
+### Visualizador 3D (teste) — seção 17
+Tela de teste do 3D, aberta pelo **⋮ da Estação → Visualizador 3D (teste)**. Ainda não usa os
+robôs cadastrados: é para conferir o motor 3D no aparelho antes do modo 3D da cabine.
+- Mostra um **robô de teste** de 6 eixos (medidas inventadas) sobre uma grade no chão, com os
+  eixos X (vermelho), Y (verde) e Z (azul) no zero. Z é para cima, como no robô.
+- Embaixo, um **controle por eixo** (JT1 a JT6), dentro dos limites; o robô se mexe na hora.
+  A linha **TCP** mostra X Y Z O A T como no `WHERE`. **Zerar** volta todos os eixos a 0°.
+- **Gestos:** um dedo gira, pinça aproxima ou afasta, dois dedos arrastam.
+- Ações: **Abrir .glb** (seletor do Android, sem pedir permissão; até 150 MB), **Robô teste**
+  (volta ao robô de teste), **Iso**, **Topo** e **Frente** (vistas prontas).
+- No canto, os **quadros por segundo** (a meta é 60 girando o robô).
+
 ### Abrir arquivo de outro app
 - Um `.as` ou `.pg` aberto pelo "Abrir com" (gerenciador de arquivos, WhatsApp, e-mail) abre no
   editor sem virar backup. **Salvar em…** escolhe o robô e guarda como backup dele. Arquivo acima
@@ -519,6 +531,7 @@ para melhorar uma parte sem mexer nas outras.
 :feature:terminal        Terminal Geral (vários robôs) e comandos rápidos
 :feature:project         Tela de Projeto: a cabine com os robôs e o editor do layout
 :feature:clients         Tela inicial: Clientes → Cliente → Linha (a estação abre a Tela de Projeto)
+:feature:robot3d         Visualizador 3D (Filament): robô de teste pela cinemática e arquivos .glb
 ```
 
 ### Regras de dependência (para manter tudo organizado)
@@ -541,8 +554,8 @@ para melhorar uma parte sem mexer nas outras.
 
 ### Como testar
 - Testes JVM (lógica AS, nomes de arquivo, validação de arquivo externo, deslocar pontos):
-  `./gradlew testDebugUnitTest`. Ficam em `:core:common`, `:core:network`, `:core:kinematics` e
-  `:feature:codeeditor`.
+  `./gradlew testDebugUnitTest`. Ficam em `:core:common`, `:core:network`, `:core:kinematics`,
+  `:feature:codeeditor` e `:feature:robot3d`.
 - Teste de migração do banco (precisa de celular ou emulador):
   `./gradlew :core:database:connectedDebugAndroidTest`.
 
@@ -889,7 +902,8 @@ rodam no PC. Distâncias em mm, ângulos dos eixos em graus.
   eixos de várias voltas (±720°) não "desenrolam". O resultado sempre respeita os limites; alvo
   fora do alcance volta com `success = false` e o erro que sobrou.
 - Testes (`KawasakiPoseTest`, `RobotModelTest`, `InverseKinematicsTest`) usam um robô de 6 eixos
-  com medidas inventadas (`RoboTeste`), não as do KJ264. Cobrem a ida e volta do XYZOAT, peças
+  com medidas inventadas (`RoboTeste`, no código principal porque o visualizador 3D de teste
+  também usa), não as do KJ264. Cobrem a ida e volta do XYZOAT, peças
   soltas que encaixam igual às montadas, sentido invertido e a inversa achando poses alcançáveis.
 
 **Pendências / Próximos passos:** salvar e ler o modelo em arquivo (JSON); ajuste fino com
@@ -1321,6 +1335,7 @@ fica reservado para não mudar as referências às seções seguintes.
 | `variable_viewer/{backupId}` | `AsCodeViewer` | junta as seções `.TRANS`/`.REALS`/`.STRINGS` do backup, somente leitura |
 | `code_viewer/{backupId}` | `AsCodeViewer` | backup inteiro, com salvar |
 | `external_viewer/{backupId}` | `AsCodeViewer` | arquivo importado de fora do app, somente leitura |
+| `robot3d_test` | `Robot3dScreen` | Visualizador 3D (teste), pelo ⋮ da Estação; temporário até o modo 3D da cabine |
 
 **Pendências / Próximos passos:** as mudanças de navegação da v1.2 (tocar no robô abre o
 painel, tela de Projeto) estão em `docs/PLANO_V1_2.md`.
@@ -1558,3 +1573,55 @@ linhas diferentes (`isCrossLine`), tipo da linha, pior estado e Subir/Descer (`m
 nasce do projeto de um robô cadastrado na lista antiga), Pack and Go, tela de boas-vindas, robô
 em 4 abas e o contrato da marca (fases B, D, E, G e H do `docs/PLANO_MESTRE.md`). A lista de
 robôs antiga sai quando a nova entrada for aprovada.
+
+---
+
+## 17. `:feature:robot3d` — Visualizador 3D (teste)
+
+**Arquivos:** `Robot3dScreen.kt` (tela, controles dos eixos, leitura do .glb), `Robot3dViewModel.kt`
+(ângulos e arquivo aberto; sem factory, não usa repositório), `FilamentViewer.kt` (tudo do
+Filament), `OrbitCamera.kt` (câmera), `GlbBuilder.kt` e `MeshData.kt` (gera .glb na memória),
+`SceneModels.kt` (robô de teste, grade, eixos e conversões). Depende só de `:core:designsystem` e
+`:core:kinematics`. Rota `robot3d_test`, aberta pelo ⋮ da Estação (`ProjectScreen`,
+`onOpen3dViewer`). É a fase 1 do F3 do `docs/PLANO_MESTRE.md`.
+
+- **Filament 1.75.1** (`filament-android`, `gltfio-android`, `filament-utils-android`). A 1.76 em
+  diante é compilada com Kotlin 2.4 e o projeto está no 2.2.10 (o compilador não lê): subir o
+  Filament exige subir o Kotlin (e o plugin do Compose e o KSP do Room) junto. As bibliotecas
+  nativas somam ~7,5 MB por arquitetura (~29 MB no APK de debug, que leva as quatro).
+- **Materiais:** o Filament só desenha com materiais compilados. Em vez de compilar os nossos,
+  o robô de teste, a grade e os eixos viram um **.glb gerado em código** (`GlbBuilder`) e usam os
+  materiais prontos do gltfio (`UbershaderProvider`), o mesmo caminho de um .glb do usuário.
+  Grade e eixos usam `KHR_materials_unlit` (cor fixa, sem luz).
+- **Unidades e eixos:** o `:core:kinematics` trabalha em mm; o Filament em metros
+  (`MeshData.MM`, `SceneModels.toFilamentMatrix`, que também passa a rotação para coluna a coluna).
+  O espaço 3D tem **Z para cima**. O glTF tem Y para cima: a raiz do .glb aberto recebe +90° em X
+  (`SceneModels.GLTF_TO_Z_UP`); o robô gerado já nasce com Z para cima.
+- **Robô de teste:** `RoboTeste` do `:core:kinematics`. Cada peça vira um nó com o nome dela: um
+  "osso" do eixo até o próximo eixo (ou o flange) e um cilindro no eixo, na pose do arquivo. A
+  cada mudança de ângulo, `RobotModel.partTransforms` dá a posição de cada peça e o
+  `FilamentViewer.setPartTransforms` põe no nó (sem recriar nada).
+- **Câmera** (`OrbitCamera`, Kotlin puro): alvo, distância, giro em volta de Z e altura. Um dedo
+  gira (`orbit`), pinça muda a distância (`zoom`, `ScaleGestureDetector`), dois dedos arrastam o
+  alvo no plano da tela (`pan`). Vistas prontas: Iso (de frente-direita e de cima), Topo (+X à
+  direita, +Y para cima) e Frente (do lado +X). Ao abrir um .glb, a câmera enquadra a caixa dele.
+  Perto/longe da projeção acompanham a distância.
+- **Luz:** ambiente uniforme (`IndirectLight` só com harmônico de ordem 0) e um sol direcional,
+  sem sombra; fundo escuro (`Skybox` de cor); MSAA 4x.
+- **Quadros:** `Choreographer`, só entre ON_RESUME e ON_PAUSE da tela. O contador de quadros por
+  segundo aparece no canto (meta: 60 girando o robô num celular intermediário).
+- **Liberar:** ao sair da tela (`AndroidView.onRelease`), `FilamentViewer.destroy` para os quadros,
+  solta a superfície e destrói os modelos, os carregadores, os materiais, as luzes, a câmera, a
+  cena e o motor. Girar a tela recria o Filament; os ângulos e o arquivo ficam no ViewModel.
+- **Abrir .glb:** `OpenDocument` (SAF, sem permissão); lê até 150 MB numa thread de fundo e
+  confere o cabeçalho "glTF" antes de passar ao Filament (na thread principal). Arquivo inválido
+  mostra o motivo e volta ao robô de teste.
+- **Testes JVM** (`Robot3dTest`): estrutura do .glb gerado (cabeçalho, alinhamento, mín./máx. em
+  metros, nomes), um nó por peça do robô de teste, a matriz do Filament, Y→Z e a câmera (vistas,
+  limites, arrastar). O desenho em si só se confere no aparelho.
+
+**Pendências / Próximos passos:** conferir no celular os 60 quadros por segundo e as cores/luz;
+.gltf com .bin ou texturas separadas não abre (só .glb com tudo dentro), e .glb com compressão
+Draco ou texturas KTX2 pode não abrir; mapa de ambiente (IBL) para metal ficar melhor; aviso e
+grade 2D quando o aparelho não aguentar o 3D; virar o modo 3D do bloco da cabine (F3) e tirar o
+item do ⋮; montador de robô (F3d) em cima deste visualizador.
