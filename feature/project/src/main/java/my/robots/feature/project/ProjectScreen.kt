@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Terminal
+import androidx.compose.material.icons.rounded.ViewInAr
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -72,7 +73,8 @@ import my.robots.core.model.Robot
  *
  * Visualização:
  * - barra do topo (AppTopBar): o nome e quantos estão conectados; na linha de ações, Conectar
- *   todos, Desconectar, Editar layout e Terminal Geral; no ⋮, Renomear e Projeto mestre;
+ *   todos, Desconectar, Editar layout e Terminal Geral; no ⋮, Renomear, Projeto mestre e o
+ *   Visualizador 3D (teste);
  * - a grade: cada robô com LED de heartbeat, nome e estado. Tocar conecta ou desconecta;
  *   segurar abre o painel do robô. Linhas sem nenhum robô ficam ocultas;
  * - os equipamentos como faixas entre as linhas, com setas do sentido do fluxo;
@@ -92,6 +94,7 @@ fun ProjectScreen(
     onOpenTerminal: () -> Unit,
     onOpenRobotTerminal: (Robot) -> Unit,
     onOpenMasterSlave: () -> Unit,
+    onOpen3dViewer: () -> Unit,
     onRenamed: (String) -> Unit,
     autoTransferFrom: String? = null
 ) {
@@ -228,6 +231,12 @@ fun ProjectScreen(
                             text = { Text("Mestre / Escravo…") },
                             leadingIcon = { Icon(Icons.Rounded.AccountTree, null) },
                             onClick = { close(); onOpenMasterSlave() }
+                        )
+                        // temporário: teste do 3D (Plano Mestre, F3); depois vira o modo 3D da cabine
+                        DropdownMenuItem(
+                            text = { Text("Visualizador 3D (teste)") },
+                            leadingIcon = { Icon(Icons.Rounded.ViewInAr, null) },
+                            onClick = { close(); onOpen3dViewer() }
                         )
                     },
                     actions = listOf(

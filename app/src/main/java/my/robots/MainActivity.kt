@@ -52,6 +52,8 @@ import my.robots.feature.project.MasterSlaveViewModelFactory
 import my.robots.feature.project.ProjectScreen
 import my.robots.feature.project.ProjectViewModel
 import my.robots.feature.project.ProjectViewModelFactory
+import my.robots.feature.robot3d.Robot3dScreen
+import my.robots.feature.robot3d.Robot3dViewModel
 import my.robots.feature.robots.ConnectedRobotsViewModel
 import my.robots.feature.robots.ManufacturerSettingsScreen
 import my.robots.core.designsystem.LocalSearchTerms
@@ -255,6 +257,12 @@ class MainActivity : ComponentActivity() {
                         }
 
                         // Fabricantes: termos da pesquisa rápida do editor e comandos padrão.
+                        // Visualizador 3D de teste (F3, fase 1): aberto pelo ⋮ da Estação, por enquanto.
+                        composable("robot3d_test") {
+                            val robot3dViewModel: Robot3dViewModel = viewModel()
+                            Robot3dScreen(viewModel = robot3dViewModel, onBack = { navController.popBackStack() })
+                        }
+
                         composable("manufacturers") {
                             ManufacturerSettingsScreen(
                                 settings = app.manufacturerSettings,
@@ -288,6 +296,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenTerminal = { navController.navigate("multi_terminal/$encodedProject") },
                                 onOpenRobotTerminal = { robot -> navController.navigate("robot_dashboard/${robot.id}/-1?feature=Terminal") },
                                 onOpenMasterSlave = { navController.navigate("master_slave") },
+                                onOpen3dViewer = { navController.navigate("robot3d_test") },
                                 onRenamed = { newName ->
                                     val encodedNew = URLEncoder.encode(newName, StandardCharsets.UTF_8.toString())
                                     navController.navigate("project/$encodedNew") {
