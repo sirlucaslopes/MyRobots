@@ -252,6 +252,14 @@ flowchart TD
 - [ ] F3. **3D:** carregar um `.glb` de braço robótico genérico com SceneView/Filament. Começa como
       efeito visual: anel de status no chão, movimento quando ativo, pisca em alarme. No futuro, os
       ângulos dos eixos podem vir do robô. Se o aparelho não suportar 3D, mostrar a grade 2D atual.
+      🆕 **10/10:** o 3D é um **modo do bloco da cabine** (seletor Cabine 2D | 3D), não uma tela
+      separada; tela cheia com o cartão do robô tocado. Desenho: artifact "Estação com modo 3D".
+      Plano do motor 3D e do montador de robô: `docs/GEMEO_DIGITAL.md` e `referencias/README.md`.
+- [ ] F3b. 🆕 **Estação montada em 3D (futuro, opcional):** montar a estação inteira no 3D (robôs,
+      trilhos, suportes, pistolas, equipamentos) e, numa opção **Usar a vista aérea no layout**,
+      gerar a cabine 2D olhando de cima. A vista vira posições e contornos de cada item (não uma
+      foto), para o layout continuar nítido e o toque em cada robô funcionar. Estação sem nada
+      montado em 3D continua com o layout 2D de hoje.
 - [ ] F4. Remover o Terminal Geral (o "Comando para todos" já mostra a resposta de cada robô) (O8, O18).
 - [ ] F5. Ligações em linhas compactas; tirar o texto "→ C01 → R16" dos cartões.
 - [~] F6. 🆕 **Reaproveitar entre linhas diferentes** (mesmo cliente):
