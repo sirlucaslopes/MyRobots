@@ -214,8 +214,17 @@ flowchart TD
 
 ### Fase E: Robô em 4 abas + envio e exclusão iguais (R2 e R3)
 
-- [ ] E1. Robô com abas fixas: **Resumo**, **Arquivos**, **Sincronizar** e **Terminal**.
-- [ ] E2. "Backup em uso" com data e Trocar; Histórico novo (data como título, ⋮, agrupado por mês).
+- [ ] E1. Robô com abas fixas **no rodapé** (perto do polegar): **Resumo**, **Arquivos**,
+      **Sincronizar** e **Terminal**, com a linha de conexão fixa acima das abas.
+- [ ] E1b. 🆕 Programas em ordem do **número do pg** por padrão, com opção de ordenar por nome e
+      por data de alteração (decidido em 09/10).
+- [ ] E1c. 🆕 **Carregar arquivo no Sincronizar** (09/10): o mesmo Carregar da Estação (robôs →
+      arquivo → o que vai → conferir), aberto com **só este robô marcado** (dá para marcar outros
+      da estação). Analisa e deixa escolher qual parte mandar.
+      Técnico: o `LoadDialog` está em `:feature:project` e o painel em `:feature:dashboard`, e
+      uma feature não depende de outra. Virar uma tela própria (rota `load/{estação}?robo={id}`
+      ligada no `NavHost`) ou ir para um módulo comum.
+- [ ] E2. "Backup em uso" com data e Trocar; **o backup novo (Fazer backup agora) vira o em uso sozinho**; Histórico novo (data como título, ⋮, agrupado por mês).
 - [ ] E3. **Conferência única** (D3) também no Enviar do painel (hoje ele substitui sem avisar).
 - [ ] E4. Comparar com Enviar, Trazer e Apagar em todos os grupos.
 - [ ] E5. Exclusão igual em todas as listas (D4).
@@ -417,21 +426,72 @@ flowchart TD
 ```
 
 ### 6.4 Robô: Resumo
-- [~] Proposta das 4 abas em preview (09/10): linha de conexão fixa acima das abas; Resumo com o
-      cartão do controlador, ATENÇÃO (alarmes), Por eixo, memória e Uso do robô; Arquivos com
-      "Backup em uso" e Código completo; Sincronizar com Fazer backup, Comparar e Histórico por
-      mês; Terminal com comandos rápidos. Falta decidir: abas no rodapé ou no topo, ordem padrão
-      dos programas, backup novo vira "em uso" sozinho.
-- [ ] Fluxograma: (a fazer)
+- [x] Proposta das 4 abas aprovada (09/10): abas no rodapé, linha de conexão fixa acima delas.
+- [x] Fluxograma (o robô inteiro; 6.5 a 6.7 são as outras abas):
+
+```mermaid
+flowchart TD
+    A([Tocar num robô]) --> C["linha de conexão fixa<br/>LED · estado · Conectar / Desconectar"]
+    C --> TB{Aba no rodapé}
+    TB -- "Resumo" --> R["cartão do controlador · memória · Uso do robô"]
+    R -- "ATENÇÃO · N" --> AL["alarmes dos 7 dias antes do backup"]
+    R -- "Por eixo" --> PE["horas, deslocamento, temperatura, alarmes do eixo"]
+    R -- "Ler agora / Conectar e ler" --> FR["FREE"]
+    R -- "Exportar (Excel)" --> XL[".csv"]
+    TB -- "Arquivos" --> AR[[6.5 Arquivos]]
+    TB -- "Sincronizar" --> SN[[6.6 Sincronizar]]
+    TB -- "Terminal" --> TM[[6.7 Terminal]]
+```
 
 ### 6.5 Robô: Arquivos (Programas, Variáveis, Data Bank, Logs, Código)
-- [ ] Fluxograma: (a fazer)
+- [x] Fluxograma:
 
-### 6.6 Robô: Sincronizar (Fazer backup, Comparar, Histórico)
-- [ ] Fluxograma: (a fazer)
+```mermaid
+flowchart TD
+    A([Aba Arquivos]) --> U["faixa Backup em uso: data · FULL · há N dias<br/>vermelha depois do limite de G4"]
+    U -- "Trocar" --> H[[6.6 Histórico: Usar]]
+    A --> T{Qual?}
+    T -- "Programas" --> P["ordem: nº do pg (padrão) · nome · data<br/>Sistema recolhido no fim"]
+    P -- "tocar" --> ED[[6.8 Editor só do programa]]
+    P -- "⋮" --> DU["Duplicar"]
+    P -- "marcados: Enviar" --> CF[[6.9 Conferência]]
+    P -- "marcados: Compartilhar" --> SH[".as no compartilhar do Android"]
+    P -- "marcados: Excluir" --> X{"Apagar também no robô?"}
+    X -- "não" --> X1["só no backup do app"]
+    X -- "sim" --> X2["app + DELETE/P conferido"]
+    T -- "Variáveis · Data Bank" --> V["como hoje, com o mesmo Enviar / Excluir"]
+    T -- "Logs" --> L["Erros · Operação · Edição"]
+    T -- "Código completo" --> ED2[[6.8 Editor com o backup inteiro]]
+```
+
+### 6.6 Robô: Sincronizar (Fazer backup, Carregar, Comparar, Histórico)
+- [x] Fluxograma:
+
+```mermaid
+flowchart TD
+    A([Aba Sincronizar]) --> B["Fazer backup agora"]
+    B --> B1["conecta se preciso · SAVE/FULL conferido"] --> B2["backup novo vira o em uso"]
+    A --> LD["Carregar arquivo"]
+    LD --> L1["mesma tela do Carregar da Estação<br/>só este robô marcado (pode mudar)"]
+    L1 --> L2["arquivo do aparelho ou backup de um robô"] --> L3["o que vai: escolher as partes"] --> L4["conferir por robô"] --> L5["LOAD conferido"]
+    A --> CP["Comparar com o robô"] --> CP1["Só no robô · Diferentes · Só no offline · Iguais<br/>Apagar no robô (N)"]
+    A --> HI["Histórico por mês, data como título"]
+    HI -- "Usar" --> U["vira o backup em uso"]
+    HI -- "Importar" --> IM[".as de fora para este robô"]
+```
 
 ### 6.7 Robô: Terminal
-- [ ] Fluxograma: (a fazer)
+- [x] Fluxograma:
+
+```mermaid
+flowchart TD
+    A([Aba Terminal]) --> Q{Conectado?}
+    Q -- "não" --> C["campo desligado · Conectar na linha fixa"]
+    Q -- "sim" --> T["conversa com o robô · comandos rápidos em português no alto"]
+    T -- "digitar / Enviar" --> R["resposta do robô"]
+    T -- "SAVE / LOAD digitados" --> F["arquivo na pasta do robô"]
+    T -- "pergunta do controlador" --> P["janela que precisa de resposta"]
+```
 
 ### 6.8 Editor de programa
 - [ ] Fluxograma: (a fazer). Hoje está em `FLUXO_APP.md` T8.
