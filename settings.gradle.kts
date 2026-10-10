@@ -43,4 +43,5 @@ include(":feature:dashboard")
 include(":feature:terminal")
 include(":feature:project")
 include(":feature:clients")
+include(":feature:robot3d")
  

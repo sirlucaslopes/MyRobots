@@ -59,6 +59,7 @@ dependencies {
     implementation(project(":feature:terminal"))
     implementation(project(":feature:project"))
     implementation(project(":feature:clients"))
+    implementation(project(":feature:robot3d"))
 
     // ---- Bibliotecas usadas diretamente pelo app ----
     implementation(libs.androidx.core.ktx)
