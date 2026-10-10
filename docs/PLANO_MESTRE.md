@@ -128,7 +128,7 @@ flowchart TD
 - [ ] "Copiar a base": formato da BASE no SAVE/FULL e se robôs de lados opostos têm base diferente.
 - [ ] LOAD sobre programa existente: o controlador pede confirmação?
 - [ ] Mais de um equipamento por cabine (o banco já aceita; confirmar o uso).
-- [ ] Limite de "backup antigo": 7 dias?
+- [x] Limite de "backup antigo": **configurável** em Tempos e status (G4), padrão 7 dias (09/10).
 - [x] 🆕 Pode existir mais de uma Linha por Cliente? **Sim** (respondido em 07/10, exemplo da Honda).
 
 ---
@@ -231,8 +231,11 @@ flowchart TD
 - [~] F1. **Linha:** estações na ordem do processo, mini-cabine com uma cor por
       robô, ativos e alarmes, setas de "reaproveita os programas de". Filtros no topo.
       **08/10/2026, `cb1fe7f`:** feito sem 3D: mini grade com um quadrado por robô na cor do status, ligações e Transferir. Filtros só na tela inicial.
-- [ ] F2. **Estação:** cabine em 3D, chips de status, **Funções** (Backup de todos, Comando para
-      todos, Duplicar, Transferir) e **Alarmes**.
+- [ ] F2. **Estação:** resumo no topo (conectados, sem sinal, backup mais antigo), cabine com a data
+      do último backup em cada robô, **Funções** num bloco (Backup de todos, Enviar backups,
+      Carregar, Comando, Duplicar programa, Enviar programas), **Ligações** dentro da estação (no
+      lugar da tela Mestre / Escravo) e **Atividade** (mini terminais). Ver 6.3.
+      **Sem seção de alarmes** (decidido em 09/10): alarme aparece só no painel do robô, como hoje.
 - [ ] F3. **3D:** carregar um `.glb` de braço robótico genérico com SceneView/Filament. Começa como
       efeito visual: anel de status no chão, movimento quando ativo, pisca em alarme. No futuro, os
       ângulos dos eixos podem vir do robô. Se o aparelho não suportar 3D, mostrar a grade 2D atual.
@@ -267,8 +270,28 @@ flowchart TD
 - [ ] G2. **Perfil da marca** (configurações avançadas), lendo o contrato: tipos de variável, tipos
       e grupos de programa, logs disponíveis, comandos padrão e pesquisa do editor. Substitui a
       tela "Fabricantes".
-- [ ] G3. **Configurações** pela engrenagem: Perfil da marca, Tipos de trabalho, Pasta dos arquivos,
-      Wi-Fi, Ocultos, Tema, Restaurar.
+- [ ] G3. **Configurações** pela engrenagem: Perfil da marca, Tipos de trabalho, **Tempos e status**,
+      Pasta dos arquivos, Wi-Fi, Ocultos, Tema, Restaurar.
+- [ ] G4. 🆕 **Tempos e status** (pedido em 09/10): uma tela nas Configurações para ajustar os tempos
+      que mudam o status no app. Cada valor muda de verdade o comportamento do app (nada é só
+      enfeite), tem um padrão e um botão "Voltar ao padrão". Hoje esses tempos estão fixos no código:
+  - [ ] **Backup antigo:** a partir de quantos dias o backup do robô fica vermelho (padrão 7 dias).
+        Vale na Estação, na cabine e no Histórico.
+  - [ ] **Sem resposta:** quanto tempo sem receber nada do robô para ele virar "Sem sinal" (hoje
+        `HEARTBEAT_STALE_AFTER_MS` = 8 s, no `KawasakiTerminalManager`).
+  - [ ] **Intervalo da sondagem:** de quanto em quanto tempo o app pergunta se o robô está vivo
+        (hoje `HEARTBEAT_PING_INTERVAL_MS` = 3 s).
+  - [ ] **Espera ao conectar:** quanto tempo o app mostra "Conectando…" antes de dar como falha
+        (hoje 7 s na lista de robôs e 10 s na Linha; unificar num valor só).
+  - [ ] **Transferência parada:** tempo sem bloco do robô para encerrar um SAVE/LOAD (hoje
+        `TRANSFER_STALL_MS` = 30 s).
+  - [ ] **Limites das operações:** Comando (30 s), LOAD (5 min) e SAVE/backup (15 min), hoje no
+        `ProjectOperations` e no `RobotCommands`.
+  - [ ] Guardar os valores num lugar só (`AppSettings`, em DataStore ou numa tabela), lido pelo
+        `KawasakiTerminalManager` e pelo `:core:data`, com limites mínimo e máximo para ninguém
+        travar um controlador com um tempo curto demais.
+  - [ ] Entrar no Pack and Go como opção? (pergunta em aberto: os tempos são do aparelho ou da
+        estação).
 
 ### Fase H: Pack and Go 🆕
 
@@ -366,6 +389,9 @@ flowchart TD
 - [ ] Fluxograma: (a fazer)
 
 ### 6.3 Estação
+- [~] Proposta em preview (09/10): resumo, cabine 2D com backup por robô, Funções, Ligações e
+      Atividade recolhida. **Sem alarmes** (ficam no painel do robô). Faltam as respostas sobre o
+      limite do backup antigo (agora configurável, G4) e a Atividade recolhida.
 - [ ] Fluxograma: (a fazer)
 
 ### 6.4 Robô: Resumo
