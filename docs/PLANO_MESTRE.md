@@ -290,8 +290,8 @@ flowchart TD
   - [ ] Guardar os valores num lugar só (`AppSettings`, em DataStore ou numa tabela), lido pelo
         `KawasakiTerminalManager` e pelo `:core:data`, com limites mínimo e máximo para ninguém
         travar um controlador com um tempo curto demais.
-  - [ ] Entrar no Pack and Go como opção? (pergunta em aberto: os tempos são do aparelho ou da
-        estação).
+  - [ ] Pergunta em aberto: os tempos valem para o aparelho todo ou por estação? Proposta: para o
+        aparelho todo (mais simples, e não entram no Pack and Go).
 
 ### Fase H: Pack and Go 🆕
 
@@ -389,10 +389,33 @@ flowchart TD
 - [ ] Fluxograma: (a fazer)
 
 ### 6.3 Estação
-- [~] Proposta em preview (09/10): resumo, cabine 2D com backup por robô, Funções, Ligações e
-      Atividade recolhida. **Sem alarmes** (ficam no painel do robô). Faltam as respostas sobre o
-      limite do backup antigo (agora configurável, G4) e a Atividade recolhida.
-- [ ] Fluxograma: (a fazer)
+- [x] Proposta aprovada (09/10): resumo, cabine 2D com o backup de cada robô, Funções, Ligações e
+      **Atividade recolhida** (abre sozinha quando uma função roda). **Sem alarmes** (ficam no
+      painel do robô). O limite do backup antigo vem de Tempos e status (G4).
+- [x] Fluxograma:
+
+```mermaid
+flowchart TD
+    A([Abrir uma estação]) --> T["Estação<br/>resumo: conectados · sem sinal · backup mais antigo<br/>cabine 2D (3D na F3)"]
+    T -- "tocar num robô" --> R[[6.4 Painel do robô]]
+    T -- "segurar um robô" --> CN["conecta / desconecta só ele"]
+    T -- "Conectar todos / Desconectar" --> CN2["todos os robôs da estação"]
+    T -- "Editar layout" --> EL["editor de layout de hoje"]
+    T -- "Backups" --> HB["Histórico de backups da estação"]
+    T -- "Funções" --> F{Qual?}
+    F -- "Backup de todos · Comando" --> P["escolher os robôs (todos marcados)"] --> AT["Atividade abre sozinha<br/>mini terminais: fila, rodando, ok, falha"]
+    F -- "Enviar backups" --> ZB[".zip com o último backup de cada robô<br/>Compartilhar ou Salvar"]
+    F -- "Carregar" --> LD["4 passos: robôs, arquivo, o que vai, conferir"] --> AT
+    F -- "Duplicar programa" --> DP["escolher, conferir"] --> AT
+    F -- "Enviar programas" --> Q{Destino na mesma linha?}
+    T -- "Ligações: Enviar programas" --> Q
+    Q -- "sim" --> CF[[6.9 Conferência]]
+    Q -- "não" --> W["Linha diferente: Cancelar ·<br/>Continuar mesmo assim"] --> CF
+    CF --> AT
+    T -- "Ligações: Configurar" --> LG["destino, par de cada robô, offset e frame<br/>(a tela Mestre / Escravo de hoje)"]
+    LG -- "destino em outra linha" --> W2["aviso de linha diferente"]
+    T -- "⋮" --> M["Renomear · Tipo de trabalho · Mover para outra linha ·<br/>Ocultar · Pack and Go (em breve)"]
+```
 
 ### 6.4 Robô: Resumo
 - [ ] Fluxograma: (a fazer)
