@@ -496,8 +496,28 @@ robôs cadastrados: é para conferir o motor 3D no aparelho antes do modo 3D da 
   A linha **TCP** mostra X Y Z O A T como no `WHERE`. **Zerar** volta todos os eixos a 0°.
 - **Gestos:** um dedo gira, pinça aproxima ou afasta, dois dedos arrastam.
 - Ações: **Abrir .glb** (seletor do Android, sem pedir permissão; até 150 MB), **Robô teste**
-  (volta ao robô de teste), **Iso**, **Topo** e **Frente** (vistas prontas).
+  (volta ao robô de teste) e **Vistas** (Isométrica, Topo, Frente e Lado).
+- Num .glb aberto, um **toque curto numa peça** deixa ela laranja e mostra o nome embaixo.
 - No canto, os **quadros por segundo** (a meta é 60 girando o robô).
+- **⋮ → Montador de robô** abre o montador (abaixo).
+
+### Montador de robô — seção 17
+Aberto pelo **⋮ do Visualizador 3D (teste) → Montador de robô**. Monta um robô 3D de verdade a
+partir do .glb do fabricante, para os eixos mexerem as peças. O robô precisa vir **dividido**:
+a base, uma peça por eixo e a ferramenta (o STEP do KJ264 convertido já vem assim, J0 a J6).
+- **Abrir .glb** ou **Salvos** (robôs já montados). Embaixo do desenho aparece o que fazer agora.
+- **1 Peças:** nome do robô e o tipo de cada peça (toque na linha: Base, Eixo 1…, Ferramenta,
+  Outro). O app sugere pelo nome (J0 = base, J1 a J6 = eixos) e lista o que falta.
+- **2 Base:** posição da base no espaço 3D (X, Y, Z em mm e giro em Z) e a **frente do robô**
+  (para onde aponta o X do `WHERE` no arquivo; no STEP do KJ264 é +Y).
+- **3 Eixos:** toque num eixo e depois na **face redonda da junta** (Círculo) ou em **2 pontos**
+  da linha do eixo. Aparece a linha do eixo em amarelo, com o sentido positivo na ponta grossa.
+  **Inverter sentido**, **Limpar**, limites mínimo e máximo e um controle para testar o eixo.
+  **Isolar** deixa só a peça do eixo na tela. **Testar todos** vai para a etapa 5.
+- **4 Flange:** toque na face do flange, na ponta do último eixo (sem marcar, vale o último eixo).
+- **5 Testar:** um controle por eixo e o TCP (X Y Z O A T), como no Visualizador.
+- **Salvar** guarda o robô no aparelho (substitui um salvo com o mesmo nome); **⋮ → Excluir
+  robô salvo…** apaga.
 
 ### Abrir arquivo de outro app
 - Um `.as` ou `.pg` aberto pelo "Abrir com" (gerenciador de arquivos, WhatsApp, e-mail) abre no
@@ -531,7 +551,7 @@ para melhorar uma parte sem mexer nas outras.
 :feature:terminal        Terminal Geral (vários robôs) e comandos rápidos
 :feature:project         Tela de Projeto: a cabine com os robôs e o editor do layout
 :feature:clients         Tela inicial: Clientes → Cliente → Linha (a estação abre a Tela de Projeto)
-:feature:robot3d         Visualizador 3D (Filament): robô de teste pela cinemática e arquivos .glb
+:feature:robot3d         Visualizador 3D (Filament) e Montador de robô: robô de teste, .glb, eixos por toque
 ```
 
 ### Regras de dependência (para manter tudo organizado)
@@ -1336,6 +1356,7 @@ fica reservado para não mudar as referências às seções seguintes.
 | `code_viewer/{backupId}` | `AsCodeViewer` | backup inteiro, com salvar |
 | `external_viewer/{backupId}` | `AsCodeViewer` | arquivo importado de fora do app, somente leitura |
 | `robot3d_test` | `Robot3dScreen` | Visualizador 3D (teste), pelo ⋮ da Estação; temporário até o modo 3D da cabine |
+| `robot3d_assembler` | `AssemblerScreen` | Montador de robô (F3d), pelo ⋮ do Visualizador 3D (teste) |
 
 **Pendências / Próximos passos:** as mudanças de navegação da v1.2 (tocar no robô abre o
 painel, tela de Projeto) estão em `docs/PLANO_V1_2.md`.
@@ -1576,14 +1597,17 @@ robôs antiga sai quando a nova entrada for aprovada.
 
 ---
 
-## 17. `:feature:robot3d` — Visualizador 3D (teste)
+## 17. `:feature:robot3d` — Visualizador 3D (teste) e Montador de robô
 
-**Arquivos:** `Robot3dScreen.kt` (tela, controles dos eixos, leitura do .glb), `Robot3dViewModel.kt`
-(ângulos e arquivo aberto; sem factory, não usa repositório), `FilamentViewer.kt` (tudo do
-Filament), `OrbitCamera.kt` (câmera), `GlbBuilder.kt` e `MeshData.kt` (gera .glb na memória),
-`SceneModels.kt` (robô de teste, grade, eixos e conversões). Depende só de `:core:designsystem` e
-`:core:kinematics`. Rota `robot3d_test`, aberta pelo ⋮ da Estação (`ProjectScreen`,
-`onOpen3dViewer`). É a fase 1 do F3 do `docs/PLANO_MESTRE.md`.
+**Arquivos:** `Robot3dScreen.kt` (tela, controles dos eixos, leitura do .glb, menu Vistas),
+`Robot3dViewModel.kt` (ângulos, arquivo aberto e peça tocada; sem factory, não usa repositório),
+`FilamentViewer.kt` (tudo do Filament), `OrbitCamera.kt` (câmera e raio do toque), `GlbBuilder.kt`
+e `MeshData.kt` (gera .glb na memória), `SceneModels.kt` (robô de teste, grade, eixos, marcas do
+montador e conversões). Montador: `GlbParts.kt` (`GlbReader`, `PartMesh`), `AxisFinder.kt`,
+`RobotAssembly.kt`, `AssemblerViewModel.kt`, `AssemblerScreen.kt`; `MiniJson.kt` e `Mat4.kt`
+(Kotlin puro). Depende só de `:core:designsystem` e `:core:kinematics`. Rotas `robot3d_test`
+(pelo ⋮ da Estação, `ProjectScreen.onOpen3dViewer`) e `robot3d_assembler` (pelo ⋮ do
+Visualizador). Fase 1 do F3 e primeira versão do F3d do `docs/PLANO_MESTRE.md`.
 
 - **Filament 1.75.1** (`filament-android`, `gltfio-android`, `filament-utils-android`). A 1.76 em
   diante é compilada com Kotlin 2.4 e o projeto está no 2.2.10 (o compilador não lê): subir o
@@ -1603,9 +1627,18 @@ Filament), `OrbitCamera.kt` (câmera), `GlbBuilder.kt` e `MeshData.kt` (gera .gl
   `FilamentViewer.setPartTransforms` põe no nó (sem recriar nada).
 - **Câmera** (`OrbitCamera`, Kotlin puro): alvo, distância, giro em volta de Z e altura. Um dedo
   gira (`orbit`), pinça muda a distância (`zoom`, `ScaleGestureDetector`), dois dedos arrastam o
-  alvo no plano da tela (`pan`). Vistas prontas: Iso (de frente-direita e de cima), Topo (+X à
-  direita, +Y para cima) e Frente (do lado +X). Ao abrir um .glb, a câmera enquadra a caixa dele.
-  Perto/longe da projeção acompanham a distância.
+  alvo no plano da tela (`pan`). Vistas prontas (menu **Vistas**): Isométrica (de frente-direita e
+  de cima), Topo (+X à direita, +Y para cima), Frente (do lado +X) e Lado (do lado −Y). Ao abrir
+  um .glb, a câmera enquadra a caixa dele. Perto/longe da projeção acompanham a distância.
+- **Toque:** o `FilamentViewer` separa o toque curto (um dedo, sem passar do *touch slop*, menos
+  de 350 ms) dos gestos e chama `onTap`. `OrbitCamera.ray` dá o raio do pixel e `GlbParts.pick`
+  testa os triângulos de cada peça visível na pose atual (Möller–Trumbore, numa thread de fundo:
+  o KJ264 tem 167 mil). O desenho não é consultado: a geometria vem do `GlbReader`.
+- **Peças do arquivo no Filament:** `showGlb(bytes, nomes)` acha o nó de cada peça pelo nome e
+  guarda a posição do pai e a do nó. `setUserPoses` põe cada peça em `pai⁻¹ · pose · pai · local`
+  (a pose é em relação à pose do arquivo, em mm). `setHiddenParts` tira as peças da cena (Isolar),
+  `highlight` troca os materiais da peça por cópias laranja (`MaterialInstance.duplicate`) e
+  devolve os originais depois. `setMarkers` mostra um .glb de marcas gerado em código.
 - **Luz:** ambiente uniforme (`IndirectLight` só com harmônico de ordem 0) e um sol direcional,
   sem sombra; fundo escuro (`Skybox` de cor); MSAA 4x.
 - **Quadros:** `Choreographer`, só entre ON_RESUME e ON_PAUSE da tela. O contador de quadros por
@@ -1616,9 +1649,34 @@ Filament), `OrbitCamera.kt` (câmera), `GlbBuilder.kt` e `MeshData.kt` (gera .gl
 - **Abrir .glb:** `OpenDocument` (SAF, sem permissão); lê até 150 MB numa thread de fundo e
   confere o cabeçalho "glTF" antes de passar ao Filament (na thread principal). Arquivo inválido
   mostra o motivo e volta ao robô de teste.
-- **Testes JVM** (`Robot3dTest`): estrutura do .glb gerado (cabeçalho, alinhamento, mín./máx. em
-  metros, nomes), um nó por peça do robô de teste, a matriz do Filament, Y→Z e a câmera (vistas,
-  limites, arrastar). O desenho em si só se confere no aparelho.
+- **Leitor de peças** (`GlbReader`, sem o Filament): desce da cena pelos nós únicos (raiz, grupo
+  de montagem) e cada filho do primeiro nó com mais de um filho vira uma peça, com as malhas dos
+  filhos dela. Leva tudo para mm e Z para cima, igual ao desenho. Malha comprimida (Draco,
+  meshopt), quantizada ou esparsa fica de fora, com aviso.
+- **Face e eixo** (`PartMesh.faceAround`, `AxisFinder`): a face do CAD em volta do triângulo
+  tocado são os triângulos ligados por vértices em comum (o OpenCASCADE separa os vértices de cada
+  face; se o arquivo separou tudo, junta pela posição e corta em dobras acima de 35°). Face
+  redonda (cilindro, cone): a direção é o menor autovetor de Σ n·nᵀ das normais e o centro é o
+  ponto mais perto das retas das normais. Face plana: a normal e o centro do círculo que encaixa no
+  contorno (Kåsa). Direções a menos de 0,3° de X, Y ou Z viram exatas. O erro (o quanto a face
+  foge do círculo) aparece na tela e avisa acima de 0,5 mm ou 3% do raio.
+- **Montagem** (`RobotAssembly`, Kotlin puro): tipos das peças, eixos (ponto e direção no
+  arquivo, limites), flange, base (X, Y, Z, giro) e frente. As peças vieram montadas no mesmo
+  sistema, então cada eixo é marcado uma vez e a **pose do arquivo conta como o zero** de todos os
+  eixos. `model()` monta o `RobotModel.assembled` com os eixos marcados em sequência a partir do 1;
+  `poses()` move as peças (eixo sem marca vai junto com o último marcado; ferramenta com a última
+  peça; "outro" e sem tipo com a base). O sistema do robô fica no eixo 1 com o X na frente
+  escolhida.
+- **Salvar:** `files/robos3d/<nome>/modelo.json` (formato `myrobots-robo3d`, versão 1) e uma
+  cópia do `robo.glb`. O JSON é escrito num temporário e trocado. Ao abrir um salvo, as peças são
+  lidas de novo do .glb.
+- **Testes JVM:** `Robot3dTest` (estrutura do .glb gerado, um nó por peça, a matriz do Filament,
+  Y→Z, a câmera, o raio do toque e a pasta do robô salvo), `GlbPartsTest` (leitura, toque, face
+  redonda, plana e inclinada, 2 pontos, autovalores, `Mat4`, JSON), `RobotAssemblyTest` (sugestão
+  de tipos, problemas, poses, base fora do zero, JSON ida e volta) e `Kj264ArquivoTest`, que roda
+  só com o `Arquivos_Kawasaki/KJ264.glb` e grava em `build/kj264_faces.txt` as maiores faces
+  redondas de cada peça (no KJ264 acha os 6 eixos com erro 0,00 mm). O desenho e o toque só se
+  conferem no aparelho.
 
 **Testado no celular** (Galaxy S25 Ultra, 10/10/2026): 120 quadros por segundo girando o robô de
 teste e o KJ264 convertido do STEP (167 mil triângulos, 4 MB).
@@ -1627,4 +1685,8 @@ teste e o KJ264 convertido do STEP (167 mil triângulos, 4 MB).
 .gltf com .bin ou texturas separadas não abre (só .glb com tudo dentro), e .glb com compressão
 Draco ou texturas KTX2 pode não abrir; mapa de ambiente (IBL) para metal ficar melhor; aviso e
 grade 2D quando o aparelho não aguentar o 3D; virar o modo 3D do bloco da cabine (F3) e tirar o
-item do ⋮; montador de robô (F3d) em cima deste visualizador.
+item do ⋮. Montador: testar no aparelho; peças que vieram em sistemas diferentes (um arquivo por
+peça, fora da posição de montagem) e as ferramentas Mover e Girar; Aresta e Vértice; zero de cada
+eixo diferente da pose do arquivo (`angleInFileDeg`) e a validação com o `WHERE` (fase 6 do plano
+do 3D); TOOL do controlador no TCP; abrir no Visualizador o robô montado; as marcas ficam
+escondidas quando estão dentro da peça (usar Isolar).

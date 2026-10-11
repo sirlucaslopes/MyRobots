@@ -274,9 +274,15 @@ flowchart TD
       robô é o primeiro passo. Exige já: base e ferramenta (BASE/TOOL) de cada robô na cinemática
       e um leitor de trajetória em `:core`, porque a busca de pontos LMOVE/JMOVE de hoje está no
       `PointTransform` de `:feature:codeeditor` e uma feature não pode usar outra.
-- [ ] F3d. 🆕 **Montador de robô (ferramenta de montagem):** o primeiro passo do F3c. Trabalha peça
+- [~] F3d. 🆕 **Montador de robô (ferramenta de montagem):** o primeiro passo do F3c. Trabalha peça
       por peça e não exige o robô na posição zero. Desenho: fileira "Montador de robô · KJ264" do
       artifact "Estação com modo 3D".
+      **10/10/2026, `3d6a376`/`eaeb9df`/`8ca423d`:** primeira versão (rota `robot3d_assembler`, pelo
+      ⋮ do Visualizador 3D): passos 1, 2, 3 (posição e giro em Z), 4 com **Círculo** e **2 pontos**,
+      5, 6 e 7 (flange), Isolar, salvar no aparelho. No PC, o Círculo acha os 6 eixos do KJ264 com
+      erro 0,00 mm. Também: toque e realce de peça e a vista Lado no Visualizador (fase 2 do 3D).
+      Falta: testar no aparelho; Aresta e Vértice; Mover, Girar e Fixar (peças fora da posição de
+      montagem); zero do eixo diferente da pose do arquivo; TOOL do controlador no TCP.
   1. **Carregar o robô 3D** (.glb com as peças ou um arquivo por peça), com o aviso de que o robô
      precisa vir dividido: base, uma peça por eixo, ferramenta. Peça única não monta.
   2. **Dizer o que é cada peça:** tocar e escolher Base, Eixo (numerado: Eixo 1, 2, 3…),
