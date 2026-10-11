@@ -128,9 +128,13 @@ fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit, onOpenAssembl
 
     LaunchedEffect(viewer, selectedPart) { viewer?.highlight(selectedPart) }
 
-    // move o robô na hora em que o controle mexe
-    LaunchedEffect(viewer, angles) {
-        viewer?.setPartTransforms(viewModel.model.partTransforms(angles.toDoubleArray()))
+    // move o robô na hora em que o controle mexe; setas no sistema do robô e no TCP
+    LaunchedEffect(viewer, angles, opened) {
+        val v = viewer ?: return@LaunchedEffect
+        val model = viewModel.model
+        val deg = angles.toDoubleArray()
+        v.setPartTransforms(model.partTransforms(deg))
+        if (opened == null) v.setFrames(model.placement * model.robotFrame, model.tcpInWorld(deg)) else v.setFrames(null, null)
     }
 
     val file = opened

@@ -95,6 +95,25 @@ class RobotAssemblyTest {
     }
 
     @Test
+    fun tool_e_zero_do_eixo() {
+        val base = twoAxes()
+        val flange = base.model()!!.tcpInWorld(doubleArrayOf(0.0, 0.0)).t
+        // TOOL de 100 mm em Z do flange: o TCP anda 100 mm no Z do flange
+        val withTool = base.copy(tool = my.robots.core.kinematics.KawasakiPose(0.0, 0.0, 100.0, 0.0, 0.0, 0.0))
+        val z = withTool.model()!!.tcpInWorld(doubleArrayOf(0.0, 0.0))
+        assertEquals(100.0, (z.t - flange).length(), 1e-9)
+        assertEquals(100.0, (z.t - flange).dot(z.zAxis), 1e-9)
+        // arquivo veio com o eixo 1 em 30°: no zero do robô a coluna gira −30° a partir do arquivo
+        val zero = base.withAxis(1, base.axes.getValue(1).copy(zeroDeg = 30.0))
+        val p = zero.poses(doubleArrayOf(0.0, 0.0)).getValue("coluna").apply(Vec3(1000.0, 0.0, 0.0))
+        assertEquals(1000.0 * kotlin.math.cos(Math.toRadians(-30.0)), p.x, 1e-9)
+        assertEquals(1000.0 * kotlin.math.sin(Math.toRadians(-30.0)), p.y, 1e-9)
+        // e em 30° volta à pose do arquivo
+        assertTrue(zero.poses(doubleArrayOf(30.0, 0.0)).getValue("coluna").isClose(my.robots.core.kinematics.Transform.IDENTITY, 1e-9))
+        assertNotNull(zero.robotFrameInWorld())
+    }
+
+    @Test
     fun cores() {
         assertEquals("#F26B1D", RobotAssembly.colorHex(0xF26B1D))
         assertEquals(0x1F5AA6, RobotAssembly.parseColor("#1f5aa6"))
@@ -110,7 +129,8 @@ class RobotAssemblyTest {
             baseZ = 12.5, front = RobotFront.PY,
             colors = mapOf("coluna" to 0xF26B1D, "base" to 0x151618),
             program = TestProgram(listOf(TestPoint("P1", listOf(0.0, 10.0)), TestPoint("P2", listOf(-45.5, 30.0))), 90.0, 1.0),
-        )
+            tool = my.robots.core.kinematics.KawasakiPose(10.0, -5.0, 250.0, 0.0, 30.0, 90.0),
+        ).withAxis(2, twoAxes().axes.getValue(2).copy(zeroDeg = -90.0))
         val back = RobotAssembly.fromJson(a.toJson())
         assertEquals(a, back)
         assertNotNull(back.model())

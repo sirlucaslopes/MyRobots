@@ -288,10 +288,25 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun invertAxis(number: Int) = _assembly.update { a ->
         val def = a?.axes?.get(number) ?: return@update a
-        a.withAxis(number, def.copy(direction = -def.direction, minDeg = -def.maxDeg, maxDeg = -def.minDeg))
+        a.withAxis(number, def.copy(direction = -def.direction, minDeg = -def.maxDeg, maxDeg = -def.minDeg, zeroDeg = -def.zeroDeg))
     }
 
     fun clearAxis(number: Int) = _assembly.update { it?.withAxis(number, null) }
+
+    /** Ângulo que o controlador mostra com a peça na pose do arquivo. */
+    fun setZero(number: Int, deg: Double) = _assembly.update { a ->
+        val def = a?.axes?.get(number) ?: return@update a
+        a.withAxis(number, def.copy(zeroDeg = deg))
+    }
+
+    /** Um campo do TOOL (0 = X … 5 = T); o TOOL começa todo em 0. */
+    fun setToolField(index: Int, value: Double) = _assembly.update { a ->
+        val t = a?.tool ?: KawasakiPose(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        val v = listOf(t.x, t.y, t.z, t.o, t.a, t.t).toMutableList().also { it[index] = value }
+        a?.copy(tool = KawasakiPose(v[0], v[1], v[2], v[3], v[4], v[5]))
+    }
+
+    fun clearTool() = _assembly.update { it?.copy(tool = null) }
 
     fun setLimits(number: Int, minDeg: Double?, maxDeg: Double?) = _assembly.update { a ->
         val def = a?.axes?.get(number) ?: return@update a
@@ -326,6 +341,13 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
         return model.tcpPose(DoubleArray(model.axisCount) { a.getOrElse(it) { 0.0 } })
     }
 
+    /** TCP no espaço 3D com os ângulos atuais (para as setas do TCP). */
+    fun tcpInWorld(): Transform? {
+        val model = _assembly.value?.model() ?: return null
+        val a = _angles.value
+        return model.tcpInWorld(DoubleArray(model.axisCount) { a.getOrElse(it) { 0.0 } })
+    }
+
     /** Onde cada peça está agora (para desenhar e para o toque). */
     fun poses(): Map<String, Transform> {
         val a = _assembly.value ?: return emptyMap()
@@ -347,7 +369,7 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun keepLimits(old: AxisDef?, new: AxisDef) =
-        if (old == null) new else new.copy(minDeg = old.minDeg, maxDeg = old.maxDeg)
+        if (old == null) new else new.copy(minDeg = old.minDeg, maxDeg = old.maxDeg, zeroDeg = old.zeroDeg)
 
     private fun markAxis(hit: GlbParts.Hit, apply: (AxisDef) -> Unit) {
         val parts = _file.value?.parts ?: return

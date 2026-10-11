@@ -170,6 +170,15 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
     }
     LaunchedEffect(viewer, file, poses) { viewer?.setUserPoses(poses) }
     LaunchedEffect(viewer, file, a?.colors) { viewer?.setPartColors(a?.colors.orEmpty()) }
+    // setas do sistema do robô (na base) e do TCP, nas etapas em que importam
+    LaunchedEffect(viewer, a, angles, step) {
+        val showRobot = step in setOf(AssemblerStep.BASE, AssemblerStep.TESTAR, AssemblerStep.PROGRAMA)
+        val showTcp = step in setOf(AssemblerStep.FLANGE, AssemblerStep.TESTAR, AssemblerStep.PROGRAMA)
+        viewer?.setFrames(
+            robot = if (showRobot) a?.robotFrameInWorld() else null,
+            tcp = if (showTcp) viewModel.tcpInWorld() else null,
+        )
+    }
     LaunchedEffect(viewer, file, hidden) { viewer?.setHiddenParts(hidden) }
     LaunchedEffect(viewer, file, isolatedPart, step) {
         viewer?.highlight(if (step == AssemblerStep.EIXOS && editingAxis == null) null else isolatedPart)
@@ -531,6 +540,9 @@ private fun AxesStep(
         NumberField("Mínimo (°)", def.minDeg, Modifier.weight(1f)) { vm.setLimits(editing, it, null) }
         NumberField("Máximo (°)", def.maxDeg, Modifier.weight(1f)) { vm.setLimits(editing, null, it) }
     }
+    NumberField("Ângulo do eixo na pose do arquivo (°)", def.zeroDeg, Modifier.fillMaxWidth()) { vm.setZero(editing, it) }
+    Text("0 se o CAD veio com este eixo no zero. Senão, o ângulo que o controlador mostraria nessa pose.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     // testar só este eixo (os anteriores precisam estar marcados para ele mexer)
     val model = a.model()
     if (model != null && editing <= model.axisCount) {
@@ -588,6 +600,22 @@ private fun FlangeStep(a: RobotAssembly, mode: PickMode, vm: AssemblerViewModel)
             TextButton(onClick = vm::clearFlange) { Text("Usar o eixo ${a.definedAxisCount}") }
         }
     }
+    HorizontalDivider()
+    Text("TOOL do controlador (do flange até a ponta da ferramenta)", style = MaterialTheme.typography.titleSmall)
+    Text("Os mesmos valores do TOOL no robô. As setas pequenas mostram o TCP.", style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val t = a.tool
+    val values = listOf(t?.x, t?.y, t?.z, t?.o, t?.a, t?.t).map { it ?: 0.0 }
+    val labels = listOf("X (mm)", "Y (mm)", "Z (mm)", "O (°)", "A (°)", "T (°)")
+    for (row in 0 until 2) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (k in 0 until 3) {
+                val i = row * 3 + k
+                NumberField(labels[i], values[i], Modifier.weight(1f)) { vm.setToolField(i, it) }
+            }
+        }
+    }
+    if (t != null) TextButton(onClick = vm::clearTool) { Text("Sem TOOL (TCP no flange)") }
 }
 
 // ---------- 5. Testar ----------

@@ -1,5 +1,6 @@
 package my.robots.feature.robot3d
 
+import my.robots.core.kinematics.KawasakiPose
 import my.robots.core.kinematics.PartRole
 import my.robots.core.kinematics.RobotModel
 import my.robots.core.kinematics.Transform
@@ -28,6 +29,11 @@ data class AxisDef(
     /** Como foi marcado (face redonda, plana, 2 pontos) e o raio da face, para mostrar. */
     val kind: AxisGuess.Kind = AxisGuess.Kind.REDONDA,
     val radiusMm: Double = 0.0,
+    /**
+     * Ângulo que o controlador mostra com a peça na pose do arquivo (0 = o arquivo veio no zero
+     * deste eixo). Com o robô em 0°, a peça gira −[zeroDeg] a partir da pose do arquivo.
+     */
+    val zeroDeg: Double = 0.0,
 )
 
 /** Um ponto do programa de teste: nome e o ângulo de cada eixo (graus). */
@@ -99,6 +105,8 @@ data class RobotAssembly(
     /** Cor escolhida para cada peça (0xRRGGBB); peça fora do mapa fica com a cor do arquivo. */
     val colors: Map<String, Int> = emptyMap(),
     val program: TestProgram = TestProgram(),
+    /** TOOL do controlador (X Y Z O A T do flange até o TCP); null = TCP no flange. */
+    val tool: KawasakiPose? = null,
 ) {
     val basePart: String? get() = roles.entries.firstOrNull { it.value.role == PartRole.BASE }?.key
 
@@ -153,15 +161,22 @@ data class RobotAssembly(
         val byNumber = axisParts.toMap()
         val list = (1..n).map { i ->
             val a = axes.getValue(i)
-            RobotModel.AssembledAxis(i, byNumber.getValue(i), a.point, a.direction, a.minDeg, a.maxDeg)
+            RobotModel.AssembledAxis(i, byNumber.getValue(i), a.point, a.direction, a.minDeg, a.maxDeg, a.zeroDeg)
         }
         val last = axes.getValue(n)
         val f = flange ?: last
         val flangeFrame = Transform.fromAxis(f.point, f.direction, front.vector)
         val first = axes.getValue(1)
         val robotFrame = Transform.fromAxis(first.point, first.direction, front.vector)
-        return RobotModel.assembled(name, base, list, flangeFrame, robotFrame = robotFrame, placement = placement)
+        return RobotModel.assembled(
+            name, base, list, flangeFrame,
+            tool = tool?.toTransform() ?: Transform.IDENTITY,
+            robotFrame = robotFrame, placement = placement,
+        )
     }
+
+    /** Sistema do robô (o do `WHERE`) no espaço 3D; null sem modelo. */
+    fun robotFrameInWorld(): Transform? = model()?.let { it.placement * it.robotFrame }
 
     /**
      * Onde cada peça fica (em relação à pose do arquivo) com os ângulos [deg] dos eixos marcados.
@@ -207,6 +222,7 @@ data class RobotAssembly(
             "base" to linkedMapOf("x" to baseX, "y" to baseY, "z" to baseZ, "giro" to baseRotDeg),
             "frente" to front.name,
             "cores" to colors.mapValues { (_, c) -> colorHex(c) },
+            "tool" to tool?.let { listOf(it.x, it.y, it.z, it.o, it.a, it.t) },
             "programa" to linkedMapOf(
                 "velocidade" to program.speedDegS,
                 "pausa" to program.pauseS,
@@ -250,6 +266,7 @@ data class RobotAssembly(
         private fun axisJson(a: AxisDef) = linkedMapOf<String, Any?>(
             "ponto" to vecJson(a.point), "direcao" to vecJson(a.direction),
             "min" to a.minDeg, "max" to a.maxDeg, "marcado" to a.kind.name, "raio" to a.radiusMm,
+            "zero" to a.zeroDeg,
         )
 
         private fun vec(v: Any?): Vec3? {
@@ -269,6 +286,7 @@ data class RobotAssembly(
                 maxDeg = o["max"].num() ?: 180.0,
                 kind = runCatching { AxisGuess.Kind.valueOf(o["marcado"].str() ?: "") }.getOrDefault(AxisGuess.Kind.REDONDA),
                 radiusMm = o["raio"].num() ?: 0.0,
+                zeroDeg = o["zero"].num() ?: 0.0,
             )
         }
 
@@ -297,6 +315,8 @@ data class RobotAssembly(
                 baseZ = base["z"].num() ?: 0.0,
                 baseRotDeg = base["giro"].num() ?: 0.0,
                 front = runCatching { RobotFront.valueOf(o["frente"].str() ?: "") }.getOrDefault(RobotFront.PX),
+                tool = o["tool"].arr().mapNotNull { it.num() }.takeIf { it.size == 6 }
+                    ?.let { KawasakiPose(it[0], it[1], it[2], it[3], it[4], it[5]) },
                 colors = o["cores"].obj().mapNotNull { (part, v) -> parseColor(v.str() ?: "")?.let { part to it } }.toMap(),
                 program = o["programa"].obj().let { prog ->
                     TestProgram(

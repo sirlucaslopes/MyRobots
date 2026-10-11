@@ -58,11 +58,7 @@ object SceneModels {
         val glb = GlbBuilder()
         val minor = glb.addMaterial(GlbBuilder.Material("grade", 0.16f, 0.17f, 0.19f, unlit = true))
         val major = glb.addMaterial(GlbBuilder.Material("grade_metro", 0.32f, 0.34f, 0.38f, unlit = true))
-        // as setas e a bolinha recebem luz, para parecerem peças (como no CAD)
-        val red = glb.addMaterial(GlbBuilder.Material("eixo_x", 0.85f, 0.05f, 0.04f, roughness = 0.45f))
-        val green = glb.addMaterial(GlbBuilder.Material("eixo_y", 0.04f, 0.45f, 0.06f, roughness = 0.45f))
-        val blue = glb.addMaterial(GlbBuilder.Material("eixo_z", 0.04f, 0.10f, 0.80f, roughness = 0.45f))
-        val white = glb.addMaterial(GlbBuilder.Material("origem", 0.92f, 0.92f, 0.92f, roughness = 0.35f))
+        val triad = triadMaterials(glb)
 
         val thin = MeshData()
         val thick = MeshData()
@@ -81,11 +77,50 @@ object SceneModels {
         thick.box(Vec3(-halfSizeMm, -3.0, -1.5), Vec3(0.0, 3.0, -0.5))
         thick.box(Vec3(-3.0, -halfSizeMm, -1.5), Vec3(3.0, 0.0, -0.5))
 
-        val len = ORIGIN_ARROW_MM
-        fun arrow(d: Vec3) = MeshData().arrow(Vec3.ZERO, d, len, shaft = 9.0, headRadius = 26.0, headLength = 90.0)
-        val ball = MeshData().sphere(Vec3.ZERO, 28.0)
-        glb.addNode(SCENERY_NODE, listOf(thin to minor, thick to major, arrow(Vec3.X) to red, arrow(Vec3.Y) to green,
-            arrow(Vec3.Z) to blue, ball to white))
+        glb.addNode(SCENERY_NODE, listOf(thin to minor, thick to major) + triadMeshes(ORIGIN_ARROW_MM, triad))
+        return glb.build()
+    }
+
+    /** Materiais das setas X/Y/Z: vermelho, verde, azul e a bolinha branca, com luz (como no CAD). */
+    private fun triadMaterials(glb: GlbBuilder) = listOf(
+        glb.addMaterial(GlbBuilder.Material("eixo_x", 0.85f, 0.05f, 0.04f, roughness = 0.45f)),
+        glb.addMaterial(GlbBuilder.Material("eixo_y", 0.04f, 0.45f, 0.06f, roughness = 0.45f)),
+        glb.addMaterial(GlbBuilder.Material("eixo_z", 0.04f, 0.10f, 0.80f, roughness = 0.45f)),
+        glb.addMaterial(GlbBuilder.Material("origem", 0.92f, 0.92f, 0.92f, roughness = 0.35f)),
+    )
+
+    /**
+     * Setas X, Y e Z de comprimento [lengthMm] saindo do zero, e a bolinha no meio: o desenho de
+     * um sistema de coordenadas (origem do espaço, sistema do robô, TCP). Proporções fixas, para
+     * todos parecerem iguais em tamanhos diferentes.
+     */
+    private fun triadMeshes(lengthMm: Double, mats: List<Int>): List<Pair<MeshData, Int>> {
+        fun arrow(d: Vec3) = MeshData().arrow(Vec3.ZERO, d, lengthMm, shaft = lengthMm * 0.010,
+            headRadius = lengthMm * 0.030, headLength = lengthMm * 0.10)
+        return listOf(
+            arrow(Vec3.X) to mats[0], arrow(Vec3.Y) to mats[1], arrow(Vec3.Z) to mats[2],
+            MeshData().sphere(Vec3.ZERO, lengthMm * 0.030) to mats[3],
+        )
+    }
+
+    /** Nós dos sistemas desenhados pelo [FilamentViewer.setFrames]. */
+    const val FRAME_ROBOT = "sistema_robo"
+    const val FRAME_TCP = "sistema_tcp"
+
+    /** Setas do sistema do robô (mm). */
+    const val ROBOT_FRAME_MM = 400.0
+    /** Setas do TCP (mm): menores, sem legenda. */
+    const val TCP_FRAME_MM = 150.0
+
+    /**
+     * Os sistemas que se movem: o do robô (base, no zero ou fora dele) e o do TCP. Cada um é um nó
+     * com as setas em volta do zero; o desenho põe o nó na pose de cada sistema.
+     */
+    fun framesGlb(): ByteArray {
+        val glb = GlbBuilder()
+        val mats = triadMaterials(glb)
+        glb.addNode(FRAME_ROBOT, triadMeshes(ROBOT_FRAME_MM, mats))
+        glb.addNode(FRAME_TCP, triadMeshes(TCP_FRAME_MM, mats))
         return glb.build()
     }
 

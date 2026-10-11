@@ -70,6 +70,12 @@ class FilamentViewer(
     private var userModel: FilamentAsset? = null
     private var markers: FilamentAsset? = null
 
+    /** Sistemas do robô e do TCP (setas X/Y/Z): entidade e se está na cena. */
+    private var frames: FilamentAsset? = null
+    private var robotFrameEntity = 0
+    private var tcpFrameEntity = 0
+    private val framesShown = HashSet<Int>()
+
     /** Letras X, Y e Z da origem (declaradas antes do init, que as carrega). */
     private var legend: FilamentAsset? = null
     private var legendEntities = IntArray(0)
@@ -176,6 +182,28 @@ class FilamentViewer(
         legend = loadAsset(SceneModels.legendGlb())?.also { asset ->
             scene.addEntities(asset.entities)
             legendEntities = SceneModels.LEGEND_NODES.map { asset.getFirstEntityByName(it) }.toIntArray()
+        }
+        // os sistemas só entram na cena quando alguém diz onde ficam (setFrames)
+        frames = loadAsset(SceneModels.framesGlb())?.also { asset ->
+            robotFrameEntity = asset.getFirstEntityByName(SceneModels.FRAME_ROBOT)
+            tcpFrameEntity = asset.getFirstEntityByName(SceneModels.FRAME_TCP)
+        }
+    }
+
+    /**
+     * Mostra o sistema do robô ([robot]: a base, no zero ou fora dele) e o do TCP ([tcp]) com as
+     * setas X/Y/Z, nas poses dadas (mm, espaço do app). null esconde.
+     */
+    fun setFrames(robot: Transform?, tcp: Transform?) {
+        val tm = engine.transformManager
+        for ((entity, pose) in listOf(robotFrameEntity to robot, tcpFrameEntity to tcp)) {
+            if (entity == 0) continue
+            if (pose == null) {
+                if (framesShown.remove(entity)) scene.removeEntity(entity)
+                continue
+            }
+            tm.setTransform(tm.getInstance(entity), SceneModels.toFilamentMatrix(pose, matrix))
+            if (framesShown.add(entity)) scene.addEntity(entity)
         }
     }
 
@@ -582,8 +610,9 @@ class FilamentViewer(
 
         clearHighlight()
         clearUserModel()
-        listOfNotNull(robot, scenery, markers, legend).forEach { removeAsset(it) }
-        robot = null; scenery = null; markers = null; legend = null
+        listOfNotNull(robot, scenery, markers, legend, frames).forEach { removeAsset(it) }
+        robot = null; scenery = null; markers = null; legend = null; frames = null
+        framesShown.clear()
         legendEntities = IntArray(0)
         resourceLoader.destroy()
         assetLoader.destroy()
