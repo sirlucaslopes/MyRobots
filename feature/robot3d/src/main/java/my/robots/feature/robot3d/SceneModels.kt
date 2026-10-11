@@ -106,9 +106,13 @@ object SceneModels {
     /** Nós dos sistemas desenhados pelo [FilamentViewer.setFrames]. */
     const val FRAME_ROBOT = "sistema_robo"
     const val FRAME_TCP = "sistema_tcp"
+    /** Base deslocada pelo BASE do controlador (frame fora do zero do robô). */
+    const val FRAME_BASE = "sistema_base"
 
     /** Setas do sistema do robô (mm). */
     const val ROBOT_FRAME_MM = 400.0
+    /** Setas da base deslocada pelo BASE (mm). */
+    const val BASE_FRAME_MM = 300.0
     /** Setas do TCP (mm): menores, sem legenda. */
     const val TCP_FRAME_MM = 150.0
 
@@ -120,6 +124,7 @@ object SceneModels {
         val glb = GlbBuilder()
         val mats = triadMaterials(glb)
         glb.addNode(FRAME_ROBOT, triadMeshes(ROBOT_FRAME_MM, mats))
+        glb.addNode(FRAME_BASE, triadMeshes(BASE_FRAME_MM, mats, thickness = 1.5))
         // o TCP é pequeno: setas mais grossas para aparecerem de longe
         glb.addNode(FRAME_TCP, triadMeshes(TCP_FRAME_MM, mats, thickness = 2.5))
         return glb.build()

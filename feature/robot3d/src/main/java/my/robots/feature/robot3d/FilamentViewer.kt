@@ -74,6 +74,7 @@ class FilamentViewer(
     private var frames: FilamentAsset? = null
     private var robotFrameEntity = 0
     private var tcpFrameEntity = 0
+    private var baseFrameEntity = 0
     private val framesShown = HashSet<Int>()
 
     /** Letras X, Y e Z da origem (declaradas antes do init, que as carrega). */
@@ -187,16 +188,18 @@ class FilamentViewer(
         frames = loadAsset(SceneModels.framesGlb())?.also { asset ->
             robotFrameEntity = asset.getFirstEntityByName(SceneModels.FRAME_ROBOT)
             tcpFrameEntity = asset.getFirstEntityByName(SceneModels.FRAME_TCP)
+            baseFrameEntity = asset.getFirstEntityByName(SceneModels.FRAME_BASE)
         }
     }
 
     /**
-     * Mostra o sistema do robô ([robot]: a base, no zero ou fora dele) e o do TCP ([tcp]) com as
-     * setas X/Y/Z, nas poses dadas (mm, espaço do app). null esconde.
+     * Mostra o sistema do robô ([robot], BASE 0), o da base deslocada pelo BASE do controlador
+     * ([base]) e o do TCP ([tcp]) com as setas X/Y/Z, nas poses dadas (mm, espaço do app).
+     * null esconde.
      */
-    fun setFrames(robot: Transform?, tcp: Transform?) {
+    fun setFrames(robot: Transform?, tcp: Transform?, base: Transform? = null) {
         val tm = engine.transformManager
-        for ((entity, pose) in listOf(robotFrameEntity to robot, tcpFrameEntity to tcp)) {
+        for ((entity, pose) in listOf(robotFrameEntity to robot, tcpFrameEntity to tcp, baseFrameEntity to base)) {
             if (entity == 0) continue
             if (pose == null) {
                 if (framesShown.remove(entity)) scene.removeEntity(entity)

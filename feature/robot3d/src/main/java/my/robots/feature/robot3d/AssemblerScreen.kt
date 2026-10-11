@@ -184,6 +184,7 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
         viewer?.setFrames(
             robot = if (showRobot) a?.robotFrameInWorld() else null,
             tcp = if (showTcp) viewModel.tcpInWorld() else null,
+            base = if (showRobot) a?.baseFrameInWorld() else null,
         )
     }
     LaunchedEffect(viewer, file, hidden) { viewer?.setHiddenParts(hidden) }
@@ -527,12 +528,46 @@ private fun BaseStep(a: RobotAssembly, vm: AssemblerViewModel) {
     }
     TextButton(onClick = vm::baseToZero) { Text("Pôr a base no zero") }
     HorizontalDivider()
-    Text("Frente do robô: para onde aponta o X do robô (o do WHERE), no arquivo.", style = MaterialTheme.typography.bodyMedium)
-    Text("No STEP do KJ264 o braço aponta para +Y.", style = MaterialTheme.typography.bodySmall,
+    Text("Sistema do robô (BASE 0)", style = MaterialTheme.typography.titleSmall)
+    Text("A origem fica no eixo 1. No KJ264 de chão a Kawasaki (K-ROSET) põe a origem a 900 mm do piso, " +
+        "na altura do eixo 2, com X, Y e Z iguais aos do CAD (o braço em zero aponta para +Y).",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (o in RobotOrigin.entries) FilterChip(selected = a.origin == o, onClick = { vm.setOrigin(o) }, label = { Text(o.label) })
+    }
+    if (a.origin == RobotOrigin.PERSONALIZADA) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            NumberField("X (mm)", a.originCustom.x, Modifier.weight(1f)) { vm.setOriginField(0, it) }
+            NumberField("Y (mm)", a.originCustom.y, Modifier.weight(1f)) { vm.setOriginField(1, it) }
+            NumberField("Z (mm)", a.originCustom.z, Modifier.weight(1f)) { vm.setOriginField(2, it) }
+        }
+    }
+    a.nullBase()?.let { nb ->
+        Text(String.format(Locale.US, "Origem no arquivo: (%.1f, %.1f, %.1f) mm", nb.t.x, nb.t.y, nb.t.z),
+            style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+    } ?: Text("Marque o eixo 1 para ver a origem.", style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("X do robô aponta para (no arquivo):", style = MaterialTheme.typography.bodySmall)
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         for (f in RobotFront.entries) FilterChip(selected = a.front == f, onClick = { vm.setFront(f) }, label = { Text(f.label) })
     }
+    HorizontalDivider()
+    Text("BASE do controlador", style = MaterialTheme.typography.titleSmall)
+    Text("Os mesmos valores do BASE no robô (X Y Z O A T a partir do BASE 0). Com BASE, aparecem setas na base " +
+        "deslocada e o TCP passa a ser contado a partir dela, como no WHERE.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val b = a.baseTrans
+    val values = listOf(b?.x, b?.y, b?.z, b?.o, b?.a, b?.t).map { it ?: 0.0 }
+    val labels = listOf("X (mm)", "Y (mm)", "Z (mm)", "O (°)", "A (°)", "T (°)")
+    for (row in 0 until 3) {
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (k in 0 until 2) {
+                val i = row + k * 3
+                NumberField(labels[i], values[i], Modifier.weight(1f)) { vm.setBaseTransField(i, it) }
+            }
+        }
+    }
+    if (b != null) TextButton(onClick = vm::clearBaseTrans) { Text("Sem BASE (BASE 0)") }
 }
 
 // ---------- 3. Eixos ----------

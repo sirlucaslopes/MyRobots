@@ -74,7 +74,18 @@ data class TestProgram(
     }
 }
 
-/** Para onde aponta o X do sistema do robô (a frente), nas coordenadas do arquivo. */
+/**
+ * Onde fica a origem do sistema do robô ("null base", o BASE 0 do controlador), sempre no eixo 1.
+ * Na Kawasaki ela muda com o modelo: no KJ264 de chão o K-ROSET põe a origem no eixo do JT1 a
+ * 900 mm do piso, na altura do eixo do JT2 (`KJ264-A001.krprj`: robô em Z +900, base em −900).
+ */
+enum class RobotOrigin(val label: String) {
+    EIXO2("Altura do eixo 2"),
+    PISO("Piso da base"),
+    PERSONALIZADA("Personalizada"),
+}
+
+/** Para onde aponta o X do sistema do robô, nas coordenadas do arquivo. */
 enum class RobotFront(val label: String, val vector: Vec3) {
     PX("+X", Vec3.X), PY("+Y", Vec3.Y), NX("−X", -Vec3.X), NY("−Y", -Vec3.Y),
 }
@@ -115,6 +126,16 @@ data class RobotAssembly(
     val offsets: Map<String, Transform> = emptyMap(),
     /** Peças fixadas: o ajuste delas não muda mais. */
     val locked: Set<String> = emptySet(),
+    /** Origem do sistema do robô (ver [RobotOrigin]); [originCustom] vale em PERSONALIZADA. */
+    val origin: RobotOrigin = RobotOrigin.EIXO2,
+    val originCustom: Vec3 = Vec3.ZERO,
+    /** Z do piso da base no arquivo (o ponto mais baixo da peça base), para a origem no piso. */
+    val baseFloorZ: Double = 0.0,
+    /**
+     * BASE do controlador (X Y Z O A T do sistema do robô até a base em uso); null = BASE 0.
+     * Com BASE, o `WHERE` e os pontos passam a ser contados a partir da base deslocada.
+     */
+    val baseTrans: KawasakiPose? = null,
 ) {
     val basePart: String? get() = roles.entries.firstOrNull { it.value.role == PartRole.BASE }?.key
 
@@ -174,8 +195,7 @@ data class RobotAssembly(
         val last = axes.getValue(n)
         val f = flange ?: last
         val flangeFrame = Transform.fromAxis(f.point, f.direction, front.vector)
-        val first = axes.getValue(1)
-        val robotFrame = Transform.fromAxis(first.point, first.direction, front.vector)
+        val robotFrame = nullBase()!! * (baseTrans?.toTransform() ?: Transform.IDENTITY)
         return RobotModel.assembled(
             name, base, list, flangeFrame,
             tool = tool?.toTransform() ?: Transform.IDENTITY,
@@ -183,8 +203,30 @@ data class RobotAssembly(
         )
     }
 
-    /** Sistema do robô (o do `WHERE`) no espaço 3D; null sem modelo. */
-    fun robotFrameInWorld(): Transform? = model()?.let { it.placement * it.robotFrame }
+    /**
+     * O sistema do robô com BASE 0 ("null base"), nas coordenadas do arquivo: origem no eixo 1
+     * (ver [origin]), Z para cima ao longo do eixo 1 e X na [front]. null sem o eixo 1.
+     */
+    fun nullBase(): Transform? {
+        val a1 = axes[1] ?: return null
+        // o Z do robô aponta para cima, qualquer que seja o sentido positivo do JT1
+        val up = if (a1.direction.z >= 0) a1.direction else -a1.direction
+        val o = when (origin) {
+            RobotOrigin.EIXO2 -> axes[2]?.let { a2 -> a1.point + up * (a2.point - a1.point).dot(up) } ?: a1.point
+            RobotOrigin.PISO -> if (kotlin.math.abs(up.z) > 1e-6) a1.point + up * ((baseFloorZ - a1.point.z) / up.z) else a1.point
+            RobotOrigin.PERSONALIZADA -> originCustom
+        }
+        return Transform.fromAxis(o, up, front.vector)
+    }
+
+    /** Sistema do robô com BASE 0 no espaço 3D; null sem o eixo 1. */
+    fun robotFrameInWorld(): Transform? = nullBase()?.let { placement * it }
+
+    /** Base deslocada pelo BASE do controlador no espaço 3D; null sem BASE. */
+    fun baseFrameInWorld(): Transform? {
+        val b = baseTrans ?: return null
+        return robotFrameInWorld()?.let { it * b.toTransform() }
+    }
 
     /**
      * Onde cada peça fica (em relação à pose do arquivo) com os ângulos [deg] dos eixos marcados.
@@ -246,6 +288,10 @@ data class RobotAssembly(
             "tool" to tool?.let { listOf(it.x, it.y, it.z, it.o, it.a, it.t) },
             "ajustes" to offsets.mapValues { (_, t) -> KawasakiPose.fromTransform(t).let { listOf(it.x, it.y, it.z, it.o, it.a, it.t) } },
             "fixas" to locked.toList(),
+            "origem" to origin.name,
+            "origemXYZ" to vecJson(originCustom),
+            "pisoZ" to baseFloorZ,
+            "baseControlador" to baseTrans?.let { listOf(it.x, it.y, it.z, it.o, it.a, it.t) },
             "programa" to linkedMapOf(
                 "velocidade" to program.speedDegS,
                 "pausa" to program.pauseS,
@@ -345,6 +391,11 @@ data class RobotAssembly(
                     if (n.size != 6) null else part to KawasakiPose(n[0], n[1], n[2], n[3], n[4], n[5]).toTransform()
                 }.toMap(),
                 locked = o["fixas"].arr().mapNotNull { it.str() }.toSet(),
+                origin = runCatching { RobotOrigin.valueOf(o["origem"].str() ?: "") }.getOrDefault(RobotOrigin.EIXO2),
+                originCustom = vec(o["origemXYZ"]) ?: Vec3.ZERO,
+                baseFloorZ = o["pisoZ"].num() ?: 0.0,
+                baseTrans = o["baseControlador"].arr().mapNotNull { it.num() }.takeIf { it.size == 6 }
+                    ?.let { KawasakiPose(it[0], it[1], it[2], it[3], it[4], it[5]) },
                 colors = o["cores"].obj().mapNotNull { (part, v) -> parseColor(v.str() ?: "")?.let { part to it } }.toMap(),
                 program = o["programa"].obj().let { prog ->
                     TestProgram(

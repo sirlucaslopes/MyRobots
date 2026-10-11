@@ -129,7 +129,7 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
             fileName = file.name,
             parts = names,
             roles = RobotAssembly.suggestRoles(names),
-        )
+        ).let { it.copy(baseFloorZ = floorOf(it.basePart)) }
         resetView(AssemblerStep.PECAS)
         parts.warnings.firstOrNull()?.let { say(it) }
     }
@@ -162,7 +162,38 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setName(name: String) = _assembly.update { it?.copy(name = name) }
 
-    fun setRole(part: String, assignment: PartAssignment?) = _assembly.update { it?.withRole(part, assignment) }
+    fun setRole(part: String, assignment: PartAssignment?) = _assembly.update { a ->
+        a?.withRole(part, assignment)?.let { it.copy(baseFloorZ = floorOf(it.basePart)) }
+    }
+
+    /** O ponto mais baixo (Z) da peça base no arquivo: o piso onde o robô é fixado. */
+    private fun floorOf(basePart: String?): Double {
+        val mesh = basePart?.let { _file.value?.parts?.part(it) } ?: return 0.0
+        var z = Double.MAX_VALUE
+        for (i in 0 until mesh.vertexCount) z = minOf(z, mesh.positions[i * 3 + 2].toDouble())
+        return if (z == Double.MAX_VALUE) 0.0 else z
+    }
+
+    fun setOrigin(origin: RobotOrigin) = _assembly.update { a ->
+        // ao passar para Personalizada, começa de onde a origem está agora
+        if (a == null) return@update a
+        val start = if (origin == RobotOrigin.PERSONALIZADA && a.origin != origin) a.nullBase()?.t ?: a.originCustom else a.originCustom
+        a.copy(origin = origin, originCustom = start)
+    }
+
+    fun setOriginField(index: Int, value: Double) = _assembly.update { a ->
+        val c = a?.originCustom ?: return@update a
+        a.copy(originCustom = when (index) { 0 -> c.copy(x = value); 1 -> c.copy(y = value); else -> c.copy(z = value) })
+    }
+
+    /** Um campo do BASE do controlador (0 = X … 5 = T); começa todo em 0. */
+    fun setBaseTransField(index: Int, value: Double) = _assembly.update { a ->
+        val t = a?.baseTrans ?: KawasakiPose(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        val v = listOf(t.x, t.y, t.z, t.o, t.a, t.t).toMutableList().also { it[index] = value }
+        a?.copy(baseTrans = KawasakiPose(v[0], v[1], v[2], v[3], v[4], v[5]))
+    }
+
+    fun clearBaseTrans() = _assembly.update { it?.copy(baseTrans = null) }
 
     fun suggestRoles() = _assembly.update { a -> a?.copy(roles = RobotAssembly.suggestRoles(a.parts)) }
 

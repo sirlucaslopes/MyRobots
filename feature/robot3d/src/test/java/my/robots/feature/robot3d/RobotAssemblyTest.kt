@@ -131,6 +131,47 @@ class RobotAssemblyTest {
         assertEquals(setOf("braco"), back.locked)
     }
 
+    /** Como o KJ264: JT1 vertical no zero, JT2 horizontal (em X) a 140 mm à frente e 900 mm do piso. */
+    private fun kjLike() = RobotAssembly("kj", "kj.glb", listOf("j0", "j1", "j2"))
+        .withRole("j0", PartAssignment(PartRole.BASE))
+        .withRole("j1", PartAssignment(PartRole.AXIS, 1))
+        .withRole("j2", PartAssignment(PartRole.AXIS, 2))
+        .withAxis(1, AxisDef(Vec3(0.0, 0.0, 700.0), Vec3.Z))
+        .withAxis(2, AxisDef(Vec3(0.0, 140.0, 900.0), Vec3.X))
+
+    @Test
+    fun origem_do_robo_na_altura_do_eixo_2_como_o_k_roset() {
+        val nb = kjLike().nullBase()!!
+        assertEquals(Vec3(0.0, 0.0, 900.0), nb.t)
+        assertEquals(Vec3.Z, nb.zAxis)
+        assertEquals(Vec3.X, nb.xAxis) // X do robô = X do arquivo (frente +X)
+        // o JT1 com o sentido invertido não vira o robô de cabeça para baixo
+        val inv = kjLike().let { it.withAxis(1, it.axes.getValue(1).copy(direction = -Vec3.Z)) }
+        assertEquals(Vec3.Z, inv.nullBase()!!.zAxis)
+        // no piso e personalizada
+        assertEquals(Vec3(0.0, 0.0, 0.0), kjLike().copy(origin = RobotOrigin.PISO, baseFloorZ = 0.0).nullBase()!!.t)
+        assertEquals(Vec3(1.0, 2.0, 3.0), kjLike().copy(origin = RobotOrigin.PERSONALIZADA, originCustom = Vec3(1.0, 2.0, 3.0)).nullBase()!!.t)
+    }
+
+    @Test
+    fun base_do_controlador_desloca_o_where() {
+        val a = kjLike()
+        val tcp0 = a.model()!!.tcpPose(doubleArrayOf(0.0, 0.0))
+        // BASE 100 mm em X: o mesmo ponto físico fica 100 mm a menos em X no WHERE
+        val shifted = a.copy(baseTrans = my.robots.core.kinematics.KawasakiPose(100.0, 0.0, 0.0, 0.0, 0.0, 0.0))
+        val tcp1 = shifted.model()!!.tcpPose(doubleArrayOf(0.0, 0.0))
+        assertEquals(tcp0.x - 100.0, tcp1.x, 1e-9)
+        assertEquals(tcp0.z, tcp1.z, 1e-9)
+        // as setas da base deslocada ficam 100 mm em X do BASE 0
+        assertEquals(Vec3(100.0, 0.0, 900.0), shifted.baseFrameInWorld()!!.t)
+        assertNull(a.baseFrameInWorld())
+        // JSON guarda origem, piso e BASE
+        val back = RobotAssembly.fromJson(shifted.copy(origin = RobotOrigin.PISO, baseFloorZ = -12.0).toJson())
+        assertEquals(RobotOrigin.PISO, back.origin)
+        assertEquals(-12.0, back.baseFloorZ, 0.0)
+        assertEquals(shifted.baseTrans, back.baseTrans)
+    }
+
     @Test
     fun cores() {
         assertEquals("#F26B1D", RobotAssembly.colorHex(0xF26B1D))
