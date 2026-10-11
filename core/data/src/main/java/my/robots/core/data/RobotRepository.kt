@@ -113,15 +113,20 @@ class RobotRepository(
      */
     suspend fun updateRobot(robot: Robot) {
         val current = robotDao.getRobotById(robot.id)
-        // A posição na cabine e a série são do banco: quem edita o robô (RobotDialog) não as
-        // conhece. Mudou de projeto: o robô cai em "fora do layout" no projeto novo.
+        // A posição na cabine, a série e o 3D (modelo e BASE) são do banco: quem edita o robô
+        // (RobotDialog) não os conhece. Mudou de projeto: o robô cai em "fora do layout" no
+        // projeto novo.
         val positioned = when {
             current == null -> robot
             // mudou de projeto: sai do layout e perde o mestre (o par era do projeto antigo)
-            current.project != robot.project -> robot.copy(layoutRow = null, layoutCol = null, serialNumber = current.serialNumber)
+            current.project != robot.project -> robot.copy(
+                layoutRow = null, layoutCol = null, serialNumber = current.serialNumber,
+                model3dId = current.model3dId, robotBase = current.robotBase
+            )
             else -> robot.copy(
                 layoutRow = current.layoutRow, layoutCol = current.layoutCol,
-                serialNumber = current.serialNumber, masterRobotId = current.masterRobotId
+                serialNumber = current.serialNumber, masterRobotId = current.masterRobotId,
+                model3dId = current.model3dId, robotBase = current.robotBase
             )
         }
         robotDao.updateRobot(toDb(positioned))
@@ -143,6 +148,13 @@ class RobotRepository(
      * Grava o número de série do controlador do robô ("CPF" do robô).
      */
     suspend fun setRobotSerialNumber(robotId: Int, serial: String?) = robotDao.setSerialNumber(robotId, serial)
+
+    /**
+     * Grava o 3D do robô: o modelo ([model3dId], um robô montado no Montador; null = genérico) e
+     * o BASE do controlador ([robotBase], "X Y Z O A T"; null = BASE 0).
+     */
+    suspend fun setRobot3d(robotId: Int, model3dId: String?, robotBase: String?) =
+        robotDao.setRobot3d(robotId, model3dId, robotBase)
 
     /**
      * Busca um robô pelo id. Devolve null se não existir.

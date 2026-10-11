@@ -32,6 +32,9 @@ enum class Manufacturer(val displayName: String) {
  *   null = "fora do layout".
  * - serialNumber: número de série do controlador, o "CPF" do robô. Vem do backup SAVE/FULL
  *   ou do comando ID ao conectar. null = ainda não conhecido.
+ * - model3dId: o modelo 3D do robô na cabine 3D: o id de um robô montado no Montador
+ *   (`files/robos3d/<id>`). null = robô genérico.
+ * - robotBase: o BASE do controlador deste robô ("X Y Z O A T", como o comando BASE). null = BASE 0.
  * - masterRobotId: robô mestre deste robô (projeto escravo; ex.: R14 é escravo do R10). Os
  *   programas do mestre podem ser transferidos para ele com a base ajustada. null = sem mestre.
  */
@@ -49,5 +52,7 @@ data class Robot(
     val layoutRow: Int? = null,
     val layoutCol: Int? = null,
     val serialNumber: String? = null,
-    val masterRobotId: Int? = null
+    val masterRobotId: Int? = null,
+    val model3dId: String? = null,
+    val robotBase: String? = null
 )

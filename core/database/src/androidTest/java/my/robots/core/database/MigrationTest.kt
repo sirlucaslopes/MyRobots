@@ -227,6 +227,28 @@ class MigrationTest {
         }
     }
 
+    /** 8 -> 9: o robô continua igual e ganha model3dId e robotBase nulos; schema igual ao 9.json. */
+    @Test
+    fun migracao8Para9ValidaContraOSchema() {
+        helper.createDatabase(dbName, 8).apply {
+            execSQL(
+                "INSERT INTO robots (id, name, ip, port, project, manufacturer, autoLogin, loginUser, loginPassword, layoutRow, layoutCol, serialNumber, masterRobotId) " +
+                    "VALUES (1, 'R10', '192.168.0.10', 23, 'CAT Primer', 'KAWASAKI', 0, 'as', '', 0, 1, '3772', NULL)"
+            )
+            close()
+        }
+        helper.runMigrationsAndValidate(dbName, 9, true, MIGRATION_8_9).apply {
+            query("SELECT model3dId, robotBase, serialNumber, layoutCol FROM robots WHERE id = 1").use { c ->
+                c.moveToFirst()
+                assertEquals(true, c.isNull(0))
+                assertEquals(true, c.isNull(1))
+                assertEquals("3772", c.getString(2))
+                assertEquals(1, c.getInt(3))
+            }
+            close()
+        }
+    }
+
     /** 7 -> 8 com o banco vazio: nenhum cliente é criado (o app cria com o primeiro robô). */
     @Test
     fun migracao7Para8ComBancoVazio() {

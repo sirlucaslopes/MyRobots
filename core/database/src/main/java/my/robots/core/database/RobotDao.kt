@@ -39,6 +39,10 @@ interface RobotDao {
     @Query("UPDATE robots SET serialNumber = :serial WHERE id = :id")
     suspend fun setSerialNumber(id: Int, serial: String?)
 
+    /** Modelo 3D (id de um robô montado) e BASE do controlador ("X Y Z O A T") do robô. */
+    @Query("UPDATE robots SET model3dId = :model3dId, robotBase = :robotBase WHERE id = :id")
+    suspend fun setRobot3d(id: Int, model3dId: String?, robotBase: String?)
+
     /**
      * Apaga um robô do banco.
      */

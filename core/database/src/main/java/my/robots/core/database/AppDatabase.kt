@@ -26,7 +26,7 @@ import my.robots.core.model.Robot
         Robot::class, QuickCommand::class, Backup::class, ProjectLayout::class, ProjectEquipment::class,
         Client::class, ProductionLine::class, WorkType::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

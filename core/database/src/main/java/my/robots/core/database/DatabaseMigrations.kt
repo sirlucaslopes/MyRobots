@@ -114,5 +114,17 @@ val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
+/**
+ * 8 -> 9 (cabine 3D): cada robô pode ter um modelo 3D (o id de um robô montado no Montador,
+ * `files/robos3d/<id>`) e o BASE do controlador dele ("X Y Z O A T"). Os dois começam nulos:
+ * sem modelo, a cabine 3D desenha um robô genérico; sem BASE, vale o BASE 0.
+ */
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE robots ADD COLUMN model3dId TEXT DEFAULT NULL")
+        db.execSQL("ALTER TABLE robots ADD COLUMN robotBase TEXT DEFAULT NULL")
+    }
+}
+
 /** Todas as migrações, na ordem. Fica no fim porque usa as declaradas acima. */
-val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+val ALL_MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
