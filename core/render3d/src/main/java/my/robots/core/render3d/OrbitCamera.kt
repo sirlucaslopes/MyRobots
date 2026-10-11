@@ -51,16 +51,24 @@ class OrbitCamera(
         return right to up
     }
 
+    /**
+     * Chamado depois de cada mudança da câmera (gesto, vista pronta, enquadrar): quem desenha
+     * algo por cima do 3D (os nomes dos robôs) usa para se atualizar.
+     */
+    var onChange: (() -> Unit)? = null
+
     /** Um dedo: [dxPx] gira em volta de Z, [dyPx] sobe ou desce o olho. */
     fun orbit(dxPx: Float, dyPx: Float, degPerPx: Double = 0.3) {
         yawDeg = normalizeDeg(yawDeg - dxPx * degPerPx)
         pitchDeg = (pitchDeg + dyPx * degPerPx).coerceIn(MIN_PITCH, MAX_PITCH)
+        onChange?.invoke()
     }
 
     /** Pinça: [scale] > 1 (dedos se afastando) aproxima. */
     fun zoom(scale: Float) {
         if (scale <= 0f) return
         distance = (distance / scale).coerceIn(MIN_DISTANCE, MAX_DISTANCE)
+        onChange?.invoke()
     }
 
     /**
@@ -72,6 +80,25 @@ class OrbitCamera(
         val metersPerPx = 2 * distance * tan(Math.toRadians(fovDeg / 2)) / viewHeightPx
         val (right, up) = screenAxes()
         target = target - right * (dxPx * metersPerPx) + up * (dyPx * metersPerPx)
+        onChange?.invoke()
+    }
+
+    /**
+     * Onde o ponto [p] (metros) aparece numa tela [widthPx] × [heightPx] (y para baixo). null se
+     * está atrás da câmera.
+     */
+    fun project(p: Vec3, widthPx: Int, heightPx: Int): Pair<Float, Float>? {
+        val e = eye
+        val forward = (target - e).normalized()
+        val (right, up) = screenAxes()
+        val v = p - e
+        val z = v.dot(forward)
+        if (z <= 1e-3) return null
+        val halfH = tan(Math.toRadians(fovDeg / 2))
+        val halfW = halfH * widthPx / heightPx.coerceAtLeast(1)
+        val nx = v.dot(right) / (z * halfW)
+        val ny = v.dot(up) / (z * halfH)
+        return ((nx + 1) / 2 * widthPx).toFloat() to ((1 - ny) / 2 * heightPx).toFloat()
     }
 
     /**
@@ -92,6 +119,7 @@ class OrbitCamera(
     fun apply(preset: Preset) {
         yawDeg = preset.yawDeg
         pitchDeg = preset.pitchDeg
+        onChange?.invoke()
     }
 
     /** Põe uma esfera ([center], [radius] em metros) inteira na tela, sem mudar o ângulo. */
@@ -99,6 +127,7 @@ class OrbitCamera(
         target = center
         val r = radius.coerceAtLeast(0.05)
         distance = (r / sin(Math.toRadians(fovDeg / 2)) * 1.15).coerceIn(MIN_DISTANCE, MAX_DISTANCE)
+        onChange?.invoke()
     }
 
     companion object {

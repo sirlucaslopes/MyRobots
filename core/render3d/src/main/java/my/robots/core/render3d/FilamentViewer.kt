@@ -265,17 +265,7 @@ class FilamentViewer(
      * Move as peças do arquivo aberto: cada [Transform] (mm, espaço do app) diz onde a peça fica
      * em relação à pose em que veio no arquivo. Peça que não está no mapa volta para a pose do arquivo.
      */
-    fun setUserPoses(poses: Map<String, Transform>) {
-        val tm = engine.transformManager
-        for ((name, part) in userParts) {
-            val pose = poses[name]
-            val local = if (pose == null) part.local0 else {
-                val d = Mat4.of(SceneModels.toFilamentMatrix(pose, matrix))
-                part.parentWorldInv * d * part.parentWorld * part.local0
-            }
-            tm.setTransform(tm.getInstance(part.entity), local.toFloats(matrix))
-        }
-    }
+    fun setUserPoses(poses: Map<String, Transform>) = applyPoses(userParts, poses, null)
 
     /** Peças escondidas agora (o toque passa por elas). */
     val hiddenPartNames: Set<String> get() = hiddenParts.toSet()
@@ -402,6 +392,12 @@ class FilamentViewer(
 
     // ---------- o que aparece ----------
 
+    /** Tira o robô de teste da cena (a cabine 3D desenha os robôs dela). */
+    fun hideTestRobot() {
+        if (robotVisible) robot?.let { scene.removeEntities(it.entities) }
+        robotVisible = false
+    }
+
     /** Mostra o robô de teste e tira o arquivo aberto (se houver). */
     fun showTestRobot() {
         userModel?.let {
@@ -436,15 +432,7 @@ class FilamentViewer(
         val tm = engine.transformManager
         tm.setTransform(tm.getInstance(asset.root), SceneModels.toFilamentMatrix(SceneModels.GLTF_TO_Z_UP, matrix))
         scene.addEntities(asset.entities)
-        for (name in partNames) {
-            val e = asset.getFirstEntityByName(name)
-            if (e == 0) continue
-            val inst = tm.getInstance(e)
-            val parent = tm.getParent(inst)
-            val parentWorld = if (parent == 0) Mat4() else Mat4.of(tm.getWorldTransform(tm.getInstance(parent), FloatArray(16)))
-            val local0 = Mat4.of(tm.getTransform(inst, FloatArray(16)))
-            userParts[name] = UserPart(e, parentWorld, parentWorld.inverse(), local0, renderablesUnder(e))
-        }
+        userParts.putAll(collectParts(asset, partNames))
 
         val box = asset.boundingBox
         val c = box.center
@@ -590,6 +578,79 @@ class FilamentViewer(
         assetLoader.destroyAsset(asset)
     }
 
+    /** O nó de cada peça de [asset], com a posição do pai e a dele (para mover depois). */
+    private fun collectParts(asset: FilamentAsset, partNames: Collection<String>): Map<String, UserPart> {
+        val tm = engine.transformManager
+        val out = HashMap<String, UserPart>()
+        for (name in partNames) {
+            val e = asset.getFirstEntityByName(name)
+            if (e == 0) continue
+            val inst = tm.getInstance(e)
+            val parent = tm.getParent(inst)
+            val parentWorld = if (parent == 0) Mat4() else Mat4.of(tm.getWorldTransform(tm.getInstance(parent), FloatArray(16)))
+            val local0 = Mat4.of(tm.getTransform(inst, FloatArray(16)))
+            out[name] = UserPart(e, parentWorld, parentWorld.inverse(), local0, renderablesUnder(e))
+        }
+        return out
+    }
+
+    private fun applyPoses(parts: Map<String, UserPart>, poses: Map<String, Transform>, fallback: Transform?) {
+        val tm = engine.transformManager
+        for ((name, part) in parts) {
+            val pose = poses[name] ?: fallback
+            val local = if (pose == null) part.local0 else {
+                val d = Mat4.of(SceneModels.toFilamentMatrix(pose, matrix))
+                part.parentWorldInv * d * part.parentWorld * part.local0
+            }
+            tm.setTransform(tm.getInstance(part.entity), local.toFloats(matrix))
+        }
+    }
+
+    // ---------- vários robôs (cabine 3D) ----------
+
+    /** Um robô a mais na cena (a cabine tem vários): o .glb carregado e as peças dele. */
+    private class Instance(val asset: FilamentAsset, val parts: Map<String, UserPart>)
+
+    private val instances = HashMap<String, Instance>()
+
+    /** Chaves dos robôs a mais que estão na cena. */
+    val instanceKeys: Set<String> get() = instances.keys
+
+    /**
+     * Põe mais um robô na cena com a chave [key] (substitui um com a mesma chave). [yUp]: o .glb
+     * veio com Y para cima (de um CAD); os gerados em código ([SceneModels]) já têm Z para cima.
+     * Devolve false se o .glb não abre.
+     */
+    fun addInstance(key: String, glb: ByteArray, partNames: Collection<String>, yUp: Boolean = true): Boolean {
+        removeInstance(key)
+        val asset = loadAsset(glb) ?: return false
+        if (yUp) {
+            val tm = engine.transformManager
+            tm.setTransform(tm.getInstance(asset.root), SceneModels.toFilamentMatrix(SceneModels.GLTF_TO_Z_UP, matrix))
+        }
+        scene.addEntities(asset.entities)
+        instances[key] = Instance(asset, collectParts(asset, partNames))
+        return true
+    }
+
+    /**
+     * Move as peças do robô [key]: cada pose (mm, espaço do app) em relação à pose do arquivo.
+     * Peça fora do mapa vai com [fallback] (ex.: a posição do robô na cabine).
+     */
+    fun setInstancePoses(key: String, poses: Map<String, Transform>, fallback: Transform? = null) {
+        val inst = instances[key] ?: return
+        applyPoses(inst.parts, poses, fallback)
+    }
+
+    fun removeInstance(key: String) {
+        instances.remove(key)?.let { removeAsset(it.asset) }
+    }
+
+    fun clearInstances() {
+        instances.values.forEach { removeAsset(it.asset) }
+        instances.clear()
+    }
+
     private fun clearUserModel() {
         val asset = userModel ?: return
         // o realce pode estar numa peça do arquivo: devolve os materiais antes de destruir
@@ -613,6 +674,7 @@ class FilamentViewer(
 
         clearHighlight()
         clearUserModel()
+        clearInstances()
         listOfNotNull(robot, scenery, markers, legend, frames).forEach { removeAsset(it) }
         robot = null; scenery = null; markers = null; legend = null; frames = null
         framesShown.clear()

@@ -159,6 +159,50 @@ object SceneModels {
         return glb.build()
     }
 
+    /**
+     * O que a cabine 3D desenha além dos robôs: as faixas de equipamento (transportador) com
+     * setas no sentido do fluxo, e um anel no chão em volta de cada robô na cor do status
+     * ([ringColors]: id → 0xRRGGBB). O robô [selected] ganha um segundo anel, maior e azul.
+     */
+    fun cabinGlb(layout: Cabin3dLayout, ringColors: Map<Int, Int>, selected: Int?): ByteArray {
+        val glb = GlbBuilder()
+        val band = glb.addMaterial(GlbBuilder.Material("faixa", 0.29f, 0.25f, 0.39f, roughness = 0.8f))
+        val arrow = glb.addMaterial(GlbBuilder.Material("fluxo", 0.91f, 0.87f, 0.97f, unlit = true))
+        val pick = glb.addMaterial(GlbBuilder.Material("selecionado", 0.68f, 0.78f, 1f, unlit = true))
+        val meshes = ArrayList<Pair<MeshData, Int>>()
+        val half = layout.bandLengthMm / 2
+        for ((pos, flow) in layout.bands) {
+            val y = layout.bandY(pos)
+            meshes += MeshData().box(Vec3(-half, y - 600, 0.0), Vec3(half, y + 600, 180.0)) to band
+            if (flow != 0) {
+                val m = MeshData()
+                var x = -half + 900
+                while (x < half - 400) {
+                    m.cone(Transform.fromAxis(Vec3(x, y, 190.0), Vec3(flow.toDouble(), 0.0, 0.0)), 160.0, 320.0, 3)
+                    x += 1800
+                }
+                meshes += m to arrow
+            }
+        }
+        // um material por cor de anel (poucas cores: os estados do robô)
+        val ringMats = HashMap<Int, Int>()
+        for ((id, rgb) in ringColors) {
+            val (r, c) = layout.placed[id] ?: continue
+            val mat = ringMats.getOrPut(rgb) {
+                glb.addMaterial(GlbBuilder.Material("anel_${"%06X".format(rgb)}",
+                    ((rgb shr 16) and 0xFF) / 255f, ((rgb shr 8) and 0xFF) / 255f, (rgb and 0xFF) / 255f, unlit = true))
+            }
+            val center = layout.cellCenter(r, c) + Vec3(0.0, 0.0, 12.0)
+            meshes += MeshData().arc(Transform.translation(center), 900.0, 28.0, 0.0, 2 * Math.PI, 64, 8) to mat
+            if (id == selected) {
+                meshes += MeshData().arc(Transform.translation(center), 1080.0, 22.0, 0.0, 2 * Math.PI, 64, 8) to pick
+            }
+        }
+        if (meshes.isEmpty()) meshes += MeshData().box(Vec3(0.0, 0.0, -2.0), Vec3(1.0, 1.0, -1.0)) to band
+        glb.addNode("cabine", meshes)
+        return glb.build()
+    }
+
     /** Um eixo para marcar: ponto e direção (mm, espaço do app), raio da face e se é o editado. */
     data class AxisMarker(val point: Vec3, val direction: Vec3, val radiusMm: Double, val editing: Boolean)
 
