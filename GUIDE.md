@@ -490,8 +490,9 @@ mesmo tempo, sempre conectando antes; uma falha não para os outros; **Parar** c
 ### Visualizador 3D (teste) — seção 17
 Tela de teste do 3D, aberta pelo **⋮ da Estação → Visualizador 3D (teste)**. Ainda não usa os
 robôs cadastrados: é para conferir o motor 3D no aparelho antes do modo 3D da cabine.
-- Mostra um **robô de teste** de 6 eixos (medidas inventadas) sobre uma grade no chão, com os
-  eixos X (vermelho), Y (verde) e Z (azul) no zero. Z é para cima, como no robô.
+- Mostra um **robô de teste** de 6 eixos (medidas inventadas) sobre uma grade no chão. No zero,
+  a origem no estilo do CAD: bolinha branca e setas X (vermelha), Y (verde) e Z (azul), com as
+  letras X, Y e Z na ponta, sempre de frente para quem olha. Z é para cima, como no robô.
 - Embaixo, um **controle por eixo** (JT1 a JT6), dentro dos limites; o robô se mexe na hora.
   A linha **TCP** mostra X Y Z O A T como no `WHERE`. **Zerar** volta todos os eixos a 0°.
 - **Gestos:** um dedo gira, pinça aproxima ou afasta, dois dedos arrastam.
@@ -511,12 +512,21 @@ a base, uma peça por eixo e a ferramenta (o STEP do KJ264 convertido já vem as
 - **2 Base:** posição da base no espaço 3D (X, Y, Z em mm e giro em Z) e a **frente do robô**
   (para onde aponta o X do `WHERE` no arquivo; no STEP do KJ264 é +Y).
 - **3 Eixos:** toque num eixo e depois na **face redonda da junta** (Círculo) ou em **2 pontos**
-  da linha do eixo. Aparece a linha do eixo em amarelo, com o sentido positivo na ponta grossa.
+  da linha do eixo. Aparece o indicador do eixo em amarelo, como no Fusion 360: uma seta reta no
+  sentido do eixo e uma seta curva em volta dele, no sentido do giro positivo (regra da mão
+  direita). Os outros eixos já marcados aparecem em azul.
   **Inverter sentido**, **Limpar**, limites mínimo e máximo e um controle para testar o eixo.
   **Isolar** deixa só a peça do eixo na tela. **Testar todos** vai para a etapa 5.
 - **4 Flange:** toque na face do flange, na ponta do último eixo (sem marcar, vale o último eixo).
 - **5 Testar:** um controle por eixo e o TCP (X Y Z O A T), como no Visualizador.
-- **Salvar** guarda o robô no aparelho (substitui um salvo com o mesmo nome); **⋮ → Excluir
+- **6 Programa:** posicione os eixos e toque em **Adicionar ponto** (P1, P2…). Cada ponto tem Ir,
+  Atualizar (com a posição atual), Subir, Descer e Apagar. **Executar em loop** percorre os
+  pontos na ordem e volta ao primeiro até **Parar**, com velocidade (°/s do eixo que mais anda) e
+  pausa em cada ponto. Os eixos andam juntos e chegam juntos, como no JMOVE.
+- **Cor das peças:** a bolinha ao lado de cada peça (em Peças) ou da peça tocada (em Testar)
+  abre a paleta, com cor livre (#RRGGBB) e **Cor do arquivo** para voltar.
+- **Salvar** guarda o robô no aparelho, com as cores e o programa (substitui um salvo com o
+  mesmo nome); **⋮ → Excluir
   robô salvo…** apaga.
 
 ### Abrir arquivo de outro app
@@ -1638,7 +1648,14 @@ Visualizador). Fase 1 do F3 e primeira versão do F3d do `docs/PLANO_MESTRE.md`.
   guarda a posição do pai e a do nó. `setUserPoses` põe cada peça em `pai⁻¹ · pose · pai · local`
   (a pose é em relação à pose do arquivo, em mm). `setHiddenParts` tira as peças da cena (Isolar),
   `highlight` troca os materiais da peça por cópias laranja (`MaterialInstance.duplicate`) e
-  devolve os originais depois. `setMarkers` mostra um .glb de marcas gerado em código.
+  devolve os originais depois. `setPartColors` faz o mesmo com a cor de cada peça (por baixo do
+  realce). `setMarkers` mostra um .glb de marcas gerado em código: para cada eixo uma seta reta
+  (`MeshData.arrow`) e um arco de 270° (`MeshData.arc`) com um cone na ponta, no sentido do giro
+  positivo, um pouco fora da face (1,3 × o raio dela).
+- **Origem:** setas de 1 m (`MeshData.arrow`, haste e cone) e uma esfera, com luz. As letras são
+  um .glb à parte (`SceneModels.legendGlb`, traços com 1 m de altura no plano XY); a cada quadro,
+  `updateLegend` põe cada letra na ponta da seta, virada para a câmera (direita e cima da tela) e
+  com tamanho proporcional à distância, para ficar sempre do mesmo tamanho na tela.
 - **Luz:** ambiente uniforme (`IndirectLight` só com harmônico de ordem 0) e um sol direcional,
   sem sombra; fundo escuro (`Skybox` de cor); MSAA 4x.
 - **Quadros:** `Choreographer`, só entre ON_RESUME e ON_PAUSE da tela. O contador de quadros por
@@ -1666,14 +1683,20 @@ Visualizador). Fase 1 do F3 e primeira versão do F3d do `docs/PLANO_MESTRE.md`.
   eixos. `model()` monta o `RobotModel.assembled` com os eixos marcados em sequência a partir do 1;
   `poses()` move as peças (eixo sem marca vai junto com o último marcado; ferramenta com a última
   peça; "outro" e sem tipo com a base). O sistema do robô fica no eixo 1 com o X na frente
-  escolhida.
-- **Salvar:** `files/robos3d/<nome>/modelo.json` (formato `myrobots-robo3d`, versão 1) e uma
-  cópia do `robo.glb`. O JSON é escrito num temporário e trocado. Ao abrir um salvo, as peças são
+  escolhida. Também guarda as cores (`colors`, 0xRRGGBB) e o programa de teste (`TestProgram`:
+  pontos, velocidade e pausa).
+- **Programa de teste:** `AssemblerViewModel.runProgram` é uma corrotina: para cada ponto, tempo
+  do trecho = o maior deslocamento ÷ velocidade (`TestProgram.durationS`), e a cada ~16 ms os
+  ângulos vêm de `TestProgram.interpolate` (curva em S, começa e termina parado), presos aos
+  limites. Mudar de etapa, abrir outro arquivo ou apagar um ponto para o programa.
+- **Salvar:** `files/robos3d/<nome>/modelo.json` (formato `myrobots-robo3d`, versão 1; `cores` e
+  `programa` são campos opcionais) e uma cópia do `robo.glb`. O JSON é escrito num temporário e trocado. Ao abrir um salvo, as peças são
   lidas de novo do .glb.
 - **Testes JVM:** `Robot3dTest` (estrutura do .glb gerado, um nó por peça, a matriz do Filament,
   Y→Z, a câmera, o raio do toque e a pasta do robô salvo), `GlbPartsTest` (leitura, toque, face
   redonda, plana e inclinada, 2 pontos, autovalores, `Mat4`, JSON), `RobotAssemblyTest` (sugestão
-  de tipos, problemas, poses, base fora do zero, JSON ida e volta) e `Kj264ArquivoTest`, que roda
+  de tipos, problemas, poses, base fora do zero, programa, cores, JSON ida e volta), a legenda e
+  a seta curva (em `Robot3dTest`) e `Kj264ArquivoTest`, que roda
   só com o `Arquivos_Kawasaki/KJ264.glb` e grava em `build/kj264_faces.txt` as maiores faces
   redondas de cada peça (no KJ264 acha os 6 eixos com erro 0,00 mm). O desenho e o toque só se
   conferem no aparelho.
@@ -1688,5 +1711,6 @@ grade 2D quando o aparelho não aguentar o 3D; virar o modo 3D do bloco da cabin
 item do ⋮. Montador: testar no aparelho; peças que vieram em sistemas diferentes (um arquivo por
 peça, fora da posição de montagem) e as ferramentas Mover e Girar; Aresta e Vértice; zero de cada
 eixo diferente da pose do arquivo (`angleInFileDeg`) e a validação com o `WHERE` (fase 6 do plano
-do 3D); TOOL do controlador no TCP; abrir no Visualizador o robô montado; as marcas ficam
-escondidas quando estão dentro da peça (usar Isolar).
+do 3D); TOOL do controlador no TCP; abrir no Visualizador o robô montado (com as cores); as
+marcas ficam escondidas quando estão dentro da peça (usar Isolar); programa de teste com
+movimento em linha reta (LMOVE, pela cinemática inversa) e pontos em X Y Z O A T.
