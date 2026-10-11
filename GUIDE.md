@@ -411,6 +411,14 @@ O voltar fecha primeiro a pesquisa, depois o modo de edição, e só então sai 
   **segurar** conecta/desconecta. Robôs sem vaga ficam em "Fora do layout".
 - Ações: **Conectar todos**, **Desconectar**, **Editar layout**, **Terminal Geral**.
   **⋮ →** Renomear projeto, Mestre / Escravo, Visualizador 3D (teste).
+- **Cabine 2D | 3D:** o seletor acima da cabine troca a grade pelo 3D (editar o layout é sempre
+  na grade). No 3D cada robô fica na vaga dele, virado para o transportador, com um **anel no
+  chão** na cor do LED e o **nome por cima**. Um dedo gira, pinça aproxima, dois dedos arrastam;
+  **Iso, Topo, Frente**, **recentralizar** e **aumentar** (quase a tela toda).
+- **Tocar num robô no 3D** abre o cartão dele: **Abrir painel**, **Conectar/Desconectar**,
+  **Modelo 3D** (um robô montado no Montador, ou o **Genérico**) e **BASE do robô** (os mesmos
+  X Y Z O A T do BASE do controlador). O robô tocado ganha um anel azul e as setas do sistema
+  dele (BASE 0) e da base deslocada.
 
 **Editar layout**
 - Tocar num robô o seleciona. Com um selecionado:
@@ -573,6 +581,7 @@ para melhorar uma parte sem mexer nas outras.
 :core:data               RobotRepository (junta banco + arquivos); hierarchy.ClientTree (regras da tela inicial)
 :core:designsystem       Tema (cores, fontes, formas) + bibliotecas de Compose compartilhadas
 :core:kinematics         Cinemática: matemática 3D, pose da Kawasaki (XYZOAT), modelo do robô, direta e inversa
+:core:render3d           Motor 3D (Filament): câmera, .glb, robô montado (RobotAssembly, RobotLibrary), cabine 3D
 
 :feature:splash          Tela de abertura
 :feature:robots          Lista e cadastro de robôs, status do Wifi
@@ -654,7 +663,7 @@ para melhorar uma parte sem mexer nas outras.
 
 ## 2. `:core:database` — persistência local (Room)
 
-`AppDatabase` (versão 8) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao`, `ProjectDao` e
+`AppDatabase` (versão 9) + os DAOs `RobotDao`, `BackupDao`, `QuickCommandDao`, `ProjectDao` e
 `HierarchyDao` (clientes, linhas, tipos de trabalho e onde fica cada estação).
 Guarda robôs, backups, comandos rápidos e o layout da cabine de cada projeto
 (`project_layouts`, `project_equipment`). O `ProjectDao` grava a edição do layout numa transação
@@ -678,14 +687,18 @@ projeto que ficou sem robôs (`deleteLayoutIfEmpty`).
   Todo projeto vira estação de "Meu cliente" › "Linha 1", inclusive os que só existiam em
   `robots.project` (ganham o layout 2×2), na ordem alfabética; os pares mestre/escravo não
   mudam. Com o banco vazio, o cliente não é criado: `HierarchyDao.ensureStations` cria quando
-  aparece o primeiro robô.
+  aparece o primeiro robô. `MIGRATION_8_9` (cabine 3D) acrescenta `model3dId` (o robô montado
+  no Montador que desenha o robô) e `robotBase` (o BASE do controlador, "X Y Z O A T") em
+  `robots`, os dois nulos (robô genérico, BASE 0). Gravados por `RobotRepository.setRobot3d`;
+  o `updateRobot` preserva os dois, porque o `RobotDialog` não os conhece.
 - **`ensureStations`** (ao abrir o app e ao cadastrar ou mudar o projeto de um robô): projeto
   novo vira estação no fim da linha usada por último; estação sem linha vai para essa linha.
 - Renomear um projeto (`renameProject`) também troca o nome em quem o tinha como mestre.
 - **Teste de migração:** `MigrationTest` (androidTest, `MigrationTestHelper`) cria o banco v4
   com dados e confere que eles continuam lá na versão atual, e valida a `MIGRATION_4_5` (contra o
-  `5.json`), a `MIGRATION_5_6`, a `MIGRATION_6_7` e a `MIGRATION_7_8` (contra o `8.json`, com
+  `5.json`), a `MIGRATION_5_6`, a `MIGRATION_6_7`, a `MIGRATION_7_8` (contra o `8.json`, com
   projetos, um projeto só nos robôs, pares mestre/escravo e equipamentos; e com o banco vazio)
+  e a `MIGRATION_8_9` (contra o `9.json`; ainda não rodou no aparelho)
   com `runMigrationsAndValidate`. Roda com o celular ligado:
   `.\gradlew.bat :core:database:connectedDebugAndroidTest` (passou em 02/10/2026 num Galaxy S25).
 
@@ -1471,6 +1484,15 @@ Abre pelo ícone de grade do projeto na lista de robôs (`project/{projectName}`
   ficam ocultas.
 - Equipamentos como faixas entre as linhas, com setas do sentido do fluxo.
 - **Fora do layout:** robôs sem vaga (todos, antes de montar a cabine), também com LED.
+- **Cabine 3D** (`Cabin3d.kt`: `CabinModeSelector`, `Cabin3dBlock`): o seletor fica em
+  `rememberSaveable` (volta à grade ao editar). O `Cabin3dLayout` (`:core:render3d`) leva a grade
+  para mm (colunas a 3,5 m em X, linhas a 4,5 m em Y, faixas no meio entre as linhas) e vira cada
+  robô para a faixa mais perto. Os modelos vêm da `RobotLibrary` (lidos numa thread de fundo);
+  sem `model3dId`, ou se o salvo não abre, entra o genérico (o robô de teste). Cada robô é uma
+  instância no `FilamentViewer` (`addInstance`/`setInstancePoses`) na pose zero; o transportador
+  e os anéis são um .glb gerado (`SceneModels.cabinGlb`). Os nomes são Compose por cima,
+  posicionados por `OrbitCamera.project` e atualizados no `onChange` da câmera. O toque testa
+  um cilindro em volta de cada vaga (`Cabin3dLayout.pick`).
 - **Modo avançado:** cartão (e item do menu) que abre o Terminal Geral do projeto.
 - No robô de um par mestre/escravo, a vaga mostra "← R10" (escravo) ou "→ R14" (mestre).
 
@@ -1628,15 +1650,19 @@ robôs antiga sai quando a nova entrada for aprovada.
 
 ---
 
-## 17. `:feature:robot3d` — Visualizador 3D (teste) e Montador de robô
+## 17. `:feature:robot3d` e `:core:render3d` — Visualizador 3D (teste), Montador e motor 3D
 
-**Arquivos:** `Robot3dScreen.kt` (tela, controles dos eixos, leitura do .glb, menu Vistas),
-`Robot3dViewModel.kt` (ângulos, arquivo aberto e peça tocada; sem factory, não usa repositório),
-`FilamentViewer.kt` (tudo do Filament), `OrbitCamera.kt` (câmera e raio do toque), `GlbBuilder.kt`
-e `MeshData.kt` (gera .glb na memória), `SceneModels.kt` (robô de teste, grade, eixos, marcas do
-montador e conversões). Montador: `GlbParts.kt` (`GlbReader`, `PartMesh`), `AxisFinder.kt`,
-`RobotAssembly.kt`, `AssemblerViewModel.kt`, `AssemblerScreen.kt`; `MiniJson.kt` e `Mat4.kt`
-(Kotlin puro). Depende só de `:core:designsystem` e `:core:kinematics`. Rotas `robot3d_test`
+**Arquivos do `:feature:robot3d`** (só telas): `Robot3dScreen.kt` (tela, controles dos eixos,
+leitura do .glb, menu Vistas), `Robot3dViewModel.kt` (ângulos, arquivo aberto e peça tocada; sem
+factory, não usa repositório), `AssemblerViewModel.kt` e `AssemblerScreen.kt` (montador).
+**Arquivos do `:core:render3d`** (motor, usado também pela cabine 3D da Estação; pacote
+`my.robots.core.render3d`): `FilamentViewer.kt` (tudo do Filament), `OrbitCamera.kt` (câmera,
+raio do toque, projeção na tela), `GlbBuilder.kt` e `MeshData.kt` (gera .glb na memória),
+`SceneModels.kt` (robô de teste, grade, eixos, marcas, cabine e conversões), `GlbParts.kt`
+(`GlbReader`, `PartMesh`), `AxisFinder.kt`, `RobotAssembly.kt`, `RobotLibrary.kt` (robôs
+salvos), `Cabin3dLayout.kt`; `MiniJson.kt` e `Mat4.kt` (Kotlin puro). O `:core:render3d` expõe
+o `:core:kinematics` e o Filament (`api`); o `:feature:robot3d` depende só dele e do
+`:core:designsystem`. Rotas `robot3d_test`
 (pelo ⋮ da Estação, `ProjectScreen.onOpen3dViewer`) e `robot3d_assembler` (pelo ⋮ do
 Visualizador). Fase 1 do F3 e primeira versão do F3d do `docs/PLANO_MESTRE.md`.
 

@@ -260,8 +260,13 @@ flowchart TD
       (teste)" pelo ⋮ da Estação com o robô de teste do `:core:kinematics` (um controle por eixo),
       abrir .glb pelo seletor, câmera por gestos, vistas Iso/Topo/Frente, grade e eixos com Z para
       cima. Testado no celular (Galaxy S25 Ultra) em 10/10/2026: 120 quadros/s, com o robô de
-      teste e com o KJ264 convertido do STEP (167 mil triângulos). Falta: o modo 3D do bloco da
-      cabine, anel de status e a volta para a grade 2D em aparelho sem 3D.
+      teste e com o KJ264 convertido do STEP (167 mil triângulos).
+      **11/10/2026, `2980526`…`9335e37`:** modo 3D do bloco da cabine (seletor Cabine 2D | 3D):
+      robôs nas vagas virados para o transportador, anel de status, nome com LED, cartão do robô
+      tocado (painel, conectar, modelo 3D, BASE). Motor no módulo novo `:core:render3d`; banco v9
+      com `model3dId` e `robotBase` por robô. Falta: testar no aparelho e o `MigrationTest` 8 → 9;
+      "movimento quando ativo" e "pisca em alarme"; ângulos dos eixos vindos do robô; a volta
+      para a grade 2D em aparelho sem 3D; tirar o Visualizador (teste) do ⋮.
 - [ ] F3b. 🆕 **Estação montada em 3D (futuro, opcional):** montar a estação inteira no 3D (robôs,
       trilhos, suportes, pistolas, equipamentos) e, numa opção **Usar a vista aérea no layout**,
       gerar a cabine 2D olhando de cima. A vista vira posições e contornos de cada item (não uma

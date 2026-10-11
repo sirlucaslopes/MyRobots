@@ -35,7 +35,7 @@ $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 Multi-module Gradle project (`settings.gradle.kts`):
 
 - `:app` is a thin shell: `MyRobotsApp` (Application) and `MainActivity` (permissions, external file intents, `NavHost` route map).
-- `:core:model` (plain data), `:core:database` (Room `AppDatabase` + DAOs + migrations), `:core:network` (`KawasakiTerminalManager`, telnet/TCP), `:core:data` (`RobotRepository`), `:core:designsystem` (`MyRobotsTheme` + shared Compose deps), `:core:common` (`FileUtil`, `ascode.AsProgramBlocks`).
+- `:core:model` (plain data), `:core:database` (Room `AppDatabase` + DAOs + migrations), `:core:network` (`KawasakiTerminalManager`, telnet/TCP), `:core:data` (`RobotRepository`), `:core:designsystem` (`MyRobotsTheme` + shared Compose deps), `:core:common` (`FileUtil`, `ascode.AsProgramBlocks`), `:core:kinematics` (robot kinematics, pure Kotlin) and `:core:render3d` (Filament 3D engine, assembled robots, cabin 3D layout).
 - `:feature:*` holds one area of the app each: splash, robots, backup, codeeditor, dashboard, terminal, project (the cabin screen).
 
 Dependency rules (from `GUIDE.md`):
