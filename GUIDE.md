@@ -512,9 +512,13 @@ a base, uma peça por eixo e a ferramenta (o STEP do KJ264 convertido já vem as
   tocada aparece **Ajustar**: **Mover** (X, Y, Z ±) e **Girar** (em volta de X, Y, Z, pelo centro da
   peça) com passo de 1, 10 ou 100 mm e 1, 15 ou 90°, para peças que vieram fora da posição de
   montagem; **Fixar** trava a peça e **Voltar à posição do arquivo** desfaz.
-- **2 Base:** posição da base no espaço 3D (X, Y, Z em mm e giro em Z) e a **frente do robô**
-  (para onde aponta o X do `WHERE` no arquivo; no STEP do KJ264 é +Y). As setas X/Y/Z de 400 mm
-  mostram o sistema do robô, no zero ou fora dele.
+- **2 Base:** posição da base no espaço 3D (X, Y, Z em mm e giro em Z). **Sistema do robô
+  (BASE 0)**: a origem fica no eixo 1, na **altura do eixo 2** (padrão), no **piso da base** ou
+  **personalizada**, e o X do robô aponta para +X, +Y, −X ou −Y do arquivo. No KJ264 de chão a
+  Kawasaki usa a origem no JT1 a 900 mm do piso (altura do JT2) e o X do robô igual ao X do CAD
+  (o braço em zero aponta para +Y), como no K-ROSET. **BASE do controlador** (X Y Z O A T): os
+  mesmos valores do BASE do robô; aparecem setas de 300 mm na base deslocada e o TCP passa a ser
+  contado a partir dela, como no `WHERE`. As setas de 400 mm mostram o BASE 0.
 - **3 Eixos:** toque num eixo e escolha como marcar: **Círculo** (toque na face redonda ou plana
   da junta), **Aresta** (toque perto da borda redonda; borda reta dá a direção dela), **2 pontos**
   (dois toques na linha do eixo) ou **Vértice** (dois toques que grudam no canto mais perto). Aparece o indicador do eixo em amarelo, como no Fusion 360: uma seta reta no
@@ -531,9 +535,11 @@ a base, uma peça por eixo e a ferramenta (o STEP do KJ264 convertido já vem as
   sistema do robô e o TCP do robô de teste.
 - **5 Testar:** um controle por eixo e o TCP (X Y Z O A T), como no Visualizador.
 - **6 Programa:** posicione os eixos e toque em **Adicionar ponto** (P1, P2…). Cada ponto tem Ir,
-  Atualizar (com a posição atual), Subir, Descer e Apagar. **Executar em loop** percorre os
-  pontos na ordem e volta ao primeiro até **Parar**, com velocidade (°/s do eixo que mais anda) e
-  pausa em cada ponto. Os eixos andam juntos e chegam juntos, como no JMOVE.
+  Atualizar (com a posição atual), Subir, Descer e Apagar, e o seletor **JMOVE/LMOVE** (como o
+  robô chega nele). **Executar em loop** percorre os pontos na ordem e volta ao primeiro até
+  **Parar**, com pausa em cada ponto. JMOVE: os eixos andam e chegam juntos (°/s do eixo que mais
+  anda). LMOVE: o TCP anda em linha reta (mm/s); se a reta passa fora do alcance ou perto de uma
+  singularidade, o programa para e diz em que ponto.
 - **Cor das peças:** a bolinha ao lado de cada peça (em Peças) ou da peça tocada (em Testar)
   abre a paleta, com cor livre (#RRGGBB) e **Cor do arquivo** para voltar.
 - **Salvar** guarda o robô no aparelho, com as cores e o programa (substitui um salvo com o
@@ -1699,8 +1705,20 @@ Visualizador). Fase 1 do F3 e primeira versão do F3d do `docs/PLANO_MESTRE.md`.
   (`AxisDef.zeroDeg` → `angleInFileDeg`) e o ajuste de cada peça (`offsets`, `locked`). Com ajuste,
   o desenho usa `displayPoses` (pose montada · ajuste) e o toque, que lê a peça como está no
   arquivo, passa o ponto e a direção achados por `toAssembled`/`dirToAssembled`.
-- **Sistemas (setas):** `SceneModels.framesGlb` tem dois nós com as setas da origem em tamanho
-  menor e sem letras (sistema do robô 400 mm, TCP 150 mm); `FilamentViewer.setFrames` põe cada
+- **Sistema do robô:** `RobotAssembly.nullBase()` monta o BASE 0 no arquivo: origem no eixo 1
+  (`RobotOrigin`: altura do eixo 2 = o ponto do eixo 2 projetado no eixo 1; piso = `baseFloorZ`,
+  o ponto mais baixo da peça base; ou `originCustom`), Z para cima ao longo do eixo 1 (mesmo com o
+  sentido do JT1 invertido) e X na frente. O `robotFrame` do modelo é BASE 0 · `baseTrans`, então
+  o TCP sai no sistema da base em uso. Fonte do KJ264: `KJ264-A001.krprj` do K-ROSET (objeto .NET
+  serializado; cada posição é um `double[6]` X Y Z O A T): robô +900 em Z, base −900, J2 +140 em
+  Y, J3 +1100 em Z, J4 +1400 em Y, flange 105 do J6 com O A T 90 90 −90.
+- **Movimento linear** (`LinearMotion`, no `:core:kinematics`): `interpolate` leva a posição em
+  reta e a orientação em volta de um eixo só; `plan` divide em pedaços de até 5 mm ou 2° e roda a
+  `InverseKinematics` em cada um, partindo do anterior; falha fora do alcance ou se um eixo pula
+  mais de 20° entre pedaços. O programa calcula o caminho antes de andar e anda com a curva em S
+  (`TestProgram.ease`) no tempo de `linearDurationS`.
+- **Sistemas (setas):** `SceneModels.framesGlb` tem três nós (BASE 0, base deslocada e TCP) com as setas da origem em tamanho
+  menor e sem letras (sistema do robô 400 mm, base deslocada 300 mm, TCP 150 mm e mais grosso); `FilamentViewer.setFrames` põe cada
   nó na pose (`RobotAssembly.robotFrameInWorld`, `RobotModel.tcpInWorld`) ou tira da cena.
 - **Aresta e Vértice** (`AxisFinder.fromEdge`, `nearestVertex`): Aresta pega as arestas de
   contorno da face tocada, a mais perto do toque e o laço dela; se o laço encaixa num círculo
@@ -1731,6 +1749,8 @@ Draco ou texturas KTX2 pode não abrir; mapa de ambiente (IBL) para metal ficar 
 grade 2D quando o aparelho não aguentar o 3D; virar o modo 3D do bloco da cabine (F3) e tirar o
 item do ⋮. Montador: testar no aparelho; abrir um arquivo por peça (hoje é um .glb com todas);
 Mover e Girar arrastando no 3D (setas e anéis), hoje são botões com passo fixo; a validação com o
-`WHERE` (fase 6 do plano do 3D); abrir no Visualizador o robô montado (com as cores); as
+`WHERE` (fase 6 do plano do 3D): conferir no robô ou no K-ROSET o TCP com todos os eixos em 0
+contra o do app; o BASE ainda fica no robô montado, e no cadastro de cada robô (vários robôs com o
+mesmo modelo) entra junto com o modo 3D da cabine; abrir no Visualizador o robô montado (com as cores); as
 marcas ficam escondidas quando estão dentro da peça (usar Isolar); programa de teste com
-movimento em linha reta (LMOVE, pela cinemática inversa) e pontos em X Y Z O A T.
+pontos em X Y Z O A T (hoje são ângulos dos eixos) e C1MOVE/C2MOVE (arcos).

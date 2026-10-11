@@ -285,6 +285,11 @@ flowchart TD
       letras), TOOL do controlador, zero de cada eixo, modos Aresta e Vértice, Mover/Girar/Fixar
       por botões com passo. Falta: testar no aparelho; um arquivo por peça; arrastar setas e anéis
       no 3D; validação com o `WHERE`.
+      **11/10/2026, `e135d6b`/`944fb16`:** sistema do robô (BASE 0) com a origem do K-ROSET no
+      KJ264 (JT1 a 900 mm do piso, na altura do JT2, X igual ao do CAD), BASE do controlador com
+      setas na base deslocada, e LMOVE no programa de teste (`LinearMotion` no `:core:kinematics`).
+      Falta: o BASE no cadastro de cada robô (entra com o modo 3D da cabine) e conferir com o
+      `WHERE` de um robô real.
   1. **Carregar o robô 3D** (.glb com as peças ou um arquivo por peça), com o aviso de que o robô
      precisa vir dividido: base, uma peça por eixo, ferramenta. Peça única não monta.
   2. **Dizer o que é cada peça:** tocar e escolher Base, Eixo (numerado: Eixo 1, 2, 3…),
