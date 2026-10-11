@@ -523,7 +523,8 @@ a base, uma peça por eixo e a ferramenta (o STEP do KJ264 convertido já vem as
   **Inverter sentido**, **Limpar**, limites mínimo e máximo e um controle para testar o eixo.
   **Ângulo do eixo na pose do arquivo**: 0 se o CAD veio com o eixo no zero; senão, o ângulo que o
   controlador mostraria naquela pose. **Isolar** deixa só a peça do eixo na tela. **Testar todos**
-  vai para a etapa 5.
+  vai para a etapa 5. O botão **Eixos** (na barra de cima) mostra ou esconde as setas azuis dos eixos
+  já marcados; a amarela, do eixo sendo marcado, aparece sempre.
 - **4 Flange:** toque na face do flange, na ponta do último eixo (sem marcar, vale o último eixo).
   Embaixo, o **TOOL do controlador** (X Y Z O A T, os mesmos valores do robô). Setas X/Y/Z pequenas
   (150 mm, sem letras) mostram o TCP aqui, no Testar e no Programa; o Visualizador também mostra o

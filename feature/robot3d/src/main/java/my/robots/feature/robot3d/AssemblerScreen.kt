@@ -27,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CenterFocusStrong
+import androidx.compose.material.icons.rounded.Autorenew
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Inventory2
@@ -61,6 +62,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -111,6 +113,8 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
     val running by viewModel.running.collectAsStateWithLifecycle()
     val runTarget by viewModel.runTarget.collectAsStateWithLifecycle()
     var colorFor by remember { mutableStateOf<String?>(null) }
+    // setas azuis dos eixos já marcados (o eixo sendo marcado aparece sempre)
+    var showAxes by rememberSaveable { mutableStateOf(true) }
 
     var viewer by remember { mutableStateOf<FilamentViewer?>(null) }
     var fps by remember { mutableIntStateOf(0) }
@@ -187,12 +191,13 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
         viewer?.highlight(if (step == AssemblerStep.EIXOS && editingAxis == null) null else isolatedPart)
     }
     // marcas: os eixos (o editado em amarelo) e os pontos tocados, na pose atual
-    LaunchedEffect(viewer, a, poses, step, editingAxis, pending) {
+    LaunchedEffect(viewer, a, poses, step, editingAxis, pending, showAxes) {
         val v = viewer ?: return@LaunchedEffect
         if (a == null) { v.setMarkers(null); return@LaunchedEffect }
         val axes = ArrayList<SceneModels.AxisMarker>()
         when (step) {
             AssemblerStep.EIXOS, AssemblerStep.TESTAR -> for ((n, def) in a.axes) {
+                if (!showAxes && n != editingAxis) continue
                 val pose = a.parentOf(n)?.let { poses[it] } ?: Transform.IDENTITY
                 axes += SceneModels.AxisMarker(pose.apply(def.point), pose.rotate(def.direction), def.radiusMm, n == editingAxis)
             }
@@ -234,6 +239,11 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
                         },
                     ),
                     viewsAction { viewer },
+                    BarAction(
+                        Icons.Rounded.Autorenew, "Eixos",
+                        selected = showAxes,
+                        onClick = { showAxes = !showAxes },
+                    ),
                     BarAction(
                         Icons.Rounded.CenterFocusStrong, "Isolar",
                         enabled = isolatedPart != null, selected = isolate,
