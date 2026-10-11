@@ -29,6 +29,8 @@ android {
 dependencies {
     implementation(project(":core:designsystem"))
     implementation(project(":core:data"))
+    // cabine 3D (Filament, robôs montados no Montador)
+    implementation(project(":core:render3d"))
 
     testImplementation(libs.junit)
 }

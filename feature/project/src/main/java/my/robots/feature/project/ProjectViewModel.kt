@@ -196,6 +196,16 @@ class ProjectViewModel(
     // ---------- Conexão ----------
 
     /** Conecta o robô, ou desconecta se ele já estiver conectado. */
+    /** Modelo 3D do robô na cabine 3D: um robô montado no Montador, ou null (genérico). */
+    fun setRobotModel(robot: Robot, model3dId: String?) {
+        viewModelScope.launch { repository.setRobot3d(robot.id, model3dId, robot.robotBase) }
+    }
+
+    /** BASE do controlador do robô ("X Y Z O A T"), ou null (BASE 0). */
+    fun setRobotBase(robot: Robot, robotBase: String?) {
+        viewModelScope.launch { repository.setRobot3d(robot.id, robot.model3dId, robotBase) }
+    }
+
     fun toggleConnection(robot: Robot) {
         if (robot.id in _connectedIds.value) terminalManager.disconnect(robot.id, clearHistory = false)
         else terminalManager.connect(robot)

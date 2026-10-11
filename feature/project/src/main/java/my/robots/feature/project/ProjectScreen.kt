@@ -198,6 +198,7 @@ fun ProjectScreen(
     val editing = draft != null
     val shown = draft ?: view
     var showRename by remember { mutableStateOf(false) }
+    var cabin3d by rememberSaveable { mutableStateOf(false) }
     var showAddEquipment by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -304,7 +305,21 @@ fun ProjectScreen(
                 )
             }
 
-            CabinGrid(
+            // modo da cabine: a grade de sempre ou o 3D (editar o layout é sempre na grade)
+            if (!editing) {
+                CabinModeSelector(cabin3d, onChange = { cabin3d = it })
+            }
+            if (cabin3d && !editing) {
+                Cabin3dBlock(
+                    view = v,
+                    connected = connected,
+                    heartbeats = heartbeats,
+                    onOpenRobot = onOpenRobot,
+                    onToggleConnection = viewModel::toggleConnection,
+                    onSetModel = viewModel::setRobotModel,
+                    onSetBase = viewModel::setRobotBase,
+                )
+            } else CabinGrid(
                 view = v,
                 pairLabels = if (editing) emptyMap() else pairLabels(pairs, viewModel.projectName),
                 editing = editing,
