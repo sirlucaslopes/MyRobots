@@ -81,6 +81,35 @@ object SceneModels {
         return glb.build()
     }
 
+    /**
+     * Marcas do montador, no espaço do app (mm): a linha de cada eixo ([axes]: ponto, direção e
+     * se é o que está sendo editado), com um cone na ponta positiva, e os pontos tocados.
+     * Sem luz, para aparecer igual de qualquer lado. null se não há nada para marcar.
+     */
+    fun markersGlb(axes: List<Triple<Vec3, Vec3, Boolean>>, points: List<Vec3>, halfLengthMm: Double = 350.0): ByteArray? {
+        if (axes.isEmpty() && points.isEmpty()) return null
+        val glb = GlbBuilder()
+        val current = glb.addMaterial(GlbBuilder.Material("eixo_editado", 1f, 0.85f, 0.05f, unlit = true))
+        val other = glb.addMaterial(GlbBuilder.Material("eixo", 0.15f, 0.75f, 1f, unlit = true))
+        val point = glb.addMaterial(GlbBuilder.Material("ponto", 1f, 0.15f, 0.55f, unlit = true))
+        val meshes = ArrayList<Pair<MeshData, Int>>()
+        for ((p, d, editing) in axes) {
+            val frame = Transform.fromAxis(p, d)
+            val r = if (editing) 4.0 else 2.5
+            val line = MeshData().cylinder(frame, r, halfLengthMm, 12)
+            // "seta": um cilindro mais grosso na ponta do sentido positivo
+            line.cylinder(Transform.fromAxis(p + d.normalized() * (halfLengthMm - 20), d), r * 3.5, 20.0, 12)
+            meshes += line to (if (editing) current else other)
+        }
+        if (points.isNotEmpty()) {
+            val m = MeshData()
+            for (p in points) m.box(Transform.translation(p), 7.0, 7.0, 7.0)
+            meshes += m to point
+        }
+        glb.addNode("marcas", meshes)
+        return glb.build()
+    }
+
     /** Largura de cada peça (mm), do eixo 1 ao 6: o robô afina para o punho. */
     private val WIDTHS_MM = listOf(300.0, 220.0, 180.0, 140.0, 110.0, 90.0)
 

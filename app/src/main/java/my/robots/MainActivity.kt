@@ -52,6 +52,8 @@ import my.robots.feature.project.MasterSlaveViewModelFactory
 import my.robots.feature.project.ProjectScreen
 import my.robots.feature.project.ProjectViewModel
 import my.robots.feature.project.ProjectViewModelFactory
+import my.robots.feature.robot3d.AssemblerScreen
+import my.robots.feature.robot3d.AssemblerViewModel
 import my.robots.feature.robot3d.Robot3dScreen
 import my.robots.feature.robot3d.Robot3dViewModel
 import my.robots.feature.robots.ConnectedRobotsViewModel
@@ -256,13 +258,23 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Fabricantes: termos da pesquisa rápida do editor e comandos padrão.
                         // Visualizador 3D de teste (F3, fase 1): aberto pelo ⋮ da Estação, por enquanto.
                         composable("robot3d_test") {
                             val robot3dViewModel: Robot3dViewModel = viewModel()
-                            Robot3dScreen(viewModel = robot3dViewModel, onBack = { navController.popBackStack() })
+                            Robot3dScreen(
+                                viewModel = robot3dViewModel,
+                                onBack = { navController.popBackStack() },
+                                onOpenAssembler = { navController.navigate("robot3d_assembler") },
+                            )
                         }
 
+                        // Montador de robô (F3d): aberto pelo ⋮ do Visualizador 3D, por enquanto.
+                        composable("robot3d_assembler") {
+                            val assemblerViewModel: AssemblerViewModel = viewModel()
+                            AssemblerScreen(viewModel = assemblerViewModel, onBack = { navController.popBackStack() })
+                        }
+
+                        // Fabricantes: termos da pesquisa rápida do editor e comandos padrão.
                         composable("manufacturers") {
                             ManufacturerSettingsScreen(
                                 settings = app.manufacturerSettings,

@@ -116,6 +116,27 @@ class Robot3dTest {
     }
 
     @Test
+    fun raio_do_toque_sai_do_olho() {
+        val c = OrbitCamera(target = Vec3.ZERO, distance = 10.0)
+        c.apply(OrbitCamera.Preset.FRENTE) // olho em +X, olhando para −X
+        val (o, d) = c.ray(500f, 500f, 1000, 1000)
+        assertEquals(10.0, o.x, 1e-9)
+        assertEquals(-1.0, d.x, 1e-9) // o meio da tela vai direto no alvo
+        // canto de cima à direita: sobe (Z+) e vai para a direita da tela (Y+ olhando do +X)
+        val (_, corner) = c.ray(1000f, 0f, 1000, 1000)
+        assertTrue(corner.z > 0 && corner.y > 0)
+        val half = Math.tan(Math.toRadians(c.fovDeg / 2))
+        assertEquals(half, corner.z / -corner.x, 1e-9)
+    }
+
+    @Test
+    fun pasta_do_robo_salvo() {
+        assertEquals("kj264_cabine_2", AssemblerViewModel.slug("KJ264 · Cabine 2"))
+        assertEquals("robo_acao", AssemblerViewModel.slug("Robô ação"))
+        assertEquals("robo", AssemblerViewModel.slug("///"))
+    }
+
+    @Test
     fun arrastar_move_o_alvo_no_plano_da_tela() {
         val c = OrbitCamera(target = Vec3.ZERO, distance = 10.0)
         c.apply(OrbitCamera.Preset.FRENTE) // olhando do +X: a direita da tela é +Y
