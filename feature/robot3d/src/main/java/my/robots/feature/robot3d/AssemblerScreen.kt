@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -247,7 +249,8 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        // com o teclado aberto, o painel sobe junto e o desenho encolhe
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -665,10 +668,11 @@ private fun FlangeStep(a: RobotAssembly, mode: PickMode, vm: AssemblerViewModel)
     val t = a.tool
     val values = listOf(t?.x, t?.y, t?.z, t?.o, t?.a, t?.t).map { it ?: 0.0 }
     val labels = listOf("X (mm)", "Y (mm)", "Z (mm)", "O (°)", "A (°)", "T (°)")
-    for (row in 0 until 2) {
+    // X e O, Y e A, Z e T lado a lado (dois por linha, para caber o ±)
+    for (row in 0 until 3) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (k in 0 until 3) {
-                val i = row * 3 + k
+            for (k in 0 until 2) {
+                val i = row + k * 3
                 NumberField(labels[i], values[i], Modifier.weight(1f)) { vm.setToolField(i, it) }
             }
         }
@@ -863,6 +867,14 @@ private fun NumberField(label: String, value: Double, modifier: Modifier = Modif
         },
         singleLine = true,
         label = { Text(label) },
+        // o teclado numérico de alguns aparelhos (Samsung) não tem o sinal de menos: ± troca o sinal
+        trailingIcon = {
+            TextButton(onClick = {
+                val t = text.trim()
+                text = if (t.startsWith("-")) t.removePrefix("-") else "-$t"
+                text.replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() }?.let(onValue)
+            }) { Text("±", style = MaterialTheme.typography.titleMedium) }
+        },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = modifier,
     )
