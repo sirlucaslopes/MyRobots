@@ -1,4 +1,4 @@
-package my.robots.feature.robot3d
+package my.robots.core.render3d
 
 import android.annotation.SuppressLint
 import android.view.Choreographer

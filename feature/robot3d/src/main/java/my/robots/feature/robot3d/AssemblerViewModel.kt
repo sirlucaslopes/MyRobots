@@ -1,5 +1,19 @@
 package my.robots.feature.robot3d
 
+import my.robots.core.render3d.AxisDef
+import my.robots.core.render3d.AxisFinder
+import my.robots.core.render3d.AxisGuess
+import my.robots.core.render3d.GlbParts
+import my.robots.core.render3d.GlbReader
+import my.robots.core.render3d.MotionType
+import my.robots.core.render3d.PartAssignment
+import my.robots.core.render3d.RobotAssembly
+import my.robots.core.render3d.RobotLibrary
+import my.robots.core.render3d.SavedRobot
+import my.robots.core.render3d.RobotFront
+import my.robots.core.render3d.RobotOrigin
+import my.robots.core.render3d.TestPoint
+import my.robots.core.render3d.TestProgram
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -22,8 +36,6 @@ import my.robots.core.kinematics.KawasakiPose
 import my.robots.core.kinematics.LinearMotion
 import my.robots.core.kinematics.Transform
 import my.robots.core.kinematics.Vec3
-import java.io.File
-import java.text.Normalizer
 import java.util.Locale
 import kotlin.math.max
 
@@ -44,15 +56,13 @@ enum class PickMode(val label: String) {
     val twoTaps get() = this == DOIS_PONTOS || this == VERTICE
 }
 
-/** Robô montado salvo no aparelho. */
-data class SavedRobot(val id: String, val name: String)
 
 /**
  * Estado do "Montador de robô" (Plano Mestre F3d): o .glb aberto, o [RobotAssembly] que vai
  * sendo preenchido e o que o toque faz em cada etapa. As contas pesadas (ler o .glb, achar a
  * face) rodam fora da thread da tela.
  *
- * Os robôs montados ficam em `files/robos3d/<id>/` (o `modelo.json` e uma cópia do `.glb`).
+ * Os robôs montados ficam na [RobotLibrary] (`files/robos3d/<id>/`).
  */
 class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -106,7 +116,7 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
     val runTarget: StateFlow<Int?> = _runTarget.asStateFlow()
     private var runJob: Job? = null
 
-    private val root get() = File(getApplication<Application>().filesDir, "robos3d")
+    private val library = RobotLibrary(app.filesDir)
 
     init {
         refreshSaved()
@@ -577,22 +587,9 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
         val a = _assembly.value ?: return
         val f = _file.value ?: return
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching {
-                    val dir = File(root, slug(a.name))
-                    val existed = dir.exists()
-                    dir.mkdirs()
-                    File(dir, "robo.glb").writeBytes(f.bytes)
-                    // escreve num temporário e troca: um salvamento cortado não estraga o anterior
-                    val tmp = File(dir, "modelo.json.tmp")
-                    tmp.writeText(a.toJson())
-                    val target = File(dir, "modelo.json")
-                    if (!tmp.renameTo(target)) { target.delete(); tmp.renameTo(target) }
-                    existed
-                }
-            }
+            val result = withContext(Dispatchers.IO) { runCatching { library.save(a, f.bytes) } }
             result.fold(
-                onSuccess = { existed -> say(if (existed) "Salvo: \"${a.name}\" (substituiu o anterior)." else "Salvo: \"${a.name}\".") },
+                onSuccess = { (_, existed) -> say(if (existed) "Salvo: \"${a.name}\" (substituiu o anterior)." else "Salvo: \"${a.name}\".") },
                 onFailure = { say("Não deu para salvar: ${it.message}") },
             )
             refreshSaved()
@@ -601,12 +598,7 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshSaved() {
         viewModelScope.launch {
-            _saved.value = withContext(Dispatchers.IO) {
-                root.listFiles()?.filter { File(it, "modelo.json").isFile }?.mapNotNull { dir ->
-                    val name = runCatching { RobotAssembly.fromJson(File(dir, "modelo.json").readText()).name }.getOrNull()
-                    name?.let { SavedRobot(dir.name, it) }
-                }?.sortedBy { it.name.lowercase() }.orEmpty()
-            }
+            _saved.value = withContext(Dispatchers.IO) { library.list() }
         }
     }
 
@@ -615,19 +607,17 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val dir = File(root, id)
-                    val assembly = RobotAssembly.fromJson(File(dir, "modelo.json").readText())
-                    val bytes = File(dir, "robo.glb").readBytes()
-                    val parts = GlbReader.read(bytes)
-                    Triple(assembly, bytes, parts)
+                    val entry = library.load(id)
+                    entry to GlbReader.read(entry.glb)
                 }
             }
             _busy.value = false
             result.fold(
-                onSuccess = { (assembly, bytes, parts) ->
+                onSuccess = { (entry, parts) ->
+                    val assembly = entry.assembly
                     val names = parts.parts.map { it.name }
                     if (names != assembly.parts) say("As peças do arquivo mudaram desde que o robô foi salvo: confira os tipos.")
-                    _file.value = Robot3dViewModel.OpenedFile(assembly.fileName, bytes, parts)
+                    _file.value = Robot3dViewModel.OpenedFile(assembly.fileName, entry.glb, parts)
                     _assembly.value = assembly.copy(parts = names)
                     resetView(if (assembly.model() != null) AssemblerStep.TESTAR else AssemblerStep.PECAS)
                 },
@@ -638,7 +628,7 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteSaved(id: String) {
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { File(root, id).deleteRecursively() }
+            withContext(Dispatchers.IO) { runCatching { library.delete(id) } }
             refreshSaved()
         }
     }
@@ -647,10 +637,5 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
         /** Passo da animação do programa (~60 por segundo). */
         private const val FRAME_MS = 16L
 
-        /** Nome de pasta seguro a partir do nome do robô. */
-        internal fun slug(name: String): String {
-            val plain = Normalizer.normalize(name, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")
-            return plain.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]+"), "_").trim('_').take(40).ifBlank { "robo" }
-        }
     }
 }

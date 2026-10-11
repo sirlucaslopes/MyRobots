@@ -1,5 +1,16 @@
 package my.robots.feature.robot3d
 
+import my.robots.core.render3d.AxisDef
+import my.robots.core.render3d.AxisGuess
+import my.robots.core.render3d.FilamentViewer
+import my.robots.core.render3d.MotionType
+import my.robots.core.render3d.OrbitCamera
+import my.robots.core.render3d.PartAssignment
+import my.robots.core.render3d.RobotAssembly
+import my.robots.core.render3d.RobotFront
+import my.robots.core.render3d.RobotOrigin
+import my.robots.core.render3d.SavedRobot
+import my.robots.core.render3d.SceneModels
 import android.view.SurfaceView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts

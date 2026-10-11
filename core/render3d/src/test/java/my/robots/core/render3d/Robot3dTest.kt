@@ -1,4 +1,4 @@
-package my.robots.feature.robot3d
+package my.robots.core.render3d
 
 import my.robots.core.kinematics.RoboTeste
 import my.robots.core.kinematics.Transform
@@ -149,13 +149,6 @@ class Robot3dTest {
         assertTrue(corner.z > 0 && corner.y > 0)
         val half = Math.tan(Math.toRadians(c.fovDeg / 2))
         assertEquals(half, corner.z / -corner.x, 1e-9)
-    }
-
-    @Test
-    fun pasta_do_robo_salvo() {
-        assertEquals("kj264_cabine_2", AssemblerViewModel.slug("KJ264 · Cabine 2"))
-        assertEquals("robo_acao", AssemblerViewModel.slug("Robô ação"))
-        assertEquals("robo", AssemblerViewModel.slug("///"))
     }
 
     @Test

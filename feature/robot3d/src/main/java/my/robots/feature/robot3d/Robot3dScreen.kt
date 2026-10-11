@@ -1,5 +1,9 @@
 package my.robots.feature.robot3d
 
+import my.robots.core.render3d.FilamentViewer
+import my.robots.core.render3d.GlbBuilder
+import my.robots.core.render3d.GlbReader
+import my.robots.core.render3d.OrbitCamera
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.view.SurfaceView

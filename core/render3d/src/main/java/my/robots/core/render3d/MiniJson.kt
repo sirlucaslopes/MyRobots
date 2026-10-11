@@ -1,4 +1,4 @@
-package my.robots.feature.robot3d
+package my.robots.core.render3d
 
 /**
  * Leitor e escritor de JSON mínimo, em Kotlin puro (o `org.json` do Android não roda nos testes

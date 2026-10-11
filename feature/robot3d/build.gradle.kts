@@ -1,4 +1,4 @@
-// Visualizador 3D (Filament): robô de teste montado pela cinemática e arquivos .glb.
+// Telas do 3D: Visualizador 3D (teste) e Montador de robô. O motor fica no :core:render3d.
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)
@@ -27,12 +27,8 @@ android {
 
 dependencies {
     implementation(project(":core:designsystem"))
-    implementation(project(":core:kinematics"))
-
-    // Filament: motor 3D do Google (desenho), gltfio (lê .glb) e utils (iniciação, DisplayHelper)
-    implementation(libs.filament.android)
-    implementation(libs.filament.gltfio.android)
-    implementation(libs.filament.utils.android)
+    // o motor 3D e a cinemática (o :core:render3d expõe o :core:kinematics e o Filament)
+    implementation(project(":core:render3d"))
 
     testImplementation(libs.junit)
 }
