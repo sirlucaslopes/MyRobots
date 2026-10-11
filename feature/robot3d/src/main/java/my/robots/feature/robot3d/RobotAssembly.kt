@@ -30,6 +30,44 @@ data class AxisDef(
     val radiusMm: Double = 0.0,
 )
 
+/** Um ponto do programa de teste: nome e o ângulo de cada eixo (graus). */
+data class TestPoint(val name: String, val angles: List<Double>)
+
+/**
+ * Programa de teste do montador (6ª etapa): pontos percorridos na ordem, em loop. Cada trecho
+ * move todos os eixos juntos (chegam ao mesmo tempo, como o JMOVE), com o eixo que mais anda na
+ * [speedDegS], e para [pauseS] segundos em cada ponto.
+ */
+data class TestProgram(
+    val points: List<TestPoint> = emptyList(),
+    val speedDegS: Double = 60.0,
+    val pauseS: Double = 0.5,
+) {
+    companion object {
+        /** Tempo do trecho de [a] até [b] (s): o eixo que mais anda define. Mínimo de 0,05 s. */
+        fun durationS(a: List<Double>, b: List<Double>, speedDegS: Double): Double {
+            val n = minOf(a.size, b.size)
+            var most = 0.0
+            for (i in 0 until n) most = maxOf(most, kotlin.math.abs(b[i] - a[i]))
+            return maxOf(0.05, most / speedDegS.coerceAtLeast(0.1))
+        }
+
+        /**
+         * Ângulos no instante [t] (0 a 1) do trecho de [a] até [b], com saída e chegada suaves
+         * (curva em S: começa e termina parado).
+         */
+        fun interpolate(a: List<Double>, b: List<Double>, t: Double): List<Double> {
+            val x = t.coerceIn(0.0, 1.0)
+            val s = x * x * (3 - 2 * x)
+            return List(maxOf(a.size, b.size)) { i ->
+                val from = a.getOrElse(i) { 0.0 }
+                val to = b.getOrElse(i) { from }
+                from + (to - from) * s
+            }
+        }
+    }
+}
+
 /** Para onde aponta o X do sistema do robô (a frente), nas coordenadas do arquivo. */
 enum class RobotFront(val label: String, val vector: Vec3) {
     PX("+X", Vec3.X), PY("+Y", Vec3.Y), NX("−X", -Vec3.X), NY("−Y", -Vec3.Y),
@@ -58,6 +96,9 @@ data class RobotAssembly(
     val baseZ: Double = 0.0,
     val baseRotDeg: Double = 0.0,
     val front: RobotFront = RobotFront.PX,
+    /** Cor escolhida para cada peça (0xRRGGBB); peça fora do mapa fica com a cor do arquivo. */
+    val colors: Map<String, Int> = emptyMap(),
+    val program: TestProgram = TestProgram(),
 ) {
     val basePart: String? get() = roles.entries.firstOrNull { it.value.role == PartRole.BASE }?.key
 
@@ -165,6 +206,12 @@ data class RobotAssembly(
             "flange" to flange?.let { axisJson(it) },
             "base" to linkedMapOf("x" to baseX, "y" to baseY, "z" to baseZ, "giro" to baseRotDeg),
             "frente" to front.name,
+            "cores" to colors.mapValues { (_, c) -> colorHex(c) },
+            "programa" to linkedMapOf(
+                "velocidade" to program.speedDegS,
+                "pausa" to program.pauseS,
+                "pontos" to program.points.map { linkedMapOf("nome" to it.name, "eixos" to it.angles) },
+            ),
         ),
     )
 
@@ -187,6 +234,16 @@ data class RobotAssembly(
             val bases = out.filter { it.value.role == PartRole.BASE }.keys.drop(1)
             bases.forEach { out.remove(it) }
             return out
+        }
+
+        /** 0xRRGGBB → "#RRGGBB". */
+        fun colorHex(c: Int) = String.format("#%06X", c and 0xFFFFFF)
+
+        /** "#RRGGBB" ou "RRGGBB" → 0xRRGGBB; null se não for uma cor. */
+        fun parseColor(text: String): Int? {
+            val t = text.trim().removePrefix("#")
+            if (t.length != 6) return null
+            return t.toIntOrNull(16)
         }
 
         private fun vecJson(v: Vec3) = listOf(v.x, v.y, v.z)
@@ -240,6 +297,18 @@ data class RobotAssembly(
                 baseZ = base["z"].num() ?: 0.0,
                 baseRotDeg = base["giro"].num() ?: 0.0,
                 front = runCatching { RobotFront.valueOf(o["frente"].str() ?: "") }.getOrDefault(RobotFront.PX),
+                colors = o["cores"].obj().mapNotNull { (part, v) -> parseColor(v.str() ?: "")?.let { part to it } }.toMap(),
+                program = o["programa"].obj().let { prog ->
+                    TestProgram(
+                        points = prog["pontos"].arr().mapNotNull { v ->
+                            val pt = v.obj()
+                            val angles = pt["eixos"].arr().map { it.num() ?: return@mapNotNull null }
+                            TestPoint(pt["nome"].str() ?: "P", angles)
+                        },
+                        speedDegS = prog["velocidade"].num() ?: 60.0,
+                        pauseS = prog["pausa"].num() ?: 0.5,
+                    )
+                },
             )
         }
     }

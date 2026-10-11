@@ -80,10 +80,36 @@ class RobotAssemblyTest {
     }
 
     @Test
+    fun programa_move_os_eixos_juntos_e_suave() {
+        val a = listOf(0.0, 0.0)
+        val b = listOf(90.0, -30.0)
+        // o eixo que mais anda (90°) define: 1,5 s a 60 °/s
+        assertEquals(1.5, TestProgram.durationS(a, b, 60.0), 1e-12)
+        assertEquals(0.05, TestProgram.durationS(a, a, 60.0), 1e-12)
+        assertEquals(a, TestProgram.interpolate(a, b, 0.0))
+        assertEquals(b, TestProgram.interpolate(a, b, 1.0))
+        val mid = TestProgram.interpolate(a, b, 0.5)
+        assertEquals(45.0, mid[0], 1e-12); assertEquals(-15.0, mid[1], 1e-12)
+        // curva em S: no começo anda menos que a reta
+        assertTrue(TestProgram.interpolate(a, b, 0.1)[0] < 9.0)
+    }
+
+    @Test
+    fun cores() {
+        assertEquals("#F26B1D", RobotAssembly.colorHex(0xF26B1D))
+        assertEquals(0x1F5AA6, RobotAssembly.parseColor("#1f5aa6"))
+        assertEquals(0x1F5AA6, RobotAssembly.parseColor("1F5AA6"))
+        assertNull(RobotAssembly.parseColor("#12345"))
+        assertNull(RobotAssembly.parseColor("#GGGGGG"))
+    }
+
+    @Test
     fun json_ida_e_volta() {
         val a = twoAxes().copy(
             flange = AxisDef(Vec3(800.0, 0.0, 500.0), Vec3.X, kind = AxisGuess.Kind.PLANA, radiusMm = 40.0),
             baseZ = 12.5, front = RobotFront.PY,
+            colors = mapOf("coluna" to 0xF26B1D, "base" to 0x151618),
+            program = TestProgram(listOf(TestPoint("P1", listOf(0.0, 10.0)), TestPoint("P2", listOf(-45.5, 30.0))), 90.0, 1.0),
         )
         val back = RobotAssembly.fromJson(a.toJson())
         assertEquals(a, back)

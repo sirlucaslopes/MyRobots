@@ -4,6 +4,7 @@ import android.view.SurfaceView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,8 +16,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -25,8 +28,14 @@ import androidx.compose.material.icons.rounded.CenterFocusStrong
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.Inventory2
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -54,6 +63,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -79,7 +89,8 @@ import java.util.Locale
 /**
  * "Montador de robô" (Plano Mestre F3d): abre o .glb do robô dividido em peças e, em etapas,
  * diz o que é cada peça, onde fica a base, marca cada eixo tocando na face redonda da junta
- * (ou em dois pontos), marca o flange e testa os eixos. O robô montado é salvo no aparelho.
+ * (ou em dois pontos), marca o flange, testa os eixos e roda um programa de pontos em loop.
+ * Cada peça pode ganhar uma cor. O robô montado é salvo no aparelho.
  */
 @Composable
 fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
@@ -95,6 +106,9 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
     val lastGuess by viewModel.lastGuess.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val saved by viewModel.saved.collectAsStateWithLifecycle()
+    val running by viewModel.running.collectAsStateWithLifecycle()
+    val runTarget by viewModel.runTarget.collectAsStateWithLifecycle()
+    var colorFor by remember { mutableStateOf<String?>(null) }
 
     var viewer by remember { mutableStateOf<FilamentViewer?>(null) }
     var fps by remember { mutableIntStateOf(0) }
@@ -155,6 +169,7 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
         result.message?.let { snackbar.showSnackbar(it) }
     }
     LaunchedEffect(viewer, file, poses) { viewer?.setUserPoses(poses) }
+    LaunchedEffect(viewer, file, a?.colors) { viewer?.setPartColors(a?.colors.orEmpty()) }
     LaunchedEffect(viewer, file, hidden) { viewer?.setHiddenParts(hidden) }
     LaunchedEffect(viewer, file, isolatedPart, step) {
         viewer?.highlight(if (step == AssemblerStep.EIXOS && editingAxis == null) null else isolatedPart)
@@ -163,17 +178,17 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
     LaunchedEffect(viewer, a, poses, step, editingAxis, pending) {
         val v = viewer ?: return@LaunchedEffect
         if (a == null) { v.setMarkers(null); return@LaunchedEffect }
-        val axes = ArrayList<Triple<Vec3, Vec3, Boolean>>()
+        val axes = ArrayList<SceneModels.AxisMarker>()
         when (step) {
             AssemblerStep.EIXOS, AssemblerStep.TESTAR -> for ((n, def) in a.axes) {
                 val pose = a.parentOf(n)?.let { poses[it] } ?: Transform.IDENTITY
-                axes += Triple(pose.apply(def.point), pose.rotate(def.direction), n == editingAxis)
+                axes += SceneModels.AxisMarker(pose.apply(def.point), pose.rotate(def.direction), def.radiusMm, n == editingAxis)
             }
             AssemblerStep.FLANGE -> {
                 val last = a.axisParts.lastOrNull()?.second
                 val pose = last?.let { poses[it] } ?: Transform.IDENTITY
                 val f = a.flange ?: a.axes[a.definedAxisCount]
-                if (f != null) axes += Triple(pose.apply(f.point), pose.rotate(f.direction), true)
+                if (f != null) axes += SceneModels.AxisMarker(pose.apply(f.point), pose.rotate(f.direction), f.radiusMm, true)
             }
             else -> Unit
         }
@@ -269,15 +284,25 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     when (step) {
-                        AssemblerStep.PECAS -> PartsStep(a, selectedPart, viewModel)
+                        AssemblerStep.PECAS -> PartsStep(a, selectedPart, viewModel, onColor = { colorFor = it })
                         AssemblerStep.BASE -> BaseStep(a, viewModel)
                         AssemblerStep.EIXOS -> AxesStep(a, editingAxis, pickMode, lastGuess, angles, viewModel)
                         AssemblerStep.FLANGE -> FlangeStep(a, pickMode, viewModel)
-                        AssemblerStep.TESTAR -> TestStep(a, angles, viewModel)
+                        AssemblerStep.TESTAR -> TestStep(a, angles, selectedPart, viewModel, onColor = { colorFor = it })
+                        AssemblerStep.PROGRAMA -> ProgramStep(a, angles, running, runTarget, viewModel)
                     }
                 }
             }
         }
+    }
+
+    colorFor?.let { part ->
+        ColorDialog(
+            part = part,
+            current = a?.colors?.get(part),
+            onPick = { viewModel.setColor(part, it); colorFor = null },
+            onDismiss = { colorFor = null },
+        )
     }
 
     if (showDelete) {
@@ -315,6 +340,7 @@ private fun hint(a: RobotAssembly?, step: AssemblerStep, editing: Int?, mode: Pi
         }
         AssemblerStep.FLANGE -> if (mode == PickMode.CIRCULO) "Toque na face do flange (a ponta do último eixo)" else "Flange: toque no ponto ${pending + 1} de 2"
         AssemblerStep.TESTAR -> selected?.let { "Peça: $it" } ?: "Mexa os eixos para conferir"
+        AssemblerStep.PROGRAMA -> "Posicione os eixos, adicione pontos e execute em loop"
     }
 }
 
@@ -364,7 +390,7 @@ private fun StepBar(step: AssemblerStep, onStep: (AssemblerStep) -> Unit) {
 // ---------- 1. Peças ----------
 
 @Composable
-private fun PartsStep(a: RobotAssembly, selected: String?, vm: AssemblerViewModel) {
+private fun PartsStep(a: RobotAssembly, selected: String?, vm: AssemblerViewModel, onColor: (String) -> Unit) {
     NameField(a.name, vm::setName)
     val problems = a.problems()
     if (problems.isEmpty()) {
@@ -388,6 +414,8 @@ private fun PartsStep(a: RobotAssembly, selected: String?, vm: AssemblerViewMode
                 modifier = Modifier.fillMaxWidth().clickable { vm.selectPart(part); open = true },
             ) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ColorDot(a.colors[part]) { onColor(part) }
+                    Spacer(Modifier.width(10.dp))
                     Text(part, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         role?.label ?: "Sem tipo",
@@ -565,7 +593,7 @@ private fun FlangeStep(a: RobotAssembly, mode: PickMode, vm: AssemblerViewModel)
 // ---------- 5. Testar ----------
 
 @Composable
-private fun TestStep(a: RobotAssembly, angles: List<Double>, vm: AssemblerViewModel) {
+private fun TestStep(a: RobotAssembly, angles: List<Double>, selected: String?, vm: AssemblerViewModel, onColor: (String) -> Unit) {
     val model = a.model()
     if (model == null) {
         Text("Ainda não dá para testar: marque a base e o eixo 1.", color = MaterialTheme.colorScheme.error)
@@ -582,7 +610,145 @@ private fun TestStep(a: RobotAssembly, angles: List<Double>, vm: AssemblerViewMo
         onChange = vm::setAngle,
         onZero = vm::zeroAll,
     )
-    Spacer(Modifier.width(1.dp))
+    if (selected != null) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ColorDot(a.colors[selected]) { onColor(selected) }
+            Spacer(Modifier.width(10.dp))
+            Text("Cor de $selected", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall)
+        }
+    } else {
+        Text("Toque numa peça para mudar a cor dela.", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+// ---------- 6. Programa de teste ----------
+
+@Composable
+private fun ProgramStep(a: RobotAssembly, angles: List<Double>, running: Boolean, target: Int?, vm: AssemblerViewModel) {
+    val model = a.model()
+    if (model == null) {
+        Text("Ainda não dá para testar: marque a base e o eixo 1.", color = MaterialTheme.colorScheme.error)
+        return
+    }
+    val prog = a.program
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedButton(onClick = vm::addPoint, enabled = !running) { Text("Adicionar ponto") }
+        if (running) {
+            Button(onClick = vm::stopProgram, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
+                Text("Parar")
+            }
+        } else {
+            Button(onClick = vm::runProgram, enabled = prog.points.size >= 2) { Text("Executar em loop") }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(String.format(Locale.US, "Velocidade %.0f °/s", prog.speedDegS), style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.width(120.dp))
+        Slider(
+            value = prog.speedDegS.toFloat(), onValueChange = { vm.setSpeed(it.toDouble()) },
+            valueRange = 5f..180f, modifier = Modifier.weight(1f),
+        )
+    }
+    NumberField("Pausa em cada ponto (s)", prog.pauseS, Modifier.fillMaxWidth()) { vm.setPause(it) }
+    if (prog.points.isEmpty()) {
+        Text("Mexa os eixos abaixo até a posição e toque em Adicionar ponto. Com 2 ou mais, Executar repete a sequência.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    prog.points.forEachIndexed { i, pt ->
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = if (i == target) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(Modifier.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(pt.name, style = MaterialTheme.typography.titleSmall)
+                    Text(pt.angles.joinToString(" ") { String.format(Locale.US, "%.1f", it) },
+                        style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                IconButton(onClick = { vm.goToPoint(i) }, enabled = !running) { Icon(Icons.Rounded.PlayArrow, "Ir para ${pt.name}") }
+                IconButton(onClick = { vm.updatePoint(i) }, enabled = !running) { Icon(Icons.Rounded.Refresh, "Atualizar ${pt.name} com a posição atual") }
+                IconButton(onClick = { vm.movePoint(i, -1) }, enabled = !running && i > 0) { Icon(Icons.Rounded.KeyboardArrowUp, "Subir") }
+                IconButton(onClick = { vm.movePoint(i, 1) }, enabled = !running && i < prog.points.lastIndex) { Icon(Icons.Rounded.KeyboardArrowDown, "Descer") }
+                IconButton(onClick = { vm.deletePoint(i) }) { Icon(Icons.Rounded.Delete, "Apagar ${pt.name}") }
+            }
+        }
+    }
+    if (!running) {
+        HorizontalDivider()
+        AxisSliders(
+            joints = model.joints,
+            angles = angles.take(model.axisCount),
+            tcp = vm.tcpPose()?.format() ?: "",
+            onChange = vm::setAngle,
+            onZero = vm::zeroAll,
+        )
+    } else {
+        Text("TCP  ${vm.tcpPose()?.format() ?: ""}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+    }
+}
+
+// ---------- cores ----------
+
+/** Cores prontas para as peças. */
+private val PALETTE = listOf(
+    0xF2F2F0, 0xC8C8C4, 0x8A8C90, 0x3A3C40, 0x151618, 0xF26B1D,
+    0xF5C400, 0xC8102E, 0x1F5AA6, 0x4FA3E0, 0x2E8B57, 0x9ACD32,
+)
+
+private fun composeColor(rgb: Int) = Color(0xFF000000.toInt() or rgb)
+
+/** Bolinha com a cor da peça; tracejada (contorno) quando é a cor do arquivo. */
+@Composable
+private fun ColorDot(rgb: Int?, size: androidx.compose.ui.unit.Dp = 22.dp, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(if (rgb != null) composeColor(rgb) else Color.Transparent)
+            .border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape)
+            .clickable(onClick = onClick),
+    )
+}
+
+@Composable
+private fun ColorDialog(part: String, current: Int?, onPick: (Int?) -> Unit, onDismiss: () -> Unit) {
+    var hex by remember { mutableStateOf(current?.let { RobotAssembly.colorHex(it) } ?: "#") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cor da peça") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(part, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                for (row in PALETTE.chunked(6)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        for (c in row) ColorDot(c, 34.dp) { onPick(c) }
+                    }
+                }
+                OutlinedTextField(
+                    value = hex, onValueChange = { hex = it }, singleLine = true,
+                    label = { Text("Cor livre (#RRGGBB)") },
+                    trailingIcon = {
+                        RobotAssembly.parseColor(hex)?.let { c -> ColorDot(c, 24.dp) { onPick(c) } }
+                    },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { RobotAssembly.parseColor(hex)?.let(onPick) }, enabled = RobotAssembly.parseColor(hex) != null) {
+                Text("Usar")
+            }
+        },
+        dismissButton = {
+            Row {
+                TextButton(onClick = { onPick(null) }) { Text("Cor do arquivo") }
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
+            }
+        },
+    )
 }
 
 // ---------- campos ----------

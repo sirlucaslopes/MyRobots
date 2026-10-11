@@ -70,6 +70,11 @@ class FilamentViewer(
     private var userModel: FilamentAsset? = null
     private var markers: FilamentAsset? = null
 
+    /** Letras X, Y e Z da origem (declaradas antes do init, que as carrega). */
+    private var legend: FilamentAsset? = null
+    private var legendEntities = IntArray(0)
+    private val legendDirs = listOf(Vec3.X, Vec3.Y, Vec3.Z)
+
     /** Peça do robô → entidade do nó no Filament. */
     private val robotParts = HashMap<String, Int>()
     private val matrix = FloatArray(16)
@@ -168,6 +173,32 @@ class FilamentViewer(
         installGestures()
 
         scenery = loadAsset(SceneModels.sceneryGlb())?.also { scene.addEntities(it.entities) }
+        legend = loadAsset(SceneModels.legendGlb())?.also { asset ->
+            scene.addEntities(asset.entities)
+            legendEntities = SceneModels.LEGEND_NODES.map { asset.getFirstEntityByName(it) }.toIntArray()
+        }
+    }
+
+    /**
+     * Põe as letras na ponta das setas, viradas para a câmera e com tamanho fixo na tela
+     * (o glb tem as letras com 1 m de altura no plano XY).
+     */
+    private fun updateLegend() {
+        if (legendEntities.isEmpty()) return
+        val (right, up) = camera.screenAxes()
+        val back = right.cross(up)
+        val s = (camera.distance * 0.035).coerceIn(0.02, 20.0)
+        val tm = engine.transformManager
+        val arrow = SceneModels.ORIGIN_ARROW_MM * MeshData.MM
+        for ((i, e) in legendEntities.withIndex()) {
+            if (e == 0) continue
+            val c = legendDirs[i] * (arrow + s * 0.8)
+            matrix[0] = (right.x * s).toFloat(); matrix[1] = (right.y * s).toFloat(); matrix[2] = (right.z * s).toFloat(); matrix[3] = 0f
+            matrix[4] = (up.x * s).toFloat(); matrix[5] = (up.y * s).toFloat(); matrix[6] = (up.z * s).toFloat(); matrix[7] = 0f
+            matrix[8] = (back.x * s).toFloat(); matrix[9] = (back.y * s).toFloat(); matrix[10] = (back.z * s).toFloat(); matrix[11] = 0f
+            matrix[12] = c.x.toFloat(); matrix[13] = c.y.toFloat(); matrix[14] = c.z.toFloat(); matrix[15] = 1f
+            tm.setTransform(tm.getInstance(e), matrix)
+        }
     }
 
     // ---------- robô de teste ----------
@@ -250,6 +281,51 @@ class FilamentViewer(
             }
         }
         highlighted = name
+    }
+
+    // cores escolhidas: materiais originais trocados por cópias coloridas
+    private val colorSwaps = ArrayList<Triple<Int, Int, MaterialInstance>>()
+    private val colorCopies = ArrayList<MaterialInstance>()
+    private var appliedColors: Map<String, Int> = emptyMap()
+
+    /**
+     * Pinta as peças do arquivo aberto (0xRRGGBB, sRGB). Peça fora do mapa volta à cor do arquivo.
+     * Fica por baixo do realce: a peça tocada continua laranja e volta à cor escolhida depois.
+     */
+    fun setPartColors(colors: Map<String, Int>) {
+        if (colors == appliedColors) return
+        val h = highlighted
+        clearHighlight()
+        clearColors()
+        val rm = engine.renderableManager
+        for ((name, rgb) in colors) {
+            val part = userParts[name] ?: continue
+            val r = ((rgb shr 16) and 0xFF) / 255f
+            val g = ((rgb shr 8) and 0xFF) / 255f
+            val b = (rgb and 0xFF) / 255f
+            for (e in part.renderables) {
+                val inst = rm.getInstance(e)
+                for (p in 0 until rm.getPrimitiveCount(inst)) {
+                    val original = rm.getMaterialInstanceAt(inst, p)
+                    val copy = MaterialInstance.duplicate(original, "cor")
+                    copy.setParameter("baseColorFactor", Colors.RgbaType.SRGB, r, g, b, 1f)
+                    rm.setMaterialInstanceAt(inst, p, copy)
+                    colorSwaps += Triple(inst, p, original)
+                    colorCopies += copy
+                }
+            }
+        }
+        appliedColors = colors
+        highlight(h)
+    }
+
+    private fun clearColors() {
+        val rm = engine.renderableManager
+        for ((inst, p, original) in colorSwaps) rm.setMaterialInstanceAt(inst, p, original)
+        colorSwaps.clear()
+        colorCopies.forEach { engine.destroyMaterialInstance(it) }
+        colorCopies.clear()
+        appliedColors = emptyMap()
     }
 
     private fun clearHighlight() {
@@ -375,6 +451,7 @@ class FilamentViewer(
         val chain = swapChain ?: return
         if (!uiHelper.isReadyToRender) return
         updateCamera()
+        updateLegend()
         if (renderer.beginFrame(chain, frameTimeNanos)) {
             renderer.render(view)
             renderer.endFrame()
@@ -486,6 +563,7 @@ class FilamentViewer(
         val asset = userModel ?: return
         // o realce pode estar numa peça do arquivo: devolve os materiais antes de destruir
         if (highlighted in userParts) clearHighlight()
+        clearColors()
         removeAsset(asset)
         userModel = null
         userParts.clear()
@@ -504,8 +582,9 @@ class FilamentViewer(
 
         clearHighlight()
         clearUserModel()
-        listOfNotNull(robot, scenery, markers).forEach { removeAsset(it) }
-        robot = null; scenery = null; markers = null
+        listOfNotNull(robot, scenery, markers, legend).forEach { removeAsset(it) }
+        robot = null; scenery = null; markers = null; legend = null
+        legendEntities = IntArray(0)
         resourceLoader.destroy()
         assetLoader.destroy()
         materialProvider.destroyMaterials()

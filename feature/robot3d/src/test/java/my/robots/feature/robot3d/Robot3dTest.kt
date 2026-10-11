@@ -63,6 +63,28 @@ class Robot3dTest {
     }
 
     @Test
+    fun legenda_tem_as_tres_letras_e_marcas_sao_glb() {
+        val json = glbJson(SceneModels.legendGlb())
+        for (n in SceneModels.LEGEND_NODES) assertTrue(json.contains("\"name\":\"$n\""))
+        val marks = SceneModels.markersGlb(listOf(SceneModels.AxisMarker(Vec3.ZERO, Vec3.Z, 100.0, true)), listOf(Vec3.X))!!
+        assertTrue(GlbBuilder.isGlb(marks))
+        assertEquals(null, SceneModels.markersGlb(emptyList(), emptyList()))
+    }
+
+    @Test
+    fun seta_curva_gira_no_sentido_positivo() {
+        // o arco em volta de Z começa em +X e passa por +Y (anti-horário visto de cima: giro positivo)
+        val m = MeshData().arc(Transform.IDENTITY, 100.0, 1.0, 0.0, Math.PI / 2, segments = 2, sides = 4)
+        val p = m.positions()
+        // anel do meio (45°): x e y positivos e iguais (posições em metros)
+        val ring = 5 * 3 // 1 anel = sides + 1 = 5 vértices
+        assertEquals(p[ring], p[ring + 1], 1e-6f)
+        assertTrue(p[ring] > 0)
+        // as faces apontam para fora: normal do 1º vértice = para fora do arco
+        assertEquals(1f, m.normals()[0], 1e-6f)
+    }
+
+    @Test
     fun robo_de_teste_tem_um_no_por_peca() {
         val model = RoboTeste.modelo()
         val json = glbJson(SceneModels.testRobotGlb(model.basePart, RoboTeste.eixos, RoboTeste.flange))

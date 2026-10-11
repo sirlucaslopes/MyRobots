@@ -4,6 +4,9 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -24,6 +27,7 @@ import kotlin.math.max
 /** Etapas do montador, na ordem da barra de etapas. */
 enum class AssemblerStep(val label: String) {
     PECAS("1 Peças"), BASE("2 Base"), EIXOS("3 Eixos"), FLANGE("4 Flange"), TESTAR("5 Testar"),
+    PROGRAMA("6 Programa"),
 }
 
 /** Como o toque marca um eixo: face (Círculo) ou dois pontos. */
@@ -84,6 +88,13 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    /** Programa de teste rodando (6ª etapa) e o ponto para onde está indo. */
+    private val _running = MutableStateFlow(false)
+    val running: StateFlow<Boolean> = _running.asStateFlow()
+    private val _runTarget = MutableStateFlow<Int?>(null)
+    val runTarget: StateFlow<Int?> = _runTarget.asStateFlow()
+    private var runJob: Job? = null
+
     private val root get() = File(getApplication<Application>().filesDir, "robos3d")
 
     init {
@@ -97,6 +108,7 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- abrir ----------
 
     fun open(file: Robot3dViewModel.OpenedFile) {
+        stopProgram()
         val parts = file.parts
         if (parts == null) {
             say("Não deu para ler as peças desse .glb.")
@@ -127,12 +139,13 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- etapas e peças ----------
 
     fun setStep(step: AssemblerStep) {
+        stopProgram()
         _step.value = step
         _editingAxis.value = null
         _pendingPoints.value = emptyList()
         _lastGuess.value = null
         _isolate.value = false
-        if (step != AssemblerStep.TESTAR) _angles.value = List(6) { 0.0 }
+        if (step != AssemblerStep.TESTAR && step != AssemblerStep.PROGRAMA) _angles.value = List(6) { 0.0 }
     }
 
     fun selectPart(name: String?) {
@@ -154,6 +167,110 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
     fun setFront(front: RobotFront) = _assembly.update { it?.copy(front = front) }
 
     fun toggleIsolate() = _isolate.update { !it }
+
+    /** Cor de uma peça (0xRRGGBB); null volta à cor do arquivo. */
+    fun setColor(part: String, rgb: Int?) = _assembly.update { a ->
+        a?.copy(colors = if (rgb == null) a.colors - part else a.colors + (part to rgb))
+    }
+
+    // ---------- programa de teste (6ª etapa) ----------
+
+    private fun currentAngles(): List<Double>? {
+        val n = _assembly.value?.model()?.axisCount ?: return null
+        return _angles.value.take(n)
+    }
+
+    private fun updateProgram(change: (TestProgram) -> TestProgram) =
+        _assembly.update { a -> a?.copy(program = change(a.program)) }
+
+    /** Guarda a posição atual dos eixos como um ponto novo no fim. */
+    fun addPoint() {
+        val angles = currentAngles() ?: return
+        updateProgram { p ->
+            // nome livre: P1, P2… sem repetir os que já existem
+            var n = p.points.size + 1
+            while (p.points.any { it.name == "P$n" }) n++
+            p.copy(points = p.points + TestPoint("P$n", angles))
+        }
+    }
+
+    /** Troca os ângulos do ponto [index] pela posição atual. */
+    fun updatePoint(index: Int) {
+        val angles = currentAngles() ?: return
+        updateProgram { p -> p.copy(points = p.points.mapIndexed { i, pt -> if (i == index) pt.copy(angles = angles) else pt }) }
+    }
+
+    fun deletePoint(index: Int) {
+        stopProgram()
+        updateProgram { p -> p.copy(points = p.points.filterIndexed { i, _ -> i != index }) }
+    }
+
+    fun movePoint(index: Int, delta: Int) = updateProgram { p ->
+        val to = index + delta
+        if (index !in p.points.indices || to !in p.points.indices) return@updateProgram p
+        val list = p.points.toMutableList()
+        val pt = list.removeAt(index)
+        list.add(to, pt)
+        p.copy(points = list)
+    }
+
+    /** Leva o robô direto ao ponto (sem animar). */
+    fun goToPoint(index: Int) {
+        val pt = _assembly.value?.program?.points?.getOrNull(index) ?: return
+        val model = _assembly.value?.model() ?: return
+        _angles.value = List(6) { i -> if (i < model.axisCount) model.joints[i].clamp(pt.angles.getOrElse(i) { 0.0 }) else 0.0 }
+    }
+
+    fun setSpeed(degS: Double) = updateProgram { it.copy(speedDegS = degS.coerceIn(1.0, 360.0)) }
+
+    fun setPause(seconds: Double) = updateProgram { it.copy(pauseS = seconds.coerceIn(0.0, 30.0)) }
+
+    /**
+     * Percorre os pontos na ordem e volta ao primeiro, em loop, até [stopProgram]. Cada trecho
+     * sai de onde o robô está; os ângulos passam pelos limites de cada eixo.
+     */
+    fun runProgram() {
+        if (_running.value) return
+        val a = _assembly.value ?: return
+        val model = a.model() ?: return
+        if (a.program.points.size < 2) {
+            say("Adicione pelo menos 2 pontos para executar.")
+            return
+        }
+        _running.value = true
+        runJob = viewModelScope.launch {
+            try {
+                var i = 0
+                while (isActive) {
+                    val prog = _assembly.value?.program ?: break
+                    if (prog.points.size < 2) break
+                    if (i >= prog.points.size) i = 0
+                    val target = prog.points[i].angles.take(model.axisCount).mapIndexed { k, v -> model.joints[k].clamp(v) }
+                    _runTarget.value = i
+                    val from = _angles.value.take(model.axisCount)
+                    val total = TestProgram.durationS(from, target, prog.speedDegS)
+                    val start = System.nanoTime()
+                    while (isActive) {
+                        val t = (System.nanoTime() - start) / 1e9 / total
+                        val now = TestProgram.interpolate(from, target, t)
+                        _angles.value = List(6) { k -> now.getOrElse(k) { 0.0 } }
+                        if (t >= 1) break
+                        delay(FRAME_MS)
+                    }
+                    delay((prog.pauseS * 1000).toLong())
+                    i++
+                }
+            } finally {
+                _running.value = false
+                _runTarget.value = null
+            }
+        }
+    }
+
+    fun stopProgram() {
+        runJob?.cancel()
+        runJob = null
+    }
 
     // ---------- eixos ----------
 
@@ -343,6 +460,9 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
+        /** Passo da animação do programa (~60 por segundo). */
+        private const val FRAME_MS = 16L
+
         /** Nome de pasta seguro a partir do nome do robô. */
         internal fun slug(name: String): String {
             val plain = Normalizer.normalize(name, Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "")

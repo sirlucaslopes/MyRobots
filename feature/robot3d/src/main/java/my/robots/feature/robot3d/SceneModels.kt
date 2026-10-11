@@ -43,17 +43,26 @@ object SceneModels {
         return glb.build()
     }
 
+    /** Nós das letras da legenda da origem (o desenho vira cada uma para a câmera). */
+    val LEGEND_NODES = listOf("letra_x", "letra_y", "letra_z")
+
+    /** Comprimento das setas da origem (mm) e onde fica o meio de cada letra. */
+    const val ORIGIN_ARROW_MM = 1000.0
+    val LEGEND_POSITIONS_MM = listOf(Vec3(1130.0, 0.0, 0.0), Vec3(0.0, 1130.0, 0.0), Vec3(0.0, 0.0, 1130.0))
+
     /**
      * Grade no chão (Z = 0) de ±[halfSizeMm] com uma linha a cada [stepMm], mais forte a cada metro,
-     * e os eixos X (vermelho), Y (verde) e Z (azul) saindo do zero.
+     * e a origem no estilo do CAD: uma bolinha branca e as setas X (vermelha), Y (verde) e Z (azul).
      */
     fun sceneryGlb(halfSizeMm: Double = 3000.0, stepMm: Double = 250.0): ByteArray {
         val glb = GlbBuilder()
         val minor = glb.addMaterial(GlbBuilder.Material("grade", 0.16f, 0.17f, 0.19f, unlit = true))
         val major = glb.addMaterial(GlbBuilder.Material("grade_metro", 0.32f, 0.34f, 0.38f, unlit = true))
-        val red = glb.addMaterial(GlbBuilder.Material("eixo_x", 0.9f, 0.08f, 0.06f, unlit = true))
-        val green = glb.addMaterial(GlbBuilder.Material("eixo_y", 0.10f, 0.75f, 0.12f, unlit = true))
-        val blue = glb.addMaterial(GlbBuilder.Material("eixo_z", 0.10f, 0.30f, 0.95f, unlit = true))
+        // as setas e a bolinha recebem luz, para parecerem peças (como no CAD)
+        val red = glb.addMaterial(GlbBuilder.Material("eixo_x", 0.85f, 0.05f, 0.04f, roughness = 0.45f))
+        val green = glb.addMaterial(GlbBuilder.Material("eixo_y", 0.04f, 0.45f, 0.06f, roughness = 0.45f))
+        val blue = glb.addMaterial(GlbBuilder.Material("eixo_z", 0.04f, 0.10f, 0.80f, roughness = 0.45f))
+        val white = glb.addMaterial(GlbBuilder.Material("origem", 0.92f, 0.92f, 0.92f, roughness = 0.35f))
 
         val thin = MeshData()
         val thick = MeshData()
@@ -72,34 +81,74 @@ object SceneModels {
         thick.box(Vec3(-halfSizeMm, -3.0, -1.5), Vec3(0.0, 3.0, -0.5))
         thick.box(Vec3(-3.0, -halfSizeMm, -1.5), Vec3(3.0, 0.0, -0.5))
 
-        val axisLen = 1000.0
-        val t = 8.0
-        val x = MeshData().box(Vec3(0.0, -t, -t), Vec3(axisLen, t, t))
-        val y = MeshData().box(Vec3(-t, 0.0, -t), Vec3(t, axisLen, t))
-        val z = MeshData().box(Vec3(-t, -t, 0.0), Vec3(t, t, axisLen))
-        glb.addNode(SCENERY_NODE, listOf(thin to minor, thick to major, x to red, y to green, z to blue))
+        val len = ORIGIN_ARROW_MM
+        fun arrow(d: Vec3) = MeshData().arrow(Vec3.ZERO, d, len, shaft = 9.0, headRadius = 26.0, headLength = 90.0)
+        val ball = MeshData().sphere(Vec3.ZERO, 28.0)
+        glb.addNode(SCENERY_NODE, listOf(thin to minor, thick to major, arrow(Vec3.X) to red, arrow(Vec3.Y) to green,
+            arrow(Vec3.Z) to blue, ball to white))
         return glb.build()
     }
 
     /**
-     * Marcas do montador, no espaço do app (mm): a linha de cada eixo ([axes]: ponto, direção e
-     * se é o que está sendo editado), com um cone na ponta positiva, e os pontos tocados.
+     * As letras X, Y e Z da origem: um nó por letra, de traços, com 1000 mm de altura e o meio no
+     * zero do nó, desenhadas no plano XY (de frente para +Z). O desenho põe cada uma na ponta da
+     * seta, virada para a câmera e no tamanho certo ([LEGEND_NODES]).
+     */
+    fun legendGlb(): ByteArray {
+        val glb = GlbBuilder()
+        val mat = glb.addMaterial(GlbBuilder.Material("legenda", 0.95f, 0.95f, 0.95f, unlit = true))
+        // traços de cada letra num quadrado de 0 a 1 (largura 0,7)
+        val strokes = listOf(
+            listOf(0.0 to 0.0, 0.7 to 1.0, 0.0 to 1.0, 0.7 to 0.0),                 // X: duas diagonais
+            listOf(0.0 to 1.0, 0.35 to 0.5, 0.7 to 1.0, 0.35 to 0.5, 0.35 to 0.5, 0.35 to 0.0), // Y
+            listOf(0.0 to 1.0, 0.7 to 1.0, 0.7 to 1.0, 0.0 to 0.0, 0.0 to 0.0, 0.7 to 0.0),     // Z
+        )
+        for ((i, name) in LEGEND_NODES.withIndex()) {
+            val m = MeshData()
+            val pts = strokes[i]
+            for (k in pts.indices step 2) {
+                val (ax, ay) = pts[k]
+                val (bx, by) = pts[k + 1]
+                val a = Vec3((ax - 0.35) * 1000, (ay - 0.5) * 1000, 0.0)
+                val b = Vec3((bx - 0.35) * 1000, (by - 0.5) * 1000, 0.0)
+                m.stroke(a, b, 110.0)
+            }
+            glb.addNode(name, listOf(m to mat))
+        }
+        return glb.build()
+    }
+
+    /** Um eixo para marcar: ponto e direção (mm, espaço do app), raio da face e se é o editado. */
+    data class AxisMarker(val point: Vec3, val direction: Vec3, val radiusMm: Double, val editing: Boolean)
+
+    /**
+     * Marcas do montador, no espaço do app (mm), no estilo do Fusion 360: para cada eixo, uma seta
+     * reta no sentido do eixo e uma seta curva em volta dele no sentido do giro positivo (regra da
+     * mão direita: polegar na seta reta, os dedos na curva). Mais os pontos tocados.
      * Sem luz, para aparecer igual de qualquer lado. null se não há nada para marcar.
      */
-    fun markersGlb(axes: List<Triple<Vec3, Vec3, Boolean>>, points: List<Vec3>, halfLengthMm: Double = 350.0): ByteArray? {
+    fun markersGlb(axes: List<AxisMarker>, points: List<Vec3>, halfLengthMm: Double = 350.0): ByteArray? {
         if (axes.isEmpty() && points.isEmpty()) return null
         val glb = GlbBuilder()
-        val current = glb.addMaterial(GlbBuilder.Material("eixo_editado", 1f, 0.85f, 0.05f, unlit = true))
-        val other = glb.addMaterial(GlbBuilder.Material("eixo", 0.15f, 0.75f, 1f, unlit = true))
+        val current = glb.addMaterial(GlbBuilder.Material("eixo_editado", 1f, 0.80f, 0.05f, unlit = true))
+        val other = glb.addMaterial(GlbBuilder.Material("eixo", 0.15f, 0.70f, 1f, unlit = true))
         val point = glb.addMaterial(GlbBuilder.Material("ponto", 1f, 0.15f, 0.55f, unlit = true))
         val meshes = ArrayList<Pair<MeshData, Int>>()
-        for ((p, d, editing) in axes) {
-            val frame = Transform.fromAxis(p, d)
-            val r = if (editing) 4.0 else 2.5
-            val line = MeshData().cylinder(frame, r, halfLengthMm, 12)
-            // "seta": um cilindro mais grosso na ponta do sentido positivo
-            line.cylinder(Transform.fromAxis(p + d.normalized() * (halfLengthMm - 20), d), r * 3.5, 20.0, 12)
-            meshes += line to (if (editing) current else other)
+        for (a in axes) {
+            val d = a.direction.normalized()
+            val tube = if (a.editing) 4.0 else 2.5
+            val m = MeshData()
+            // seta reta atravessando a junta, com a ponta no sentido positivo
+            m.arrow(a.point - d * halfLengthMm, d, 2 * halfLengthMm, tube, tube * 4, 60.0)
+            // seta curva: 270° em volta do eixo, um pouco fora da face, com a ponta no fim do giro
+            val ring = (a.radiusMm * 1.3).coerceIn(60.0, 260.0)
+            val frame = Transform.fromAxis(a.point, d)
+            val sweep = 1.5 * Math.PI
+            m.arc(frame, ring, tube, 0.0, sweep)
+            val end = frame.apply(Vec3(kotlin.math.cos(sweep), kotlin.math.sin(sweep), 0.0) * ring)
+            val tangent = frame.rotate(Vec3(-kotlin.math.sin(sweep), kotlin.math.cos(sweep), 0.0))
+            m.cone(Transform.fromAxis(end, tangent), tube * 4, 55.0, 16)
+            meshes += m to (if (a.editing) current else other)
         }
         if (points.isNotEmpty()) {
             val m = MeshData()

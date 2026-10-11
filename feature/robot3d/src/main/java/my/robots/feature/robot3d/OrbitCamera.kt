@@ -43,8 +43,8 @@ class OrbitCamera(
             return target + Vec3(cos(pitch) * cos(yaw), cos(pitch) * sin(yaw), sin(pitch)) * distance
         }
 
-    /** Direita e cima da tela, no espaço 3D (para arrastar com dois dedos). */
-    private fun screenAxes(): Pair<Vec3, Vec3> {
+    /** Direita e cima da tela, no espaço 3D (para arrastar com dois dedos e virar a legenda). */
+    fun screenAxes(): Pair<Vec3, Vec3> {
         val forward = (target - eye).normalized()
         val right = forward.cross(Vec3.Z).normalized()
         val up = right.cross(forward)
