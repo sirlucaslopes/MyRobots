@@ -201,12 +201,7 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
                 val pose = a.parentOf(n)?.let { poses[it] } ?: Transform.IDENTITY
                 axes += SceneModels.AxisMarker(pose.apply(def.point), pose.rotate(def.direction), def.radiusMm, n == editingAxis)
             }
-            AssemblerStep.FLANGE -> {
-                val last = a.axisParts.lastOrNull()?.second
-                val pose = last?.let { poses[it] } ?: Transform.IDENTITY
-                val f = a.flange ?: a.axes[a.definedAxisCount]
-                if (f != null) axes += SceneModels.AxisMarker(pose.apply(f.point), pose.rotate(f.direction), f.radiusMm, true)
-            }
+            // no Flange quem mostra o resultado são as setas do TCP (sem seta de eixo)
             else -> Unit
         }
         val points = pending.map { (part, p) -> (poses[part] ?: Transform.IDENTITY).apply(p) }

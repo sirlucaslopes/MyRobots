@@ -94,12 +94,12 @@ object SceneModels {
      * um sistema de coordenadas (origem do espaço, sistema do robô, TCP). Proporções fixas, para
      * todos parecerem iguais em tamanhos diferentes.
      */
-    private fun triadMeshes(lengthMm: Double, mats: List<Int>): List<Pair<MeshData, Int>> {
-        fun arrow(d: Vec3) = MeshData().arrow(Vec3.ZERO, d, lengthMm, shaft = lengthMm * 0.010,
-            headRadius = lengthMm * 0.030, headLength = lengthMm * 0.10)
+    private fun triadMeshes(lengthMm: Double, mats: List<Int>, thickness: Double = 1.0): List<Pair<MeshData, Int>> {
+        fun arrow(d: Vec3) = MeshData().arrow(Vec3.ZERO, d, lengthMm, shaft = lengthMm * 0.010 * thickness,
+            headRadius = lengthMm * 0.030 * thickness, headLength = lengthMm * 0.10 * thickness)
         return listOf(
             arrow(Vec3.X) to mats[0], arrow(Vec3.Y) to mats[1], arrow(Vec3.Z) to mats[2],
-            MeshData().sphere(Vec3.ZERO, lengthMm * 0.030) to mats[3],
+            MeshData().sphere(Vec3.ZERO, lengthMm * 0.030 * thickness) to mats[3],
         )
     }
 
@@ -120,7 +120,8 @@ object SceneModels {
         val glb = GlbBuilder()
         val mats = triadMaterials(glb)
         glb.addNode(FRAME_ROBOT, triadMeshes(ROBOT_FRAME_MM, mats))
-        glb.addNode(FRAME_TCP, triadMeshes(TCP_FRAME_MM, mats))
+        // o TCP é pequeno: setas mais grossas para aparecerem de longe
+        glb.addNode(FRAME_TCP, triadMeshes(TCP_FRAME_MM, mats, thickness = 2.5))
         return glb.build()
     }
 
