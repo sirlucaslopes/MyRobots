@@ -107,6 +107,14 @@ data class RobotAssembly(
     val program: TestProgram = TestProgram(),
     /** TOOL do controlador (X Y Z O A T do flange até o TCP); null = TCP no flange. */
     val tool: KawasakiPose? = null,
+    /**
+     * Ajuste de cada peça que veio fora da posição de montagem (Mover e Girar): leva a peça do
+     * jeito que está no arquivo para a posição montada. Eixos, flange e pontos são marcados já na
+     * posição montada.
+     */
+    val offsets: Map<String, Transform> = emptyMap(),
+    /** Peças fixadas: o ajuste delas não muda mais. */
+    val locked: Set<String> = emptySet(),
 ) {
     val basePart: String? get() = roles.entries.firstOrNull { it.value.role == PartRole.BASE }?.key
 
@@ -197,6 +205,19 @@ data class RobotAssembly(
         return out
     }
 
+    /**
+     * Onde desenhar cada peça: a pose de [poses] mais o ajuste da peça (o desenho e o toque
+     * trabalham com a peça como está no arquivo).
+     */
+    fun displayPoses(deg: DoubleArray = DoubleArray(definedAxisCount)): Map<String, Transform> =
+        poses(deg).mapValues { (part, pose) -> offsets[part]?.let { pose * it } ?: pose }
+
+    /** Ponto da peça como está no arquivo → posição montada. */
+    fun toAssembled(part: String, p: Vec3): Vec3 = offsets[part]?.apply(p) ?: p
+
+    /** Direção da peça como está no arquivo → posição montada. */
+    fun dirToAssembled(part: String, d: Vec3): Vec3 = offsets[part]?.rotate(d) ?: d
+
     /** Pai do eixo [number]: a base (eixo 1) ou a peça do eixo anterior. */
     fun parentOf(number: Int): String? =
         if (number == 1) basePart else axisParts.firstOrNull { it.first == number - 1 }?.second
@@ -223,6 +244,8 @@ data class RobotAssembly(
             "frente" to front.name,
             "cores" to colors.mapValues { (_, c) -> colorHex(c) },
             "tool" to tool?.let { listOf(it.x, it.y, it.z, it.o, it.a, it.t) },
+            "ajustes" to offsets.mapValues { (_, t) -> KawasakiPose.fromTransform(t).let { listOf(it.x, it.y, it.z, it.o, it.a, it.t) } },
+            "fixas" to locked.toList(),
             "programa" to linkedMapOf(
                 "velocidade" to program.speedDegS,
                 "pausa" to program.pauseS,
@@ -317,6 +340,11 @@ data class RobotAssembly(
                 front = runCatching { RobotFront.valueOf(o["frente"].str() ?: "") }.getOrDefault(RobotFront.PX),
                 tool = o["tool"].arr().mapNotNull { it.num() }.takeIf { it.size == 6 }
                     ?.let { KawasakiPose(it[0], it[1], it[2], it[3], it[4], it[5]) },
+                offsets = o["ajustes"].obj().mapNotNull { (part, v) ->
+                    val n = v.arr().mapNotNull { it.num() }
+                    if (n.size != 6) null else part to KawasakiPose(n[0], n[1], n[2], n[3], n[4], n[5]).toTransform()
+                }.toMap(),
+                locked = o["fixas"].arr().mapNotNull { it.str() }.toSet(),
                 colors = o["cores"].obj().mapNotNull { (part, v) -> parseColor(v.str() ?: "")?.let { part to it } }.toMap(),
                 program = o["programa"].obj().let { prog ->
                     TestProgram(

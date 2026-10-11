@@ -356,11 +356,43 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
         return model.tcpInWorld(DoubleArray(model.axisCount) { a.getOrElse(it) { 0.0 } })
     }
 
-    /** Onde cada peça está agora (para desenhar e para o toque). */
+    /** Onde cada peça montada está agora (para as marcas dos eixos e pontos). */
     fun poses(): Map<String, Transform> {
         val a = _assembly.value ?: return emptyMap()
         val angles = _angles.value
         return a.poses(DoubleArray(a.definedAxisCount) { angles.getOrElse(it) { 0.0 } })
+    }
+
+    /** Onde desenhar cada peça, com o ajuste de Mover e Girar (para o desenho e o toque). */
+    fun displayPoses(): Map<String, Transform> {
+        val a = _assembly.value ?: return emptyMap()
+        val angles = _angles.value
+        return a.displayPoses(DoubleArray(a.definedAxisCount) { angles.getOrElse(it) { 0.0 } })
+    }
+
+    // ---------- Mover, Girar e Fixar ----------
+
+    /** Move a peça [mm] ao longo de [axis] (X, Y ou Z do espaço). */
+    fun movePart(part: String, axis: Vec3, mm: Double) = adjust(part) { Transform.translation(axis * mm) * it }
+
+    /** Gira a peça [deg] em volta de [axis] (X, Y ou Z do espaço), pelo centro dela. */
+    fun rotatePart(part: String, axis: Vec3, deg: Double) {
+        val mesh = _file.value?.parts?.part(part) ?: return
+        val a = _assembly.value ?: return
+        val center = a.toAssembled(part, mesh.bounds().first)
+        adjust(part) { Transform.translation(center) * Transform.rotation(axis, Math.toRadians(deg)) * Transform.translation(-center) * it }
+    }
+
+    fun resetPart(part: String) = adjust(part) { Transform.IDENTITY }
+
+    fun toggleLock(part: String) = _assembly.update { a ->
+        a?.copy(locked = if (part in a.locked) a.locked - part else a.locked + part)
+    }
+
+    private fun adjust(part: String, change: (Transform) -> Transform) = _assembly.update { a ->
+        if (a == null || part in a.locked) return@update a
+        val next = change(a.offsets[part] ?: Transform.IDENTITY)
+        a.copy(offsets = if (next.isClose(Transform.IDENTITY, 1e-9)) a.offsets - part else a.offsets + (part to next))
     }
 
     // ---------- toque ----------
@@ -400,7 +432,10 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
                         return@launch
                     }
                     _lastGuess.value = guess
-                    apply(AxisDef(guess.point, guess.direction, kind = guess.kind, radiusMm = guess.radiusMm))
+                    // a face foi lida na peça como está no arquivo: leva para a posição montada
+                    val a = _assembly.value ?: return@launch
+                    apply(AxisDef(a.toAssembled(hit.part, guess.point), a.dirToAssembled(hit.part, guess.direction),
+                        kind = guess.kind, radiusMm = guess.radiusMm))
                     if (guess.errorMm > max(0.5, guess.radiusMm * 0.03)) {
                         say(String.format(Locale.US, "A face foge %.1f mm do círculo: confira o eixo ou toque noutra face.", guess.errorMm))
                     }
@@ -411,7 +446,8 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
                 val point = if (mode == PickMode.VERTICE) {
                     parts.part(hit.part)?.let { AxisFinder.nearestVertex(it, hit.triangle, hit.pointInFile) } ?: hit.pointInFile
                 } else hit.pointInFile
-                val points = _pendingPoints.value + (hit.part to point)
+                val assembled = _assembly.value?.toAssembled(hit.part, point) ?: point
+                val points = _pendingPoints.value + (hit.part to assembled)
                 if (points.size < 2) {
                     _pendingPoints.value = points
                     return

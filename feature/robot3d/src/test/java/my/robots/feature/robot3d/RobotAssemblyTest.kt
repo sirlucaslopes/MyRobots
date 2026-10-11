@@ -114,6 +114,24 @@ class RobotAssemblyTest {
     }
 
     @Test
+    fun peca_fora_da_posicao_ganha_ajuste() {
+        // o braço veio 100 mm para cima no arquivo: o ajuste desce 100 mm
+        val down = my.robots.core.kinematics.Transform.translation(Vec3(0.0, 0.0, -100.0))
+        val a = twoAxes().copy(offsets = mapOf("braco" to down), locked = setOf("braco"))
+        assertEquals(Vec3(0.0, 0.0, 500.0), a.toAssembled("braco", Vec3(0.0, 0.0, 600.0)))
+        assertEquals(Vec3(0.0, 0.0, 600.0), a.toAssembled("coluna", Vec3(0.0, 0.0, 600.0)))
+        // desenho = pose montada · ajuste
+        val p = a.displayPoses(doubleArrayOf(90.0, 0.0))
+        val q = a.poses(doubleArrayOf(90.0, 0.0))
+        assertTrue(p.getValue("braco").isClose(q.getValue("braco") * down, 1e-9))
+        assertTrue(p.getValue("coluna").isClose(q.getValue("coluna"), 1e-9))
+        // JSON guarda o ajuste e a peça fixada
+        val back = RobotAssembly.fromJson(a.toJson())
+        assertTrue(back.offsets.getValue("braco").isClose(down, 1e-9))
+        assertEquals(setOf("braco"), back.locked)
+    }
+
+    @Test
     fun cores() {
         assertEquals("#F26B1D", RobotAssembly.colorHex(0xF26B1D))
         assertEquals(0x1F5AA6, RobotAssembly.parseColor("#1f5aa6"))

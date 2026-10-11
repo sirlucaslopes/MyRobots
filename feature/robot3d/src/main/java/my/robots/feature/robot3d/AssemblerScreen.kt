@@ -161,6 +161,7 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
     }
     val hidden = if (isolate && a != null && isolatedPart != null) a.parts.toSet() - isolatedPart else emptySet()
     val poses = remember(a, angles) { viewModel.poses() }
+    val drawPoses = remember(a, angles) { viewModel.displayPoses() }
 
     LaunchedEffect(viewer, file) {
         val v = viewer ?: return@LaunchedEffect
@@ -168,7 +169,7 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
         val result = v.showGlb(f.bytes, f.parts?.parts?.map { it.name }.orEmpty())
         result.message?.let { snackbar.showSnackbar(it) }
     }
-    LaunchedEffect(viewer, file, poses) { viewer?.setUserPoses(poses) }
+    LaunchedEffect(viewer, file, drawPoses) { viewer?.setUserPoses(drawPoses) }
     LaunchedEffect(viewer, file, a?.colors) { viewer?.setPartColors(a?.colors.orEmpty()) }
     // setas do sistema do robô (na base) e do TCP, nas etapas em que importam
     LaunchedEffect(viewer, a, angles, step) {
@@ -257,7 +258,7 @@ fun AssemblerScreen(viewModel: AssemblerViewModel, onBack: () -> Unit) {
                                 v.onTap = tap@{ x, y ->
                                     val parts = viewModel.file.value?.parts ?: return@tap
                                     val (o, d) = v.pickRay(x, y)
-                                    val posesNow = viewModel.poses()
+                                    val posesNow = viewModel.displayPoses()
                                     val hiddenNow = v.hiddenPartNames
                                     scope.launch {
                                         val hit = withContext(Dispatchers.Default) { parts.pick(o, d, posesNow) { it !in hiddenNow } }
@@ -418,6 +419,7 @@ private fun PartsStep(a: RobotAssembly, selected: String?, vm: AssemblerViewMode
         Text("Peças (${a.parts.size})", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
         TextButton(onClick = vm::suggestRoles) { Text("Sugerir pelos nomes") }
     }
+    if (selected != null) PartAdjust(a, selected, vm)
     val maxAxis = maxOf(6, a.parts.size - 1)
     for (part in a.parts) {
         var open by remember { mutableStateOf(false) }
@@ -448,6 +450,56 @@ private fun PartsStep(a: RobotAssembly, selected: String?, vm: AssemblerViewMode
                 }
                 DropdownMenuItem(text = { Text("Sem tipo") }, onClick = { open = false; vm.setRole(part, null) })
             }
+        }
+    }
+}
+
+/**
+ * Mover, Girar e Fixar a peça tocada: para peças que vieram fora da posição de montagem (um
+ * arquivo por peça, ou exportadas cada uma no seu zero). Passos fixos, nos eixos do espaço.
+ */
+@Composable
+private fun PartAdjust(a: RobotAssembly, part: String, vm: AssemblerViewModel) {
+    var stepMm by remember { mutableStateOf(10.0) }
+    var stepDeg by remember { mutableStateOf(15.0) }
+    val locked = part in a.locked
+    Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Ajustar $part", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                FilterChip(selected = locked, onClick = { vm.toggleLock(part) }, label = { Text(if (locked) "Fixada" else "Fixar") })
+            }
+            val off = a.offsets[part]
+            Text(
+                off?.let { "Ajuste: ${my.robots.core.kinematics.KawasakiPose.fromTransform(it).format()}" } ?: "Na posição do arquivo",
+                style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+            )
+            if (locked) return@Column
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Passo", style = MaterialTheme.typography.labelMedium)
+                for (mm in listOf(1.0, 10.0, 100.0)) FilterChip(selected = stepMm == mm, onClick = { stepMm = mm }, label = { Text("${mm.toInt()} mm") })
+                for (deg in listOf(1.0, 15.0, 90.0)) FilterChip(selected = stepDeg == deg, onClick = { stepDeg = deg }, label = { Text("${deg.toInt()}°") })
+            }
+            val axes = listOf("X" to Vec3.X, "Y" to Vec3.Y, "Z" to Vec3.Z)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Mover", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+                for ((name, v) in axes) {
+                    TextButton(onClick = { vm.movePart(part, v, -stepMm) }) { Text("$name−") }
+                    TextButton(onClick = { vm.movePart(part, v, stepMm) }) { Text("$name+") }
+                }
+            }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("Girar", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(44.dp))
+                for ((name, v) in axes) {
+                    TextButton(onClick = { vm.rotatePart(part, v, -stepDeg) }) { Text("$name↻") }
+                    TextButton(onClick = { vm.rotatePart(part, v, stepDeg) }) { Text("$name↺") }
+                }
+            }
+            if (off != null) TextButton(onClick = { vm.resetPart(part) }) { Text("Voltar à posição do arquivo") }
         }
     }
 }
