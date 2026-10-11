@@ -30,8 +30,16 @@ enum class AssemblerStep(val label: String) {
     PROGRAMA("6 Programa"),
 }
 
-/** Como o toque marca um eixo: face (Círculo) ou dois pontos. */
-enum class PickMode(val label: String) { CIRCULO("Círculo"), DOIS_PONTOS("2 pontos") }
+/**
+ * Como o toque marca um eixo: face redonda ou plana (Círculo), borda da face (Aresta), dois
+ * pontos soltos (2 pontos) ou dois cantos da malha (Vértice).
+ */
+enum class PickMode(val label: String) {
+    CIRCULO("Círculo"), ARESTA("Aresta"), DOIS_PONTOS("2 pontos"), VERTICE("Vértice");
+
+    /** Modos que pedem dois toques. */
+    val twoTaps get() = this == DOIS_PONTOS || this == VERTICE
+}
 
 /** Robô montado salvo no aparelho. */
 data class SavedRobot(val id: String, val name: String)
@@ -373,15 +381,22 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun markAxis(hit: GlbParts.Hit, apply: (AxisDef) -> Unit) {
         val parts = _file.value?.parts ?: return
-        when (_pickMode.value) {
-            PickMode.CIRCULO -> {
+        val mode = _pickMode.value
+        when (mode) {
+            PickMode.CIRCULO, PickMode.ARESTA -> {
                 val mesh = parts.part(hit.part) ?: return
                 _busy.value = true
                 viewModelScope.launch {
-                    val guess = withContext(Dispatchers.Default) { AxisFinder.fromFace(mesh, mesh.faceAround(hit.triangle)) }
+                    val guess = withContext(Dispatchers.Default) {
+                        val face = mesh.faceAround(hit.triangle)
+                        if (mode == PickMode.CIRCULO) AxisFinder.fromFace(mesh, face) else AxisFinder.fromEdge(mesh, face, hit.pointInFile)
+                    }
                     _busy.value = false
                     if (guess == null) {
-                        say("Essa face não gira em volta de um eixo. Toque numa face redonda ou plana da junta, ou use 2 pontos.")
+                        say(
+                            if (mode == PickMode.CIRCULO) "Essa face não gira em volta de um eixo. Toque numa face redonda ou plana da junta, ou use Aresta ou 2 pontos."
+                            else "Não achei uma borda nessa face. Toque mais perto da borda redonda.",
+                        )
                         return@launch
                     }
                     _lastGuess.value = guess
@@ -391,8 +406,12 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }
-            PickMode.DOIS_PONTOS -> {
-                val points = _pendingPoints.value + (hit.part to hit.pointInFile)
+            PickMode.DOIS_PONTOS, PickMode.VERTICE -> {
+                // Vértice: o toque vai para o canto mais perto do triângulo tocado
+                val point = if (mode == PickMode.VERTICE) {
+                    parts.part(hit.part)?.let { AxisFinder.nearestVertex(it, hit.triangle, hit.pointInFile) } ?: hit.pointInFile
+                } else hit.pointInFile
+                val points = _pendingPoints.value + (hit.part to point)
                 if (points.size < 2) {
                     _pendingPoints.value = points
                     return

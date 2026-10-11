@@ -2,6 +2,7 @@ package my.robots.feature.robot3d
 
 import my.robots.core.kinematics.Vec3
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.sqrt
 
 /**
@@ -21,7 +22,9 @@ data class AxisGuess(
         REDONDA("face redonda"),
         /** Face plana: o eixo é a normal, passando pelo centro do contorno. */
         PLANA("face plana"),
-        /** Dois pontos tocados. */
+        /** Contorno da face: borda redonda (centro e normal) ou aresta reta. */
+        ARESTA("aresta"),
+        /** Dois pontos tocados (soltos ou nos cantos da malha). */
         DOIS_PONTOS("2 pontos"),
     }
 
@@ -81,6 +84,109 @@ object AxisFinder {
             else -> null
         }
     }
+
+    /**
+     * "Aresta": o contorno da face tocada mais perto de [hit] (mm, pose do arquivo). Se o contorno
+     * for um círculo (borda de furo, de eixo, de flange), o eixo passa pelo centro dele, na normal
+     * do plano do círculo. Se não for, o eixo segue a aresta reta mais perto do toque.
+     */
+    fun fromEdge(mesh: PartMesh, triangles: IntArray, hit: Vec3): AxisGuess? {
+        // arestas de contorno (usadas por um triângulo só), pela posição
+        val count = HashMap<Long, Int>()
+        val ends = HashMap<Long, Pair<Int, Int>>()
+        for (t in triangles) for (k in 0 until 3) {
+            val va = mesh.indices[t * 3 + k]
+            val vb = mesh.indices[t * 3 + (k + 1) % 3]
+            val a = mesh.positionId(va)
+            val b = mesh.positionId(vb)
+            if (a == b) continue
+            val key = if (a < b) a.toLong() shl 32 or b.toLong() else b.toLong() shl 32 or a.toLong()
+            count[key] = (count[key] ?: 0) + 1
+            ends[key] = minOf(a, b) to maxOf(a, b)
+        }
+        val boundary = count.filter { it.value == 1 }.keys.map { ends.getValue(it) }
+        if (boundary.isEmpty()) return null
+
+        // a aresta mais perto do toque
+        val nearest = boundary.minBy { (a, b) -> segmentDistance(hit, mesh.vertex(a), mesh.vertex(b)) }
+
+        // o contorno (laço) que tem essa aresta
+        val neighbors = HashMap<Int, MutableList<Int>>()
+        for ((a, b) in boundary) {
+            neighbors.getOrPut(a) { ArrayList() } += b
+            neighbors.getOrPut(b) { ArrayList() } += a
+        }
+        val loop = LinkedHashSet<Int>()
+        val stack = ArrayDeque<Int>()
+        stack += nearest.first
+        while (stack.isNotEmpty()) {
+            val v = stack.removeLast()
+            if (!loop.add(v)) continue
+            neighbors[v]?.forEach { if (it !in loop) stack += it }
+        }
+        val pts = loop.map { mesh.vertex(it) }
+
+        circleThrough(pts)?.let { (center, normal, r, err) ->
+            if (pts.size >= 6 && err <= max(0.5, r * 0.02)) {
+                return AxisGuess(AxisGuess.Kind.ARESTA, center, snap(orient(normal)), r, err)
+            }
+        }
+        // aresta reta
+        val a = mesh.vertex(nearest.first)
+        val b = mesh.vertex(nearest.second)
+        if ((b - a).length() < 1e-6) return null
+        return AxisGuess(AxisGuess.Kind.ARESTA, (a + b) * 0.5, snap(orient((b - a).normalized())), 0.0, 0.0)
+    }
+
+    /** Círculo que melhor passa pelos pontos: centro, normal do plano, raio e erro (mm). */
+    private fun circleThrough(pts: List<Vec3>): Quad? {
+        if (pts.size < 3) return null
+        var c = Vec3.ZERO
+        for (p in pts) c += p
+        c = c * (1.0 / pts.size)
+        val cov = DoubleArray(9)
+        for (p in pts) {
+            val d = p - c
+            cov[0] += d.x * d.x; cov[1] += d.x * d.y; cov[2] += d.x * d.z
+            cov[4] += d.y * d.y; cov[5] += d.y * d.z; cov[8] += d.z * d.z
+        }
+        cov[3] = cov[1]; cov[6] = cov[2]; cov[7] = cov[5]
+        val (_, vectors) = symmetricEigen(cov)
+        val n = vectors[2]
+        val (u, w) = basis(n)
+        val m = DoubleArray(9)
+        val rhs = DoubleArray(3)
+        for (p in pts) {
+            val x = (p - c).dot(u); val y = (p - c).dot(w)
+            val row = doubleArrayOf(x, y, 1.0)
+            val z = -(x * x + y * y)
+            for (i in 0 until 3) {
+                for (j in 0 until 3) m[i * 3 + j] += row[i] * row[j]
+                rhs[i] += row[i] * z
+            }
+        }
+        val sol = solve3(m, rhs) ?: return null
+        val cx = -sol[0] / 2; val cy = -sol[1] / 2
+        val r2 = cx * cx + cy * cy - sol[2]
+        if (r2 <= 0) return null
+        val r = sqrt(r2)
+        val center = c + u * cx + w * cy
+        val err = sqrt(pts.sumOf { val e = (it - center).length() - r; e * e } / pts.size)
+        return Quad(center, n, r, err)
+    }
+
+    private data class Quad(val center: Vec3, val normal: Vec3, val radius: Double, val error: Double)
+
+    private fun segmentDistance(p: Vec3, a: Vec3, b: Vec3): Double {
+        val ab = b - a
+        val len2 = ab.dot(ab)
+        val t = if (len2 < 1e-12) 0.0 else ((p - a).dot(ab) / len2).coerceIn(0.0, 1.0)
+        return (p - (a + ab * t)).length()
+    }
+
+    /** "Vértice": o canto do triângulo [triangle] mais perto de [hit]. */
+    fun nearestVertex(mesh: PartMesh, triangle: Int, hit: Vec3): Vec3 =
+        (0 until 3).map { mesh.vertex(mesh.indices[triangle * 3 + it]) }.minBy { (it - hit).length() }
 
     /** Eixo pelos dois pontos, de [a] para [b]. */
     fun fromTwoPoints(a: Vec3, b: Vec3): AxisGuess? {

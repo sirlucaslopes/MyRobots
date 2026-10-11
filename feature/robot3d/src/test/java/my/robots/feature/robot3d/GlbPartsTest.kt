@@ -95,6 +95,34 @@ class GlbPartsTest {
     }
 
     @Test
+    fun aresta_redonda_da_o_centro_e_aresta_reta_a_direcao() {
+        val j1 = twoParts().part("J1")!!
+        // toque na lateral do cilindro, perto da borda de cima (z = 380)
+        val (tri, dist) = j1.raycast(Vec3(1000.0, 100.0, 375.0), Vec3(-1.0, 0.0, 0.0))!!
+        val hit = Vec3(1000.0 - dist, 100.0, 375.0)
+        val axis = AxisFinder.fromEdge(j1, j1.faceAround(tri), hit)!!
+        assertEquals(AxisGuess.Kind.ARESTA, axis.kind)
+        assertVec(Vec3(200.0, 100.0, 380.0), axis.point, 1e-3)
+        assertVec(Vec3.Z, axis.direction, 1e-9)
+        assertEquals(50.0, axis.radiusMm, 1e-3)
+
+        // caixa: a face de cima é um quadrado, o contorno não é círculo: vale a aresta reta
+        val j0 = twoParts().part("J0")!!
+        val (t0, _) = j0.raycast(Vec3(290.0, 0.0, 1000.0), Vec3(0.0, 0.0, -1.0))!!
+        val edge = AxisFinder.fromEdge(j0, j0.faceAround(t0), Vec3(290.0, 0.0, 100.0))!!
+        assertEquals(1.0, kotlin.math.abs(edge.direction.y), 1e-9) // a aresta em x = 300 corre em Y
+        assertEquals(300.0, edge.point.x, 1e-6)
+    }
+
+    @Test
+    fun vertice_vai_para_o_canto_mais_perto() {
+        val j0 = twoParts().part("J0")!!
+        val (t0, _) = j0.raycast(Vec3(290.0, 290.0, 1000.0), Vec3(0.0, 0.0, -1.0))!!
+        val v = AxisFinder.nearestVertex(j0, t0, Vec3(290.0, 290.0, 100.0))
+        assertVec(Vec3(300.0, 300.0, 100.0), v, 1e-3)
+    }
+
+    @Test
     fun raio_que_nao_bate_devolve_nada() {
         val j1 = twoParts().part("J1")!!
         assertNull(j1.raycast(Vec3(1000.0, 1000.0, 1000.0), Vec3(1.0, 0.0, 0.0)))

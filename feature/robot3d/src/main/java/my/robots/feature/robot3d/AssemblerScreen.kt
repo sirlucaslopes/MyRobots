@@ -345,9 +345,15 @@ private fun hint(a: RobotAssembly?, step: AssemblerStep, editing: Int?, mode: Pi
         AssemblerStep.EIXOS -> when {
             editing == null -> "Escolha o eixo para marcar"
             mode == PickMode.CIRCULO -> "Eixo $editing: toque na face redonda da junta"
+            mode == PickMode.ARESTA -> "Eixo $editing: toque perto da borda redonda da junta"
+            mode == PickMode.VERTICE -> "Eixo $editing: toque no canto ${pending + 1} de 2 na linha do eixo"
             else -> "Eixo $editing: toque no ponto ${pending + 1} de 2 na linha do eixo"
         }
-        AssemblerStep.FLANGE -> if (mode == PickMode.CIRCULO) "Toque na face do flange (a ponta do último eixo)" else "Flange: toque no ponto ${pending + 1} de 2"
+        AssemblerStep.FLANGE -> when (mode) {
+            PickMode.CIRCULO -> "Toque na face do flange (a ponta do último eixo)"
+            PickMode.ARESTA -> "Toque perto da borda redonda do flange"
+            else -> "Flange: toque no ponto ${pending + 1} de 2"
+        }
         AssemblerStep.TESTAR -> selected?.let { "Peça: $it" } ?: "Mexa os eixos para conferir"
         AssemblerStep.PROGRAMA -> "Posicione os eixos, adicione pontos e execute em loop"
     }
@@ -566,7 +572,7 @@ private fun AxesStep(
 
 @Composable
 private fun PickModeRow(mode: PickMode, onMode: (PickMode) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         for (m in PickMode.entries) FilterChip(selected = mode == m, onClick = { onMode(m) }, label = { Text(m.label) })
     }
 }
