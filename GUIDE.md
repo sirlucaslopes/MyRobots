@@ -508,16 +508,26 @@ partir do .glb do fabricante, para os eixos mexerem as peças. O robô precisa v
 a base, uma peça por eixo e a ferramenta (o STEP do KJ264 convertido já vem assim, J0 a J6).
 - **Abrir .glb** ou **Salvos** (robôs já montados). Embaixo do desenho aparece o que fazer agora.
 - **1 Peças:** nome do robô e o tipo de cada peça (toque na linha: Base, Eixo 1…, Ferramenta,
-  Outro). O app sugere pelo nome (J0 = base, J1 a J6 = eixos) e lista o que falta.
+  Outro). O app sugere pelo nome (J0 = base, J1 a J6 = eixos) e lista o que falta. Com uma peça
+  tocada aparece **Ajustar**: **Mover** (X, Y, Z ±) e **Girar** (em volta de X, Y, Z, pelo centro da
+  peça) com passo de 1, 10 ou 100 mm e 1, 15 ou 90°, para peças que vieram fora da posição de
+  montagem; **Fixar** trava a peça e **Voltar à posição do arquivo** desfaz.
 - **2 Base:** posição da base no espaço 3D (X, Y, Z em mm e giro em Z) e a **frente do robô**
-  (para onde aponta o X do `WHERE` no arquivo; no STEP do KJ264 é +Y).
-- **3 Eixos:** toque num eixo e depois na **face redonda da junta** (Círculo) ou em **2 pontos**
-  da linha do eixo. Aparece o indicador do eixo em amarelo, como no Fusion 360: uma seta reta no
+  (para onde aponta o X do `WHERE` no arquivo; no STEP do KJ264 é +Y). As setas X/Y/Z de 400 mm
+  mostram o sistema do robô, no zero ou fora dele.
+- **3 Eixos:** toque num eixo e escolha como marcar: **Círculo** (toque na face redonda ou plana
+  da junta), **Aresta** (toque perto da borda redonda; borda reta dá a direção dela), **2 pontos**
+  (dois toques na linha do eixo) ou **Vértice** (dois toques que grudam no canto mais perto). Aparece o indicador do eixo em amarelo, como no Fusion 360: uma seta reta no
   sentido do eixo e uma seta curva em volta dele, no sentido do giro positivo (regra da mão
   direita). Os outros eixos já marcados aparecem em azul.
   **Inverter sentido**, **Limpar**, limites mínimo e máximo e um controle para testar o eixo.
-  **Isolar** deixa só a peça do eixo na tela. **Testar todos** vai para a etapa 5.
+  **Ângulo do eixo na pose do arquivo**: 0 se o CAD veio com o eixo no zero; senão, o ângulo que o
+  controlador mostraria naquela pose. **Isolar** deixa só a peça do eixo na tela. **Testar todos**
+  vai para a etapa 5.
 - **4 Flange:** toque na face do flange, na ponta do último eixo (sem marcar, vale o último eixo).
+  Embaixo, o **TOOL do controlador** (X Y Z O A T, os mesmos valores do robô). Setas X/Y/Z pequenas
+  (150 mm, sem letras) mostram o TCP aqui, no Testar e no Programa; o Visualizador também mostra o
+  sistema do robô e o TCP do robô de teste.
 - **5 Testar:** um controle por eixo e o TCP (X Y Z O A T), como no Visualizador.
 - **6 Programa:** posicione os eixos e toque em **Adicionar ponto** (P1, P2…). Cada ponto tem Ir,
   Atualizar (com a posição atual), Subir, Descer e Apagar. **Executar em loop** percorre os
@@ -1683,14 +1693,24 @@ Visualizador). Fase 1 do F3 e primeira versão do F3d do `docs/PLANO_MESTRE.md`.
   eixos. `model()` monta o `RobotModel.assembled` com os eixos marcados em sequência a partir do 1;
   `poses()` move as peças (eixo sem marca vai junto com o último marcado; ferramenta com a última
   peça; "outro" e sem tipo com a base). O sistema do robô fica no eixo 1 com o X na frente
-  escolhida. Também guarda as cores (`colors`, 0xRRGGBB) e o programa de teste (`TestProgram`:
-  pontos, velocidade e pausa).
+  escolhida. Também guarda as cores (`colors`, 0xRRGGBB), o programa de teste (`TestProgram`:
+  pontos, velocidade e pausa), o TOOL (`tool`, vira o `tool` do `RobotModel`), o zero de cada eixo
+  (`AxisDef.zeroDeg` → `angleInFileDeg`) e o ajuste de cada peça (`offsets`, `locked`). Com ajuste,
+  o desenho usa `displayPoses` (pose montada · ajuste) e o toque, que lê a peça como está no
+  arquivo, passa o ponto e a direção achados por `toAssembled`/`dirToAssembled`.
+- **Sistemas (setas):** `SceneModels.framesGlb` tem dois nós com as setas da origem em tamanho
+  menor e sem letras (sistema do robô 400 mm, TCP 150 mm); `FilamentViewer.setFrames` põe cada
+  nó na pose (`RobotAssembly.robotFrameInWorld`, `RobotModel.tcpInWorld`) ou tira da cena.
+- **Aresta e Vértice** (`AxisFinder.fromEdge`, `nearestVertex`): Aresta pega as arestas de
+  contorno da face tocada, a mais perto do toque e o laço dela; se o laço encaixa num círculo
+  (6 pontos ou mais, erro até 0,5 mm ou 2% do raio), o eixo é a normal do plano do círculo pelo
+  centro; senão, a direção da aresta. Vértice leva cada toque ao canto mais perto do triângulo.
 - **Programa de teste:** `AssemblerViewModel.runProgram` é uma corrotina: para cada ponto, tempo
   do trecho = o maior deslocamento ÷ velocidade (`TestProgram.durationS`), e a cada ~16 ms os
   ângulos vêm de `TestProgram.interpolate` (curva em S, começa e termina parado), presos aos
   limites. Mudar de etapa, abrir outro arquivo ou apagar um ponto para o programa.
-- **Salvar:** `files/robos3d/<nome>/modelo.json` (formato `myrobots-robo3d`, versão 1; `cores` e
-  `programa` são campos opcionais) e uma cópia do `robo.glb`. O JSON é escrito num temporário e trocado. Ao abrir um salvo, as peças são
+- **Salvar:** `files/robos3d/<nome>/modelo.json` (formato `myrobots-robo3d`, versão 1; `cores`,
+  `programa`, `tool`, `zero` de cada eixo, `ajustes` e `fixas` são campos opcionais) e uma cópia do `robo.glb`. O JSON é escrito num temporário e trocado. Ao abrir um salvo, as peças são
   lidas de novo do .glb.
 - **Testes JVM:** `Robot3dTest` (estrutura do .glb gerado, um nó por peça, a matriz do Filament,
   Y→Z, a câmera, o raio do toque e a pasta do robô salvo), `GlbPartsTest` (leitura, toque, face
@@ -1708,9 +1728,8 @@ teste e o KJ264 convertido do STEP (167 mil triângulos, 4 MB).
 .gltf com .bin ou texturas separadas não abre (só .glb com tudo dentro), e .glb com compressão
 Draco ou texturas KTX2 pode não abrir; mapa de ambiente (IBL) para metal ficar melhor; aviso e
 grade 2D quando o aparelho não aguentar o 3D; virar o modo 3D do bloco da cabine (F3) e tirar o
-item do ⋮. Montador: testar no aparelho; peças que vieram em sistemas diferentes (um arquivo por
-peça, fora da posição de montagem) e as ferramentas Mover e Girar; Aresta e Vértice; zero de cada
-eixo diferente da pose do arquivo (`angleInFileDeg`) e a validação com o `WHERE` (fase 6 do plano
-do 3D); TOOL do controlador no TCP; abrir no Visualizador o robô montado (com as cores); as
+item do ⋮. Montador: testar no aparelho; abrir um arquivo por peça (hoje é um .glb com todas);
+Mover e Girar arrastando no 3D (setas e anéis), hoje são botões com passo fixo; a validação com o
+`WHERE` (fase 6 do plano do 3D); abrir no Visualizador o robô montado (com as cores); as
 marcas ficam escondidas quando estão dentro da peça (usar Isolar); programa de teste com
 movimento em linha reta (LMOVE, pela cinemática inversa) e pontos em X Y Z O A T.

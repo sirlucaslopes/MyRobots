@@ -281,8 +281,10 @@ flowchart TD
       ⋮ do Visualizador 3D): passos 1, 2, 3 (posição e giro em Z), 4 com **Círculo** e **2 pontos**,
       5, 6 e 7 (flange), Isolar, salvar no aparelho. No PC, o Círculo acha os 6 eixos do KJ264 com
       erro 0,00 mm. Também: toque e realce de peça e a vista Lado no Visualizador (fase 2 do 3D).
-      Falta: testar no aparelho; Aresta e Vértice; Mover, Girar e Fixar (peças fora da posição de
-      montagem); zero do eixo diferente da pose do arquivo; TOOL do controlador no TCP.
+      **10/10/2026, `6bdca0f`/`5259877`/`51bbf88`:** setas X/Y/Z no sistema do robô e no TCP (sem
+      letras), TOOL do controlador, zero de cada eixo, modos Aresta e Vértice, Mover/Girar/Fixar
+      por botões com passo. Falta: testar no aparelho; um arquivo por peça; arrastar setas e anéis
+      no 3D; validação com o `WHERE`.
   1. **Carregar o robô 3D** (.glb com as peças ou um arquivo por peça), com o aviso de que o robô
      precisa vir dividido: base, uma peça por eixo, ferramenta. Peça única não monta.
   2. **Dizer o que é cada peça:** tocar e escolher Base, Eixo (numerado: Eixo 1, 2, 3…),
