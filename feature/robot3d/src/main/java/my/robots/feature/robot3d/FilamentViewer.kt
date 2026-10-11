@@ -7,10 +7,12 @@ import android.view.ScaleGestureDetector
 import android.view.Surface
 import android.view.SurfaceView
 import com.google.android.filament.Camera
+import com.google.android.filament.Colors
 import com.google.android.filament.Engine
 import com.google.android.filament.EntityManager
 import com.google.android.filament.IndirectLight
 import com.google.android.filament.LightManager
+import com.google.android.filament.MaterialInstance
 import com.google.android.filament.Renderer
 import com.google.android.filament.Scene
 import com.google.android.filament.Skybox
@@ -66,13 +68,32 @@ class FilamentViewer(
     private var robot: FilamentAsset? = null
     private var robotVisible = false
     private var userModel: FilamentAsset? = null
+    private var markers: FilamentAsset? = null
 
     /** Peça do robô → entidade do nó no Filament. */
     private val robotParts = HashMap<String, Int>()
     private val matrix = FloatArray(16)
 
+    /**
+     * Peça do arquivo aberto: o nó, a posição do pai e a do nó como vieram no arquivo (metros),
+     * e as entidades que desenham (o nó e os filhos).
+     */
+    private class UserPart(val entity: Int, val parentWorld: Mat4, val parentWorldInv: Mat4, val local0: Mat4, val renderables: IntArray)
+
+    private val userParts = HashMap<String, UserPart>()
+    private val hiddenParts = HashSet<String>()
+
+    /** Peça realçada e os materiais trocados nela (originais, para devolver). */
+    private var highlighted: String? = null
+    private val highlightSwaps = ArrayList<Triple<Int, Int, MaterialInstance>>() // (renderable, primitiva, original)
+    private val highlightCopies = ArrayList<MaterialInstance>()
+
+    /** Toque curto (sem arrastar) na tela, em pixels. */
+    var onTap: ((Float, Float) -> Unit)? = null
+
     private var destroyed = false
     private var running = false
+    private var viewWidth = 1
     private var viewHeight = 1
     private var aspect = 1.0
     private var lastProjectionDistance = -1.0
@@ -137,6 +158,7 @@ class FilamentViewer(
 
             override fun onResized(width: Int, height: Int) {
                 view.viewport = Viewport(0, 0, width, height)
+                viewWidth = width.coerceAtLeast(1)
                 viewHeight = height.coerceAtLeast(1)
                 aspect = width.toDouble() / height.coerceAtLeast(1)
                 lastProjectionDistance = -1.0
@@ -172,17 +194,115 @@ class FilamentViewer(
         }
     }
 
+    // ---------- peças do arquivo aberto ----------
+
+    /** Nomes das peças do arquivo aberto que o desenho consegue mover. */
+    val userPartNames: Set<String> get() = userParts.keys
+
+    /**
+     * Move as peças do arquivo aberto: cada [Transform] (mm, espaço do app) diz onde a peça fica
+     * em relação à pose em que veio no arquivo. Peça que não está no mapa volta para a pose do arquivo.
+     */
+    fun setUserPoses(poses: Map<String, Transform>) {
+        val tm = engine.transformManager
+        for ((name, part) in userParts) {
+            val pose = poses[name]
+            val local = if (pose == null) part.local0 else {
+                val d = Mat4.of(SceneModels.toFilamentMatrix(pose, matrix))
+                part.parentWorldInv * d * part.parentWorld * part.local0
+            }
+            tm.setTransform(tm.getInstance(part.entity), local.toFloats(matrix))
+        }
+    }
+
+    /** Peças escondidas agora (o toque passa por elas). */
+    val hiddenPartNames: Set<String> get() = hiddenParts.toSet()
+
+    /** Esconde as peças de [names] e mostra as outras (o "Isolar" do montador). */
+    fun setHiddenParts(names: Set<String>) {
+        for ((name, part) in userParts) {
+            val hide = name in names
+            if (hide == (name in hiddenParts)) continue
+            if (hide) part.renderables.forEach { scene.removeEntity(it) } else scene.addEntities(part.renderables)
+        }
+        hiddenParts.clear()
+        hiddenParts += names.filter { it in userParts }
+    }
+
+    /** Realça uma peça (do arquivo aberto ou do robô de teste) com cor laranja; null tira o realce. */
+    fun highlight(name: String?) {
+        if (name == highlighted) return
+        clearHighlight()
+        if (name == null) return
+        val renderables = userParts[name]?.renderables
+            ?: robotParts[name]?.let { renderablesUnder(it) }
+            ?: return
+        val rm = engine.renderableManager
+        for (e in renderables) {
+            val inst = rm.getInstance(e)
+            for (p in 0 until rm.getPrimitiveCount(inst)) {
+                val original = rm.getMaterialInstanceAt(inst, p)
+                val copy = MaterialInstance.duplicate(original, "realce")
+                copy.setParameter("baseColorFactor", Colors.RgbaType.SRGB, 1f, 0.55f, 0.10f, 1f)
+                rm.setMaterialInstanceAt(inst, p, copy)
+                highlightSwaps += Triple(inst, p, original)
+                highlightCopies += copy
+            }
+        }
+        highlighted = name
+    }
+
+    private fun clearHighlight() {
+        val rm = engine.renderableManager
+        for ((inst, p, original) in highlightSwaps) rm.setMaterialInstanceAt(inst, p, original)
+        highlightSwaps.clear()
+        highlightCopies.forEach { engine.destroyMaterialInstance(it) }
+        highlightCopies.clear()
+        highlighted = null
+    }
+
+    /** O nó e os filhos dele que desenham alguma coisa. */
+    private fun renderablesUnder(entity: Int): IntArray {
+        val tm = engine.transformManager
+        val rm = engine.renderableManager
+        val out = ArrayList<Int>()
+        val stack = ArrayDeque<Int>()
+        stack += entity
+        while (stack.isNotEmpty()) {
+            val e = stack.removeLast()
+            if (rm.hasComponent(e)) out += e
+            val inst = tm.getInstance(e)
+            val n = tm.getChildCount(inst)
+            if (n > 0) tm.getChildren(inst, IntArray(n)).forEach { stack += it }
+        }
+        return out.toIntArray()
+    }
+
+    /** Raio do toque em ([xPx], [yPx]), em mm no espaço do app. */
+    fun pickRay(xPx: Float, yPx: Float): Pair<Vec3, Vec3> {
+        val (o, d) = camera.ray(xPx, yPx, viewWidth, viewHeight)
+        return o * 1000.0 to d
+    }
+
+    /**
+     * Marcas do montador (eixo, pontos tocados): um .glb gerado em código, já com Z para cima.
+     * null tira as marcas.
+     */
+    fun setMarkers(glb: ByteArray?) {
+        markers?.let { removeAsset(it) }
+        markers = glb?.let { loadAsset(it) }?.also { scene.addEntities(it.entities) }
+    }
+
     // ---------- o que aparece ----------
 
     /** Mostra o robô de teste e tira o arquivo aberto (se houver). */
     fun showTestRobot() {
         userModel?.let {
-            removeAsset(it)
+            clearUserModel()
             // a câmera estava enquadrando o arquivo: volta para o robô
             camera.apply(OrbitCamera.Preset.ISO)
             camera.frame(ROBOT_CENTER, ROBOT_RADIUS)
         }
-        userModel = null
         if (!robotVisible) robot?.let { scene.addEntities(it.entities) }
         robotVisible = true
     }
@@ -192,14 +312,16 @@ class FilamentViewer(
 
     /**
      * Abre um .glb do usuário no lugar do robô de teste. Converte Y para cima (glTF) em Z para
-     * cima e enquadra a câmera.
+     * cima e enquadra a câmera. [partNames]: os nós que são peças (do [GlbReader]), para poder
+     * mover, esconder e realçar cada uma.
      */
-    fun showGlb(bytes: ByteArray): GlbResult {
+    fun showGlb(bytes: ByteArray, partNames: Collection<String> = emptyList()): GlbResult {
         if (!GlbBuilder.isGlb(bytes)) return GlbResult(false, "O arquivo não é um .glb (glTF binário).")
         val asset = loadAsset(bytes)
             ?: return GlbResult(false, "Não deu para ler o arquivo (.glb inválido ou com recurso não suportado).")
         val missing = asset.resourceUris.filter { it.isNotBlank() }
-        userModel?.let { removeAsset(it) }
+        clearUserModel()
+        clearHighlight()
         if (robotVisible) robot?.let { scene.removeEntities(it.entities) }
         robotVisible = false
         userModel = asset
@@ -207,6 +329,15 @@ class FilamentViewer(
         val tm = engine.transformManager
         tm.setTransform(tm.getInstance(asset.root), SceneModels.toFilamentMatrix(SceneModels.GLTF_TO_Z_UP, matrix))
         scene.addEntities(asset.entities)
+        for (name in partNames) {
+            val e = asset.getFirstEntityByName(name)
+            if (e == 0) continue
+            val inst = tm.getInstance(e)
+            val parent = tm.getParent(inst)
+            val parentWorld = if (parent == 0) Mat4() else Mat4.of(tm.getWorldTransform(tm.getInstance(parent), FloatArray(16)))
+            val local0 = Mat4.of(tm.getTransform(inst, FloatArray(16)))
+            userParts[name] = UserPart(e, parentWorld, parentWorld.inverse(), local0, renderablesUnder(e))
+        }
 
         val box = asset.boundingBox
         val c = box.center
@@ -291,8 +422,22 @@ class FilamentViewer(
         var lastX = 0f
         var lastY = 0f
         var lastCount = 0
+        // toque curto: um dedo, sem passar do "slop" do Android e sem segurar
+        val slop = android.view.ViewConfiguration.get(surfaceView.context).scaledTouchSlop
+        var downX = 0f
+        var downY = 0f
+        var downTime = 0L
+        var tapPossible = false
         surfaceView.setOnTouchListener { v, event ->
             scaleDetector.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x; downY = event.y; downTime = event.eventTime; tapPossible = true
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> tapPossible = false
+                MotionEvent.ACTION_MOVE -> if (kotlin.math.hypot(event.x - downX, event.y - downY) > slop) tapPossible = false
+                MotionEvent.ACTION_UP -> if (tapPossible && event.eventTime - downTime < TAP_MS) onTap?.invoke(event.x, event.y)
+            }
             val count = event.pointerCount
             var cx = 0f
             var cy = 0f
@@ -337,6 +482,16 @@ class FilamentViewer(
         assetLoader.destroyAsset(asset)
     }
 
+    private fun clearUserModel() {
+        val asset = userModel ?: return
+        // o realce pode estar numa peça do arquivo: devolve os materiais antes de destruir
+        if (highlighted in userParts) clearHighlight()
+        removeAsset(asset)
+        userModel = null
+        userParts.clear()
+        hiddenParts.clear()
+    }
+
     /** Libera tudo do Filament. Pode ser chamado mais de uma vez. */
     fun destroy() {
         if (destroyed) return
@@ -347,8 +502,10 @@ class FilamentViewer(
         swapChain?.let { engine.destroySwapChain(it) }
         swapChain = null
 
-        listOfNotNull(userModel, robot, scenery).forEach { removeAsset(it) }
-        userModel = null; robot = null; scenery = null
+        clearHighlight()
+        clearUserModel()
+        listOfNotNull(robot, scenery, markers).forEach { removeAsset(it) }
+        robot = null; scenery = null; markers = null
         resourceLoader.destroy()
         assetLoader.destroy()
         materialProvider.destroyMaterials()
@@ -370,6 +527,9 @@ class FilamentViewer(
         /** Enquadramento do robô de teste (metros). */
         private val ROBOT_CENTER = Vec3(0.6, 0.0, 0.8)
         private const val ROBOT_RADIUS = 1.3
+
+        /** Mais que isso segurando já não é toque. */
+        private const val TAP_MS = 350L
 
         private var nativeLoaded = false
 

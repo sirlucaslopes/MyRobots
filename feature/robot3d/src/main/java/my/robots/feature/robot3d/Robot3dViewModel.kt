@@ -27,8 +27,11 @@ class Robot3dViewModel : ViewModel() {
     /** Ângulo de cada eixo (graus), do eixo 1 ao último. */
     val angles: StateFlow<List<Double>> = _angles.asStateFlow()
 
-    /** Arquivo aberto pelo usuário (nome e bytes); null = mostra o robô de teste. */
-    data class OpenedFile(val name: String, val bytes: ByteArray)
+    /**
+     * Arquivo aberto pelo usuário: nome, bytes e as peças lidas (para tocar e realçar);
+     * null = mostra o robô de teste.
+     */
+    data class OpenedFile(val name: String, val bytes: ByteArray, val parts: GlbParts?)
 
     private val _opened = MutableStateFlow<OpenedFile?>(null)
     val opened: StateFlow<OpenedFile?> = _opened.asStateFlow()
@@ -44,11 +47,21 @@ class Robot3dViewModel : ViewModel() {
 
     fun tcpPose(angles: List<Double>): KawasakiPose = model.tcpPose(angles.toDoubleArray())
 
-    fun openFile(name: String, bytes: ByteArray) {
-        _opened.value = OpenedFile(name, bytes)
+    private val _selectedPart = MutableStateFlow<String?>(null)
+    /** Peça tocada no arquivo aberto (realçada no desenho). */
+    val selectedPart: StateFlow<String?> = _selectedPart.asStateFlow()
+
+    fun openFile(file: OpenedFile) {
+        _opened.value = file
+        _selectedPart.value = null
     }
 
     fun closeFile() {
         _opened.value = null
+        _selectedPart.value = null
+    }
+
+    fun selectPart(name: String?) {
+        _selectedPart.value = name
     }
 }

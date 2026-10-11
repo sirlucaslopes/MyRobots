@@ -1,5 +1,6 @@
 package my.robots.feature.robot3d
 
+import my.robots.core.kinematics.Transform
 import my.robots.core.kinematics.Vec3
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -164,6 +165,29 @@ class PartMesh(
 /** As peças lidas de um .glb e os avisos para mostrar a quem abriu. */
 class GlbParts(val parts: List<PartMesh>, val warnings: List<String>) {
     fun part(name: String) = parts.firstOrNull { it.name == name }
+
+    /** Onde o toque bateu: a peça, o triângulo e o ponto (na pose do arquivo e na tela). */
+    data class Hit(val part: String, val triangle: Int, val pointInFile: Vec3, val pointInWorld: Vec3, val distanceMm: Double)
+
+    /**
+     * Primeira peça que o raio ([originMm] + t·[dir], espaço do app) atravessa. [poses] diz onde
+     * cada peça está em relação à pose do arquivo (as que faltam ficam paradas); peças fora de
+     * [visible] não contam.
+     */
+    fun pick(originMm: Vec3, dir: Vec3, poses: Map<String, Transform>, visible: (String) -> Boolean = { true }): Hit? {
+        var best: Hit? = null
+        for (p in parts) {
+            if (!visible(p.name)) continue
+            val pose = poses[p.name] ?: Transform.IDENTITY
+            val inv = pose.inverse()
+            val (tri, dist) = p.raycast(inv.apply(originMm), inv.rotate(dir)) ?: continue
+            if (best == null || dist < best.distanceMm) {
+                val world = originMm + dir * dist
+                best = Hit(p.name, tri, inv.apply(world), world, dist)
+            }
+        }
+        return best
+    }
 }
 
 /**

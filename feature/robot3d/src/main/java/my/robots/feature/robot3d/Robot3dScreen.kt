@@ -18,12 +18,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.PrecisionManufacturing
 import androidx.compose.material.icons.rounded.ViewInAr
-import androidx.compose.material.icons.rounded.VerticalAlignBottom
-import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -65,12 +66,14 @@ private const val MAX_GLB_BYTES = 150L * 1024 * 1024
 /**
  * "Visualizador 3D (teste)": primeiro passo do 3D (Plano Mestre, F3). Mostra o robô de teste
  * montado pela cinemática, com um controle por eixo, ou um .glb aberto pelo seletor do Android.
- * Um dedo gira, pinça aproxima, dois dedos arrastam; Iso, Topo e Frente são vistas prontas.
+ * Um dedo gira, pinça aproxima, dois dedos arrastam; Vistas tem Iso, Topo, Frente e Lado.
+ * Num .glb aberto, tocar numa peça realça a peça e mostra o nome dela.
  */
 @Composable
-fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit) {
+fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit, onOpenAssembler: () -> Unit) {
     val angles by viewModel.angles.collectAsStateWithLifecycle()
     val opened by viewModel.opened.collectAsStateWithLifecycle()
+    val selectedPart by viewModel.selectedPart.collectAsStateWithLifecycle()
     var viewer by remember { mutableStateOf<FilamentViewer?>(null) }
     var fps by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(false) }
@@ -85,7 +88,7 @@ fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit) {
             val result = withContext(Dispatchers.IO) { readGlb(context, uri) }
             loading = false
             result.fold(
-                onSuccess = { (name, bytes) -> viewModel.openFile(name, bytes) },
+                onSuccess = { viewModel.openFile(it) },
                 onFailure = { snackbar.showSnackbar(it.message ?: "Não deu para ler o arquivo.") },
             )
         }
@@ -117,11 +120,13 @@ fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit) {
         if (file == null) {
             v.showTestRobot()
         } else {
-            val result = v.showGlb(file.bytes)
+            val result = v.showGlb(file.bytes, file.parts?.parts?.map { it.name }.orEmpty())
             if (!result.shown) viewModel.closeFile()
             result.message?.let { snackbar.showSnackbar(it) }
         }
     }
+
+    LaunchedEffect(viewer, selectedPart) { viewer?.highlight(selectedPart) }
 
     // move o robô na hora em que o controle mexe
     LaunchedEffect(viewer, angles) {
@@ -135,6 +140,13 @@ fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit) {
                 title = "Visualizador 3D (teste)",
                 subtitle = file?.name ?: "Robô de teste · ${viewModel.model.axisCount} eixos",
                 onBack = onBack,
+                menu = { close ->
+                    DropdownMenuItem(
+                        text = { Text("Montador de robô") },
+                        leadingIcon = { Icon(Icons.Rounded.Build, contentDescription = null) },
+                        onClick = { close(); onOpenAssembler() },
+                    )
+                },
                 actions = listOf(
                     BarAction(Icons.Rounded.FolderOpen, "Abrir .glb", enabled = !loading && viewer != null, onClick = {
                         openGlb.launch(arrayOf("model/gltf-binary", "application/octet-stream", "*/*"))
@@ -144,9 +156,7 @@ fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit) {
                         selected = file == null,
                         onClick = viewModel::closeFile,
                     ),
-                    BarAction(Icons.Rounded.ViewInAr, "Iso", onClick = { viewer?.camera?.apply(OrbitCamera.Preset.ISO) }),
-                    BarAction(Icons.Rounded.VerticalAlignBottom, "Topo", onClick = { viewer?.camera?.apply(OrbitCamera.Preset.TOPO) }),
-                    BarAction(Icons.Rounded.Visibility, "Frente", onClick = { viewer?.camera?.apply(OrbitCamera.Preset.FRENTE) }),
+                    viewsAction { viewer },
                 ),
             )
         },
@@ -160,6 +170,17 @@ fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit) {
                         SurfaceView(ctx).also { sv ->
                             viewer = FilamentViewer(sv, onFps = { fps = it }).apply {
                                 setTestRobot(viewModel.testRobotGlb, viewModel.partNames)
+                                onTap = { x, y ->
+                                    val parts = viewModel.opened.value?.parts
+                                    if (parts != null) {
+                                        val (o, d) = pickRay(x, y)
+                                        // 170 mil triângulos: fora da thread da tela
+                                        scope.launch {
+                                            val hit = withContext(Dispatchers.Default) { parts.pick(o, d, emptyMap()) }
+                                            viewModel.selectPart(hit?.part)
+                                        }
+                                    }
+                                }
                             }
                         }
                     },
@@ -178,6 +199,18 @@ fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit) {
                         .background(Color(0x66000000), RoundedCornerShape(4.dp))
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
+                if (file != null) {
+                    Text(
+                        selectedPart?.let { "Peça: $it" } ?: "Toque numa peça para ver o nome",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(8.dp)
+                            .background(Color(0x66000000), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
                 if (loading) {
                     Text(
                         "Lendo o arquivo…",
@@ -202,7 +235,7 @@ fun Robot3dScreen(viewModel: Robot3dViewModel, onBack: () -> Unit) {
 
 /** Um controle por eixo, dentro dos limites, e a posição do TCP (como o `WHERE`). */
 @Composable
-private fun AxisSliders(
+internal fun AxisSliders(
     joints: List<Joint>,
     angles: List<Double>,
     tcp: String,
@@ -246,8 +279,23 @@ private fun AxisSliders(
     }
 }
 
-/** Lê o .glb escolhido no seletor (SAF): nome e bytes, com limite de tamanho. */
-private fun readGlb(context: android.content.Context, uri: Uri): Result<Pair<String, ByteArray>> = runCatching {
+/** Ação "Vistas" (Iso, Topo, Frente, Lado), igual no visualizador e no montador. */
+internal fun viewsAction(viewer: () -> FilamentViewer?) = BarAction(
+    Icons.Rounded.ViewInAr, "Vistas",
+    menu = { close ->
+        for ((preset, label) in listOf(
+            OrbitCamera.Preset.ISO to "Isométrica",
+            OrbitCamera.Preset.TOPO to "Topo",
+            OrbitCamera.Preset.FRENTE to "Frente",
+            OrbitCamera.Preset.LADO to "Lado",
+        )) {
+            DropdownMenuItem(text = { Text(label) }, onClick = { close(); viewer()?.camera?.apply(preset) })
+        }
+    },
+)
+
+/** Lê o .glb escolhido no seletor (SAF): nome, bytes e as peças, com limite de tamanho. */
+internal fun readGlb(context: android.content.Context, uri: Uri): Result<Robot3dViewModel.OpenedFile> = runCatching {
     val resolver = context.contentResolver
     var name = uri.lastPathSegment ?: "modelo.glb"
     var size = -1L
@@ -272,5 +320,6 @@ private fun readGlb(context: android.content.Context, uri: Uri): Result<Pair<Str
         out.toByteArray()
     } ?: error("Não deu para abrir o arquivo.")
     if (!GlbBuilder.isGlb(bytes)) error("O arquivo não é um .glb (glTF binário). Arquivos .gltf com .bin separado ainda não abrem.")
-    name to bytes
+    // as peças só servem para tocar: se não der para ler, o desenho abre mesmo assim
+    Robot3dViewModel.OpenedFile(name, bytes, runCatching { GlbReader.read(bytes) }.getOrNull())
 }

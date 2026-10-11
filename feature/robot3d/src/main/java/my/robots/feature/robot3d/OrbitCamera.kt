@@ -31,6 +31,8 @@ class OrbitCamera(
         TOPO(-90.0, MAX_PITCH),
         /** Do lado +X (a frente do robô), na altura do alvo. */
         FRENTE(0.0, 0.0),
+        /** Do lado −Y (a direita do robô, que olha para +X), na altura do alvo. */
+        LADO(-90.0, 0.0),
     }
 
     /** Posição do olho. */
@@ -70,6 +72,21 @@ class OrbitCamera(
         val metersPerPx = 2 * distance * tan(Math.toRadians(fovDeg / 2)) / viewHeightPx
         val (right, up) = screenAxes()
         target = target - right * (dxPx * metersPerPx) + up * (dyPx * metersPerPx)
+    }
+
+    /**
+     * Raio que sai do olho e passa pelo pixel ([xPx], [yPx]) de uma tela [widthPx] × [heightPx]
+     * (y para baixo, como no toque). Devolve origem e direção (comprimento 1), em metros.
+     */
+    fun ray(xPx: Float, yPx: Float, widthPx: Int, heightPx: Int): Pair<Vec3, Vec3> {
+        val e = eye
+        val forward = (target - e).normalized()
+        val (right, up) = screenAxes()
+        val halfH = tan(Math.toRadians(fovDeg / 2))
+        val halfW = halfH * widthPx / heightPx.coerceAtLeast(1)
+        val sx = (2.0 * xPx / widthPx.coerceAtLeast(1) - 1) * halfW
+        val sy = (1 - 2.0 * yPx / heightPx.coerceAtLeast(1)) * halfH
+        return e to (forward + right * sx + up * sy).normalized()
     }
 
     fun apply(preset: Preset) {
