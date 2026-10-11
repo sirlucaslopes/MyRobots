@@ -295,6 +295,25 @@ flowchart TD
   6. **Eixos na ordem** (base ao eixo 6), com Testar em cada um e Testar todos.
   7. **Flange e ferramenta (TCP)**, com os valores do TOOL do controlador.
   - Ferramentas de peça em qualquer passo: Isolar, Mover (setas), Girar (anéis) e Fixar.
+  - 🆕 **Ajustes pedidos depois do primeiro teste (10/10), a fazer:**
+    - [ ] **Origem no estilo do CAD:** no zero, uma bolinha branca e três **setas** (haste e ponta
+          em cone) X vermelha, Y verde e Z azul, com as **letras X, Y e Z** na ponta de cada uma.
+          As letras ficam sempre de frente para a câmera (texto desenhado por cima do 3D, na posição
+          da ponta projetada na tela, ou letras em malha de traços). Hoje são três barras sem
+          legenda (`SceneModels.sceneryGlb`). Referência: imagem enviada pelo usuário em 10/10.
+    - [ ] **Indicador de eixo no estilo do Fusion 360:** hoje é uma linha com a ponta grossa
+          (`SceneModels.markersGlb`). Trocar por uma seta reta no sentido do eixo e uma **seta
+          curva em volta dele** (arco de ~270° com ponta), mostrando para que lado é o giro
+          positivo (regra da mão direita). Inverter sentido vira as duas setas.
+    - [ ] **Cor das peças:** escolher a cor de cada peça (paleta pronta e cor livre), na etapa
+          Peças e no Testar; salva no `modelo.json` (campo novo, sem quebrar a versão 1) e usada
+          também no Visualizador. Troca o `baseColorFactor` de uma cópia do material, como o realce.
+    - [ ] **6ª etapa: Programa de teste.** Além do controle de cada eixo, montar uma sequência:
+          **Adicionar ponto** guarda os ângulos atuais (um ponto por linha, com nome P1, P2…);
+          reordenar, editar e apagar pontos; **Executar** percorre os pontos na ordem e volta ao
+          primeiro **em loop**, com velocidade (% ou °/s) e pausa em cada ponto; Parar a qualquer
+          momento. Movimento por eixo (interpolação em juntas, como o JMOVE), respeitando os
+          limites. Os pontos são salvos junto com o robô. Base para a simulação de programas (F3c).
 - [ ] F4. Remover o Terminal Geral (o "Comando para todos" já mostra a resposta de cada robô) (O8, O18).
 - [ ] F5. Ligações em linhas compactas; tirar o texto "→ C01 → R16" dos cartões.
 - [~] F6. 🆕 **Reaproveitar entre linhas diferentes** (mesmo cliente):
