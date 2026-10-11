@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import my.robots.core.kinematics.KawasakiPose
+import my.robots.core.kinematics.LinearMotion
 import my.robots.core.kinematics.Transform
 import my.robots.core.kinematics.Vec3
 import java.io.File
@@ -264,6 +265,15 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPause(seconds: Double) = updateProgram { it.copy(pauseS = seconds.coerceIn(0.0, 30.0)) }
 
+    fun setLinearSpeed(mmS: Double) = updateProgram { it.copy(linearSpeedMmS = mmS.coerceIn(10.0, 2000.0)) }
+
+    /** Troca como o robô chega no ponto: JMOVE ↔ LMOVE. */
+    fun toggleMotion(index: Int) = updateProgram { p ->
+        p.copy(points = p.points.mapIndexed { i, pt ->
+            if (i != index) pt else pt.copy(motion = if (pt.motion == MotionType.JMOVE) MotionType.LMOVE else MotionType.JMOVE)
+        })
+    }
+
     /**
      * Percorre os pontos na ordem e volta ao primeiro, em loop, até [stopProgram]. Cada trecho
      * sai de onde o robô está; os ângulos passam pelos limites de cada eixo.
@@ -284,17 +294,38 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
                     val prog = _assembly.value?.program ?: break
                     if (prog.points.size < 2) break
                     if (i >= prog.points.size) i = 0
-                    val target = prog.points[i].angles.take(model.axisCount).mapIndexed { k, v -> model.joints[k].clamp(v) }
+                    val point = prog.points[i]
+                    val target = point.angles.take(model.axisCount).mapIndexed { k, v -> model.joints[k].clamp(v) }
                     _runTarget.value = i
                     val from = _angles.value.take(model.axisCount)
-                    val total = TestProgram.durationS(from, target, prog.speedDegS)
-                    val start = System.nanoTime()
-                    while (isActive) {
-                        val t = (System.nanoTime() - start) / 1e9 / total
-                        val now = TestProgram.interpolate(from, target, t)
-                        _angles.value = List(6) { k -> now.getOrElse(k) { 0.0 } }
-                        if (t >= 1) break
-                        delay(FRAME_MS)
+                    if (point.motion == MotionType.LMOVE) {
+                        // linha reta: calcula o caminho inteiro antes de andar (cinemática inversa)
+                        val path = withContext(Dispatchers.Default) {
+                            LinearMotion.plan(model, from.toDoubleArray(), model.tcp(target.toDoubleArray()))
+                        }
+                        if (!path.ok) {
+                            say("${point.name} (LMOVE): ${path.problem}")
+                            break
+                        }
+                        val total = TestProgram.linearDurationS(path.lengthMm, path.rotationDeg, prog.linearSpeedMmS)
+                        val start = System.nanoTime()
+                        while (isActive) {
+                            val t = (System.nanoTime() - start) / 1e9 / total
+                            val now = LinearMotion.sample(path, TestProgram.ease(t))
+                            _angles.value = List(6) { k -> now.getOrElse(k) { 0.0 } }
+                            if (t >= 1) break
+                            delay(FRAME_MS)
+                        }
+                    } else {
+                        val total = TestProgram.durationS(from, target, prog.speedDegS)
+                        val start = System.nanoTime()
+                        while (isActive) {
+                            val t = (System.nanoTime() - start) / 1e9 / total
+                            val now = TestProgram.interpolate(from, target, t)
+                            _angles.value = List(6) { k -> now.getOrElse(k) { 0.0 } }
+                            if (t >= 1) break
+                            delay(FRAME_MS)
+                        }
                     }
                     delay((prog.pauseS * 1000).toLong())
                     i++

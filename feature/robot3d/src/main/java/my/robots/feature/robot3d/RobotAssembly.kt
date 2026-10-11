@@ -36,8 +36,11 @@ data class AxisDef(
     val zeroDeg: Double = 0.0,
 )
 
-/** Um ponto do programa de teste: nome e o ângulo de cada eixo (graus). */
-data class TestPoint(val name: String, val angles: List<Double>)
+/** Como o robô chega num ponto: por eixo (JMOVE) ou em linha reta (LMOVE). */
+enum class MotionType { JMOVE, LMOVE }
+
+/** Um ponto do programa de teste: nome, o ângulo de cada eixo (graus) e como chegar nele. */
+data class TestPoint(val name: String, val angles: List<Double>, val motion: MotionType = MotionType.JMOVE)
 
 /**
  * Programa de teste do montador (6ª etapa): pontos percorridos na ordem, em loop. Cada trecho
@@ -48,6 +51,8 @@ data class TestProgram(
     val points: List<TestPoint> = emptyList(),
     val speedDegS: Double = 60.0,
     val pauseS: Double = 0.5,
+    /** Velocidade do TCP nos trechos LMOVE (mm/s). */
+    val linearSpeedMmS: Double = 250.0,
 ) {
     companion object {
         /** Tempo do trecho de [a] até [b] (s): o eixo que mais anda define. Mínimo de 0,05 s. */
@@ -58,13 +63,22 @@ data class TestProgram(
             return maxOf(0.05, most / speedDegS.coerceAtLeast(0.1))
         }
 
+        /** Tempo do trecho linear (s): comprimento ÷ velocidade, com o giro a no máximo 90 °/s. */
+        fun linearDurationS(lengthMm: Double, rotationDeg: Double, speedMmS: Double): Double =
+            maxOf(0.05, lengthMm / speedMmS.coerceAtLeast(1.0), rotationDeg / 90.0)
+
+        /** Curva em S: [t] de 0 a 1 vira o quanto do caminho já foi (começa e termina parado). */
+        fun ease(t: Double): Double {
+            val x = t.coerceIn(0.0, 1.0)
+            return x * x * (3 - 2 * x)
+        }
+
         /**
          * Ângulos no instante [t] (0 a 1) do trecho de [a] até [b], com saída e chegada suaves
          * (curva em S: começa e termina parado).
          */
         fun interpolate(a: List<Double>, b: List<Double>, t: Double): List<Double> {
-            val x = t.coerceIn(0.0, 1.0)
-            val s = x * x * (3 - 2 * x)
+            val s = ease(t)
             return List(maxOf(a.size, b.size)) { i ->
                 val from = a.getOrElse(i) { 0.0 }
                 val to = b.getOrElse(i) { from }
@@ -295,7 +309,8 @@ data class RobotAssembly(
             "programa" to linkedMapOf(
                 "velocidade" to program.speedDegS,
                 "pausa" to program.pauseS,
-                "pontos" to program.points.map { linkedMapOf("nome" to it.name, "eixos" to it.angles) },
+                "velocidadeLinear" to program.linearSpeedMmS,
+                "pontos" to program.points.map { linkedMapOf("nome" to it.name, "eixos" to it.angles, "movimento" to it.motion.name) },
             ),
         ),
     )
@@ -402,10 +417,12 @@ data class RobotAssembly(
                         points = prog["pontos"].arr().mapNotNull { v ->
                             val pt = v.obj()
                             val angles = pt["eixos"].arr().map { it.num() ?: return@mapNotNull null }
-                            TestPoint(pt["nome"].str() ?: "P", angles)
+                            TestPoint(pt["nome"].str() ?: "P", angles,
+                                runCatching { MotionType.valueOf(pt["movimento"].str() ?: "") }.getOrDefault(MotionType.JMOVE))
                         },
                         speedDegS = prog["velocidade"].num() ?: 60.0,
                         pauseS = prog["pausa"].num() ?: 0.5,
+                        linearSpeedMmS = prog["velocidadeLinear"].num() ?: 250.0,
                     )
                 },
             )

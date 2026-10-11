@@ -774,13 +774,23 @@ private fun ProgramStep(a: RobotAssembly, angles: List<Double>, running: Boolean
         }
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(String.format(Locale.US, "Velocidade %.0f °/s", prog.speedDegS), style = MaterialTheme.typography.bodySmall,
+        Text(String.format(Locale.US, "JMOVE %.0f °/s", prog.speedDegS), style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.width(120.dp))
         Slider(
             value = prog.speedDegS.toFloat(), onValueChange = { vm.setSpeed(it.toDouble()) },
             valueRange = 5f..180f, modifier = Modifier.weight(1f),
         )
     }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(String.format(Locale.US, "LMOVE %.0f mm/s", prog.linearSpeedMmS), style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.width(120.dp))
+        Slider(
+            value = prog.linearSpeedMmS.toFloat(), onValueChange = { vm.setLinearSpeed(it.toDouble()) },
+            valueRange = 10f..1500f, modifier = Modifier.weight(1f),
+        )
+    }
+    Text("Toque em JMOVE/LMOVE num ponto para escolher como o robô chega nele (LMOVE = TCP em linha reta).",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     NumberField("Pausa em cada ponto (s)", prog.pauseS, Modifier.fillMaxWidth()) { vm.setPause(it) }
     if (prog.points.isEmpty()) {
         Text("Mexa os eixos abaixo até a posição e toque em Adicionar ponto. Com 2 ou mais, Executar repete a sequência.",
@@ -794,7 +804,15 @@ private fun ProgramStep(a: RobotAssembly, angles: List<Double>, running: Boolean
         ) {
             Row(Modifier.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(pt.name, style = MaterialTheme.typography.titleSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(pt.name, style = MaterialTheme.typography.titleSmall)
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = pt.motion == MotionType.LMOVE, enabled = !running,
+                            onClick = { vm.toggleMotion(i) },
+                            label = { Text(pt.motion.name, style = MaterialTheme.typography.labelSmall) },
+                        )
+                    }
                     Text(pt.angles.joinToString(" ") { String.format(Locale.US, "%.1f", it) },
                         style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)

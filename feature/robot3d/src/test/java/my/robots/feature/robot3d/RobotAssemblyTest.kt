@@ -187,7 +187,7 @@ class RobotAssemblyTest {
             flange = AxisDef(Vec3(800.0, 0.0, 500.0), Vec3.X, kind = AxisGuess.Kind.PLANA, radiusMm = 40.0),
             baseZ = 12.5, front = RobotFront.PY,
             colors = mapOf("coluna" to 0xF26B1D, "base" to 0x151618),
-            program = TestProgram(listOf(TestPoint("P1", listOf(0.0, 10.0)), TestPoint("P2", listOf(-45.5, 30.0))), 90.0, 1.0),
+            program = TestProgram(listOf(TestPoint("P1", listOf(0.0, 10.0)), TestPoint("P2", listOf(-45.5, 30.0), MotionType.LMOVE)), 90.0, 1.0, linearSpeedMmS = 400.0),
             tool = my.robots.core.kinematics.KawasakiPose(10.0, -5.0, 250.0, 0.0, 30.0, 90.0),
         ).withAxis(2, twoAxes().axes.getValue(2).copy(zeroDeg = -90.0))
         val back = RobotAssembly.fromJson(a.toJson())
