@@ -259,8 +259,9 @@ flowchart TD
       `:feature:robot3d` com Filament 1.75.1 (a 1.76+ exige Kotlin 2.4), tela "Visualizador 3D
       (teste)" pelo ⋮ da Estação com o robô de teste do `:core:kinematics` (um controle por eixo),
       abrir .glb pelo seletor, câmera por gestos, vistas Iso/Topo/Frente, grade e eixos com Z para
-      cima. Falta: medir os 60 quadros/s no celular, o modo 3D do bloco da cabine, anel de status
-      e a volta para a grade 2D em aparelho sem 3D.
+      cima. Testado no celular (Galaxy S25 Ultra) em 10/10/2026: 120 quadros/s, com o robô de
+      teste e com o KJ264 convertido do STEP (167 mil triângulos). Falta: o modo 3D do bloco da
+      cabine, anel de status e a volta para a grade 2D em aparelho sem 3D.
 - [ ] F3b. 🆕 **Estação montada em 3D (futuro, opcional):** montar a estação inteira no 3D (robôs,
       trilhos, suportes, pistolas, equipamentos) e, numa opção **Usar a vista aérea no layout**,
       gerar a cabine 2D olhando de cima. A vista vira posições e contornos de cada item (não uma

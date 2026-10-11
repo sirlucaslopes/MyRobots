@@ -1620,7 +1620,10 @@ Filament), `OrbitCamera.kt` (câmera), `GlbBuilder.kt` e `MeshData.kt` (gera .gl
   metros, nomes), um nó por peça do robô de teste, a matriz do Filament, Y→Z e a câmera (vistas,
   limites, arrastar). O desenho em si só se confere no aparelho.
 
-**Pendências / Próximos passos:** conferir no celular os 60 quadros por segundo e as cores/luz;
+**Testado no celular** (Galaxy S25 Ultra, 10/10/2026): 120 quadros por segundo girando o robô de
+teste e o KJ264 convertido do STEP (167 mil triângulos, 4 MB).
+
+**Pendências / Próximos passos:** conferir num celular intermediário os 60 quadros por segundo;
 .gltf com .bin ou texturas separadas não abre (só .glb com tudo dentro), e .glb com compressão
 Draco ou texturas KTX2 pode não abrir; mapa de ambiente (IBL) para metal ficar melhor; aviso e
 grade 2D quando o aparelho não aguentar o 3D; virar o modo 3D do bloco da cabine (F3) e tirar o
