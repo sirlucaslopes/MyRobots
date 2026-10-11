@@ -85,6 +85,8 @@ import kotlinx.coroutines.withContext
 import my.robots.core.designsystem.ActionTone
 import my.robots.core.designsystem.AppTopBar
 import my.robots.core.designsystem.BarAction
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import my.robots.core.kinematics.JogFrame
 import my.robots.core.kinematics.PartRole
 import my.robots.core.kinematics.Transform
 import my.robots.core.kinematics.Vec3
@@ -733,13 +735,7 @@ private fun TestStep(a: RobotAssembly, angles: List<Double>, selected: String?, 
         Text("Marcados ${model.axisCount} de ${a.axisParts.size} eixos: os outros vão junto com o eixo ${model.axisCount}.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    AxisSliders(
-        joints = model.joints,
-        angles = angles.take(model.axisCount),
-        tcp = vm.tcpPose()?.format() ?: "",
-        onChange = vm::setAngle,
-        onZero = vm::zeroAll,
-    )
+    JogPanel(model, angles, vm)
     if (selected != null) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             ColorDot(a.colors[selected]) { onColor(selected) }
@@ -827,6 +823,26 @@ private fun ProgramStep(a: RobotAssembly, angles: List<Double>, running: Boolean
     }
     if (!running) {
         HorizontalDivider()
+        JogPanel(model, angles, vm)
+    } else {
+        Text("TCP  ${vm.tcpPose()?.format() ?: ""}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+    }
+}
+
+// ---------- JOG ----------
+
+/**
+ * Mover o robô para testar, como o JOG do controlador: Junta (um controle por eixo) ou Base, Tool
+ * e Mundo (X, Y, Z e giros em volta do TCP, com − e +; segurar repete).
+ */
+@Composable
+private fun JogPanel(model: my.robots.core.kinematics.RobotModel, angles: List<Double>, vm: AssemblerViewModel) {
+    val frame by vm.jogFrame.collectAsStateWithLifecycle()
+    val step by vm.jogStep.collectAsStateWithLifecycle()
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        for (f in JogFrame.entries) FilterChip(selected = frame == f, onClick = { vm.setJogFrame(f) }, label = { Text(f.label) })
+    }
+    if (frame == JogFrame.JOINT) {
         AxisSliders(
             joints = model.joints,
             angles = angles.take(model.axisCount),
@@ -834,8 +850,51 @@ private fun ProgramStep(a: RobotAssembly, angles: List<Double>, running: Boolean
             onChange = vm::setAngle,
             onZero = vm::zeroAll,
         )
-    } else {
-        Text("TCP  ${vm.tcpPose()?.format() ?: ""}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+        return
+    }
+    Text("TCP (base)  ${vm.tcpPose()?.format() ?: ""}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+    if (frame == JogFrame.WORLD) {
+        Text("TCP (mundo) ${vm.tcpWorldPose()?.format() ?: ""}", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+    }
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text("Passo", style = MaterialTheme.typography.labelMedium)
+        for ((mm, deg) in listOf(1.0 to 0.5, 10.0 to 2.0, 50.0 to 5.0)) {
+            FilterChip(selected = step.first == mm, onClick = { vm.setJogStep(mm, deg) },
+                label = { Text("${mm.toInt()} mm · ${if (deg < 1) "0,5" else deg.toInt().toString()}°") })
+        }
+    }
+    val names = listOf("X", "Y", "Z", "RX", "RY", "RZ")
+    for (row in 0 until 3) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            for (k in listOf(row, row + 3)) {
+                Text(names[k], style = MaterialTheme.typography.labelLarge, modifier = Modifier.width(28.dp))
+                RepeatButton("−") { vm.jog(k, -1) }
+                RepeatButton("+") { vm.jog(k, 1) }
+                Spacer(Modifier.width(8.dp))
+            }
+        }
+    }
+    TextButton(onClick = vm::zeroAll) { Text("Zerar os eixos") }
+}
+
+/** Botão que repete a ação enquanto está apertado (primeiro toque na hora, depois a cada 60 ms). */
+@Composable
+private fun RepeatButton(label: String, onStep: () -> Unit) {
+    val source = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    LaunchedEffect(pressed) {
+        if (!pressed) return@LaunchedEffect
+        onStep()
+        kotlinx.coroutines.delay(350)
+        while (true) {
+            onStep()
+            kotlinx.coroutines.delay(60)
+        }
+    }
+    OutlinedButton(onClick = {}, interactionSource = source, modifier = Modifier.width(56.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+        Text(label, style = MaterialTheme.typography.titleMedium)
     }
 }
 

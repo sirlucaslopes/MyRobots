@@ -16,6 +16,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import my.robots.core.kinematics.Jog
+import my.robots.core.kinematics.JogFrame
 import my.robots.core.kinematics.KawasakiPose
 import my.robots.core.kinematics.LinearMotion
 import my.robots.core.kinematics.Transform
@@ -404,6 +406,49 @@ class AssemblerViewModel(app: Application) : AndroidViewModel(app) {
     fun zeroAll() {
         _angles.value = List(6) { 0.0 }
     }
+
+    // ---------- JOG (Junta, Base, Tool, Mundo) ----------
+
+    private val _jogFrame = MutableStateFlow(JogFrame.JOINT)
+    val jogFrame: StateFlow<JogFrame> = _jogFrame.asStateFlow()
+
+    /** Passo do JOG cartesiano: mm por toque (X, Y, Z) e graus por toque (giros). */
+    private val _jogStep = MutableStateFlow(10.0 to 2.0)
+    val jogStep: StateFlow<Pair<Double, Double>> = _jogStep.asStateFlow()
+
+    private var jogBlocked = false
+
+    fun setJogFrame(frame: JogFrame) {
+        _jogFrame.value = frame
+    }
+
+    fun setJogStep(mm: Double, deg: Double) {
+        _jogStep.value = mm to deg
+    }
+
+    /**
+     * Um passo de JOG no sistema escolhido: [axis] 0, 1, 2 = X, Y, Z; 3, 4, 5 = giro em X, Y, Z;
+     * [sign] +1 ou −1. Fora do alcance não anda e avisa uma vez até o próximo passo que der certo.
+     */
+    fun jog(axis: Int, sign: Int) {
+        val frame = _jogFrame.value
+        if (frame == JogFrame.JOINT || _running.value) return
+        val model = _assembly.value?.model() ?: return
+        val a = _angles.value
+        val q = DoubleArray(model.axisCount) { a.getOrElse(it) { 0.0 } }
+        val (mm, deg) = _jogStep.value
+        val next = Jog.step(model, q, frame, axis, sign * if (axis < 3) mm else deg)
+        if (next == null) {
+            if (!jogBlocked) say("Não dá para ir mais nessa direção: limite de eixo, fora do alcance ou singularidade.")
+            jogBlocked = true
+            return
+        }
+        jogBlocked = false
+        _angles.value = List(6) { i -> next.getOrElse(i) { 0.0 } }
+    }
+
+    /** TCP no espaço 3D em X Y Z O A T (para o JOG em Mundo). */
+    fun tcpWorldPose(): KawasakiPose? = tcpInWorld()?.let { KawasakiPose.fromTransform(it) }
 
     fun tcpPose(): KawasakiPose? {
         val model = _assembly.value?.model() ?: return null

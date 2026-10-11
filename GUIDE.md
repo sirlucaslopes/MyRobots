@@ -533,7 +533,11 @@ a base, uma peça por eixo e a ferramenta (o STEP do KJ264 convertido já vem as
   Embaixo, o **TOOL do controlador** (X Y Z O A T, os mesmos valores do robô). Setas X/Y/Z pequenas
   (150 mm, sem letras) mostram o TCP aqui, no Testar e no Programa; o Visualizador também mostra o
   sistema do robô e o TCP do robô de teste.
-- **5 Testar:** um controle por eixo e o TCP (X Y Z O A T), como no Visualizador.
+- **5 Testar:** escolha o sistema do JOG, como no controlador: **Junta** (um controle por eixo),
+  **Base** (X, Y, Z do sistema da base em uso), **Tool** (da ferramenta) ou **Mundo** (da grade).
+  Nos três últimos, − e + andam em X, Y, Z e giram em RX, RY, RZ em volta do TCP; segurar repete;
+  passo de 1, 10 ou 50 mm (0,5, 2 ou 5°). O TCP aparece como no WHERE (e no mundo, em Mundo).
+  Fora do alcance ou num limite o robô não anda e avisa. O mesmo painel fica no Programa.
 - **6 Programa:** posicione os eixos e toque em **Adicionar ponto** (P1, P2…). Cada ponto tem Ir,
   Atualizar (com a posição atual), Subir, Descer e Apagar, e o seletor **JMOVE/LMOVE** (como o
   robô chega nele). **Executar em loop** percorre os pontos na ordem e volta ao primeiro até
@@ -1717,6 +1721,10 @@ Visualizador). Fase 1 do F3 e primeira versão do F3d do `docs/PLANO_MESTRE.md`.
   `InverseKinematics` em cada um, partindo do anterior; falha fora do alcance ou se um eixo pula
   mais de 20° entre pedaços. O programa calcula o caminho antes de andar e anda com a curva em S
   (`TestProgram.ease`) no tempo de `linearDurationS`.
+- **JOG cartesiano** (`Jog`, no `:core:kinematics`): o passo vira uma pose nova do TCP no sistema do
+  robô (Base: os eixos dele; Tool: os do TCP; Mundo: os da grade, via `placement · robotFrame`),
+  andando em X, Y, Z ou girando em volta do TCP, e a `InverseKinematics` acha os ângulos a partir dos
+  atuais. Passo sem solução, ou que gira algum eixo mais de 30°, não anda.
 - **Sistemas (setas):** `SceneModels.framesGlb` tem três nós (BASE 0, base deslocada e TCP) com as setas da origem em tamanho
   menor e sem letras (sistema do robô 400 mm, base deslocada 300 mm, TCP 150 mm e mais grosso); `FilamentViewer.setFrames` põe cada
   nó na pose (`RobotAssembly.robotFrameInWorld`, `RobotModel.tcpInWorld`) ou tira da cena.
